@@ -9,7 +9,7 @@ import streamlit as st
 
 from efficient_frontier.core import analyze
 from efficient_frontier.data import demo_prices, download_prices, load_csv, original_tickers, parse_tickers
-from efficient_frontier.presentation import frontier_chart, holdout_chart, report_zip, weights_frame
+from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, report_zip, weights_frame
 
 
 st.set_page_config(page_title="Efficient Frontier · Portfolio Lab", page_icon="◈", layout="wide")
@@ -178,7 +178,7 @@ with data_tab:
         st.caption("Use daily observations in a common currency. The app cannot verify whether a CSV is adjusted, daily, or in a common currency. A fixed ticker list can introduce survivorship bias. Historical averages are sensitive to the chosen period.")
     st.subheader("Price observations")
     st.dataframe(prices, width="stretch", height=260)
-    st.download_button("Download prices CSV", prices.to_csv(index_label="Date"), "prices.csv", "text/csv")
+    st.download_button("Download prices CSV", csv_text(prices, index_label="Date"), "prices.csv", "text/csv")
 
 st.divider()
 st.download_button("Download research report + CSVs", export_report(result, prices, metadata),

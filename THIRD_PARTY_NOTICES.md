@@ -23,8 +23,12 @@ This list covers direct dependencies, not a complete inventory of transitive or 
 
 Standalone HTML reports embed Plotly.js so their charts work offline. Plotly Python 7.1.0 supplies Plotly.js 4.1.1. Its upstream MIT license is preserved verbatim in [plotly.js.LICENSE.txt](efficient_frontier/third_party/plotly.js.LICENSE.txt), sourced from the [versioned upstream license](https://github.com/plotly/plotly.js/blob/v4.1.1/LICENSE). The HTML and report ZIP also include this notice.
 
+The generated JavaScript bundle also contains third-party components and retains its upstream license comments. The separate notice above covers Plotly itself; it is not a complete inventory of every bundled component. Generated reports and JavaScript bundles are not distributed in this source repository. Before redistributing an exported report, review both the bundle's additional notices and the rights to its input data.
+
 ## Market data and original holdings
 
 Downloaded prices are not included in the repository. The [yfinance project](https://github.com/ranaroussi/yfinance) directs users to Yahoo's terms for rights to downloaded data and describes the API as intended for personal use. The software's license does not grant redistribution rights to market data. An exported report includes its input prices; review the provider's terms before sharing it.
 
-`spy_holdings.ods` is the original user-supplied list of 60 ticker symbols. Its external provenance and redistribution terms are undocumented. Confirm them before a public release; do not describe the file as an official or historical S&P 500 dataset. The README screenshot uses only the application's synthetic demonstration data.
+The integration is unofficial. [Yahoo's own terms](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html) restrict automated collection without permission, and its [redistribution guidance](https://help.yahoo.com/kb/SLN2352.html) restricts republishing supplied data. Neither this repository nor the yfinance software license grants permission to access or redistribute Yahoo data. Publishing this client source does not establish permission for a hosted data service or commercial data use.
+
+`spy_holdings.ods` is the original user-supplied list of 60 ticker symbols. On 2026-10-03 the repository owner confirmed that both the original R script and spreadsheet are theirs or permitted to publish. The spreadsheet contains no market prices or account information, and is not represented as an official or historical S&P 500 dataset. The README screenshot uses only the application's synthetic demonstration data.

@@ -1,3 +1,4 @@
+import csv
 import html
 import io
 import json
@@ -9,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from efficient_frontier.presentation import frontier_chart, holdout_chart, report_html, report_zip, weights_frame
+from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, report_html, report_zip, weights_frame
 
 
 @pytest.fixture
@@ -77,3 +78,41 @@ def test_charts_preserve_training_estimates_and_holdout_baseline(report_analysis
     assert len(frontier.data) == 2  # Maximum Sharpe can be absent.
     holdout = holdout_chart(report_analysis)
     np.testing.assert_allclose(holdout.data[0].y, [10_000, 10_080, 10_160.64])
+
+
+def test_csv_labels_cannot_be_spreadsheet_formulas_and_numbers_are_unchanged():
+    labels = ['=HYPERLINK("https://example.invalid","example")', "\t+1+1", " -1+1", "\r@SUM(A1)", "BRK-B"]
+    values = np.arange(25, dtype=float).reshape(5, 5) / 4 - 1
+    frame = pd.DataFrame(values, index=pd.Index(labels, name="=index"), columns=labels)
+    frame.columns.name = "@columns"
+    original = frame.copy()
+    rows = list(csv.reader(io.StringIO(csv_text(frame))))
+    escaped = ["'" + label for label in labels[:4]] + [labels[4]]
+    assert rows[0] == ["'=index", *escaped]
+    assert [row[0] for row in rows[1:]] == escaped
+    assert not any(label.lstrip().startswith(("=", "+", "-", "@"))
+                   for label in rows[0] + [row[0] for row in rows[1:]])
+    recovered = pd.read_csv(io.StringIO(csv_text(frame)), index_col=0)
+    np.testing.assert_array_equal(recovered.to_numpy(), values)
+    pd.testing.assert_frame_equal(frame, original)
+    assert next(csv.reader(io.StringIO(csv_text(frame, index_label=" +index"))))[0] == "' +index"
+
+
+def test_csv_preserves_normal_labels_dates_and_negative_numeric_values():
+    frame = pd.DataFrame({"BRK-B": [100.0, 99.5], "return": [-0.01, 0.02]},
+                         index=pd.bdate_range("2024-01-01", periods=2, name="Date"))
+    recovered = pd.read_csv(io.StringIO(csv_text(frame)), index_col=0, parse_dates=True)
+    pd.testing.assert_frame_equal(recovered, frame, check_freq=False)
+
+
+def test_report_zip_escapes_formula_asset_labels(report_analysis):
+    label = "=1+1"
+    report_analysis.portfolios["Minimum volatility"].weights.index = [label, "BBB"]
+    report_analysis.frontier_weights.columns = [label, "BBB"]
+    prices = pd.DataFrame({label: [100.0, 101.0], "BBB": [100.0, 99.0]})
+    with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, prices, {"source": "Synthetic demo"}))) as bundle:
+        weights = list(csv.reader(io.StringIO(bundle.read("weights.csv").decode())))
+        assert weights[1][0] == "'=1+1"
+        for name in ("prices.csv", "frontier_weights.csv"):
+            header = next(csv.reader(io.StringIO(bundle.read(name).decode())))
+            assert header[1:] == ["'=1+1", "BBB"]

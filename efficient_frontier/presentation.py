@@ -71,6 +71,19 @@ def weights_frame(analysis: Any) -> pd.DataFrame:
     return frame
 
 
+def csv_text(frame: pd.DataFrame, index_label=None) -> str:
+    """Export numeric data while treating formula-like axis labels as text."""
+    def text_label(value):
+        if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+            return "'" + value
+        return value
+
+    display = frame.copy(deep=False)
+    display.index = frame.index.map(text_label).rename(text_label(frame.index.name))
+    display.columns = frame.columns.map(text_label).rename(text_label(frame.columns.name))
+    return display.to_csv(index_label=text_label(index_label), lineterminator="\r\n")
+
+
 def _metadata(analysis: Any, metadata: dict) -> dict:
     result = dict(metadata)
     for label, returns in (("training", analysis.train_returns), ("holdout", analysis.test_returns)):
@@ -165,6 +178,6 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict) -> bytes:
         bundle.writestr("report.html", report_html(analysis, metadata))
         bundle.writestr("THIRD_PARTY_NOTICES.txt", "Plotly.js (embedded in report.html)\n\n" + PLOTLY_JS_LICENSE)
         for name, frame in frames.items():
-            bundle.writestr(name, frame.to_csv())
+            bundle.writestr(name, csv_text(frame))
         bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata), indent=2, default=str))
     return output.getvalue()
