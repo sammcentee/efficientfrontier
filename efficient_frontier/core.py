@@ -82,10 +82,14 @@ def optimize(
     if not np.allclose(sigma, sigma.T, rtol=1e-10, atol=1e-12):
         raise ValueError("Covariance must be symmetric.")
     sigma = (sigma + sigma.T) / 2
-    eigenvalues = np.linalg.eigvalsh(sigma)
     covariance_scale = float(np.max(np.abs(sigma)))
-    if eigenvalues.min() < -1e-10 * covariance_scale:
-        raise ValueError("Covariance must be positive semidefinite.")
+    try:
+        np.linalg.cholesky(sigma)
+    except np.linalg.LinAlgError:
+        # Cholesky verifies the usual positive-definite case quickly. Singular
+        # covariance is also valid, allowing tiny negative roundoff as before.
+        if np.linalg.eigvalsh(sigma).min() < -1e-10 * covariance_scale:
+            raise ValueError("Covariance must be positive semidefinite.")
     # Positive rescaling leaves all optimum weights unchanged and keeps solver
     # tolerances meaningful for very low-volatility inputs.
     solver_covariance = sigma / covariance_scale if covariance_scale else sigma
@@ -107,7 +111,9 @@ def optimize(
         return Portfolio(name, pd.Series(weights, index=labels, name=name), expected, volatility, sharpe)
 
     weights = cp.Variable(len(mu))
-    constraints = [weights >= 0, weights <= max_weight, cp.sum(weights) == 1]
+    constraints = [weights >= 0, cp.sum(weights) == 1]
+    if max_weight < 1:
+        constraints.append(weights <= max_weight)
     objective = cp.Minimize(cp.quad_form(weights, cp.psd_wrap(solver_covariance)))
     _solve(cp.Problem(objective, constraints))
     minimum = portfolio("Minimum volatility", weights.value)
@@ -128,9 +134,14 @@ def optimize(
         scaled = cp.Variable(len(mu))
         excess = mu - risk_free_rate
         excess /= np.max(np.abs(excess))
+        sharpe_constraints = [scaled >= 0, excess @ scaled == 1]
+        if max_weight < 1:
+            # A shared scalar keeps the cap constraints sparse as assets grow.
+            normalizer = cp.Variable()
+            sharpe_constraints.extend([normalizer == cp.sum(scaled), scaled <= max_weight * normalizer])
         sharpe_problem = cp.Problem(
             cp.Minimize(cp.quad_form(scaled, cp.psd_wrap(solver_covariance))),
-            [scaled >= 0, scaled <= max_weight * cp.sum(scaled), excess @ scaled == 1],
+            sharpe_constraints,
         )
         _solve(sharpe_problem)
         raw = np.asarray(scaled.value).reshape(-1)

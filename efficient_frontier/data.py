@@ -26,8 +26,8 @@ def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Prices must be a table with dates and asset columns.")
     result = prices.copy()
     result.columns = [str(column).strip() for column in result.columns]
-    if len(result.columns) < 2:
-        raise ValueError("Provide at least two assets.")
+    if len(result.columns) == 0:
+        raise ValueError("Provide at least one asset.")
     if any(not column for column in result.columns) or result.columns.has_duplicates:
         raise ValueError("Asset column names must be nonempty and unique.")
     if pd.api.types.is_numeric_dtype(result.index.dtype):
@@ -90,8 +90,8 @@ def load_csv(source) -> pd.DataFrame:
 def download_prices(tickers: list[str], start, end) -> pd.DataFrame:
     """Fetch Yahoo adjusted close prices; an unavailable asset is an error."""
     symbols = parse_tickers(" ".join(tickers))
-    if len(symbols) < 2:
-        raise ValueError("Enter at least two distinct tickers.")
+    if not symbols:
+        raise ValueError("Enter at least one ticker.")
     try:
         start_date, end_date = pd.Timestamp(start), pd.Timestamp(end)
         if pd.isna(start_date) or pd.isna(end_date) or start_date >= end_date:

@@ -45,6 +45,57 @@ def test_position_cap_and_frontier_are_feasible_and_efficient():
     assert np.all(np.diff(frontier.volatility) >= -1e-8)
 
 
+def test_large_universe_uses_all_128_assets_with_analytic_optimal_weights():
+    names = [f"ASSET{i:03d}" for i in range(128)]
+    mu = pd.Series(np.linspace(0.08, 0.20, len(names)), index=names)
+    variances = np.linspace(0.01, 0.09, len(names))
+    covariance = pd.DataFrame(np.diag(variances), index=names, columns=names)
+    portfolios, frontier, weights, _ = optimize(mu, covariance, frontier_points=3)
+
+    minimum = portfolios["Minimum volatility"]
+    inverse_variance = 1 / variances
+    np.testing.assert_allclose(minimum.weights, inverse_variance / inverse_variance.sum(), atol=2e-6)
+    tangency = (mu.to_numpy() - 0.02) / variances
+    np.testing.assert_allclose(portfolios["Maximum Sharpe"].weights, tangency / tangency.sum(), atol=2e-6)
+    assert (minimum.weights > 1e-4).sum() == 128
+    assert list(weights.columns) == names
+    np.testing.assert_allclose(weights.sum(axis=1), 1, atol=1e-8)
+    assert len(frontier) == 3
+    assert frontier.iloc[-1].expected_return == pytest.approx(mu.max(), abs=1e-6)
+
+
+def test_capped_portfolios_can_require_more_than_40_holdings():
+    names = [f"ASSET{i:03d}" for i in range(64)]
+    mu = pd.Series(0.10, index=names)
+    variances = np.repeat([0.01, 0.09], 32)
+    covariance = pd.DataFrame(np.diag(variances), index=names, columns=names)
+    portfolios, _, weights, _ = optimize(mu, covariance, max_weight=1 / 48, frontier_points=3)
+
+    # The cheaper-risk half hits its cap; the remainder is spread equally.
+    expected = np.repeat([1 / 48, 1 / 96], 32)
+    for name in ("Minimum volatility", "Maximum Sharpe"):
+        np.testing.assert_allclose(portfolios[name].weights, expected, atol=2e-6)
+        assert (portfolios[name].weights > 1e-4).sum() == 64
+    assert weights.to_numpy().max() <= 1 / 48 + 1e-6
+
+
+@pytest.mark.parametrize("risk_free_rate", [0.02, 0.15])
+def test_single_asset_has_its_own_return_and_risk(risk_free_rate):
+    mu = pd.Series({"ONLY": 0.12})
+    covariance = pd.DataFrame([[0.04]], index=mu.index, columns=mu.index)
+    portfolios, frontier, weights, warnings = optimize(mu, covariance, risk_free_rate=risk_free_rate)
+
+    for portfolio in portfolios.values():
+        np.testing.assert_allclose(portfolio.weights, [1])
+        assert portfolio.expected_return == pytest.approx(0.12)
+        assert portfolio.volatility == pytest.approx(0.2)
+        assert portfolio.sharpe == pytest.approx((0.12 - risk_free_rate) / 0.2)
+    assert len(frontier) == 1
+    np.testing.assert_allclose(weights, [[1]])
+    assert ("Maximum Sharpe" in portfolios) == (risk_free_rate < 0.12)
+    assert bool(warnings) == (risk_free_rate > 0.12)
+
+
 def test_infeasible_cap_is_rejected():
     with pytest.raises(ValueError, match="infeasible"):
         optimize(*model(), max_weight=0.4)
@@ -84,6 +135,13 @@ def test_covariance_alignment_uses_labels():
 def test_invalid_covariance_is_rejected():
     mu, covariance = model()
     covariance.loc["A", "A"] = -0.1
+    with pytest.raises(ValueError, match="positive semidefinite"):
+        optimize(mu, covariance)
+
+
+def test_indefinite_covariance_with_positive_diagonal_is_rejected():
+    mu, covariance = model()
+    covariance.loc["A", "B"] = covariance.loc["B", "A"] = 0.1
     with pytest.raises(ValueError, match="positive semidefinite"):
         optimize(mu, covariance)
 
