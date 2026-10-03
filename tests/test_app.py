@@ -72,3 +72,139 @@ def test_large_universe_chart_selection_keeps_all_assets_in_analysis(monkeypatch
     app.multiselect[0].set_value([]).run()
     assert not app.exception
     assert len(app.session_state.result[0].portfolios["Minimum volatility"].weights) == 64
+
+
+def test_backtest_controls_update_costs_and_can_disable_comparison():
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    assert not app.exception
+    assert len(app.session_state.backtests.metrics) == 12
+    assert app.session_state.backtests.settings["cost_bps"] == 10
+    app.number_input(key="cost_bps").set_value(0.)
+    app.button[0].click().run()
+    assert not app.exception
+    assert app.session_state.backtests.metrics.total_cost.eq(0).all()
+    app.checkbox(key="include_backtests").set_value(False)
+    app.button[0].click().run()
+    assert not app.exception
+    assert app.session_state.backtests is None
+
+
+def test_portfolio_settings_apply_to_results_and_frontier_selection():
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app.toggle(key="use_cap").set_value(True).run()
+    app.number_input(key="cap").set_value(30.)
+    app.number_input(key="risk_free").set_value(1.)
+    app.slider[0].set_value(60)
+    app.slider[1].set_value(35)
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    analysis, prices, metadata = app.session_state.result
+    assert {key: metadata[key] for key in ("max_weight", "risk_free_rate", "train_fraction", "shrinkage")} == {
+        "max_weight": .3, "risk_free_rate": .01, "train_fraction": .6, "shrinkage": .35,
+    }
+    assert len(analysis.train_returns) == int((len(prices) - 1) * .6)
+    assert len(analysis.test_returns) == len(prices) - 1 - len(analysis.train_returns)
+    assert app.metric[3].value == "30%"
+    for portfolio in analysis.portfolios.values():
+        assert portfolio.weights.max() <= .3 + 1e-6
+        np.testing.assert_allclose(portfolio.weights.sum(), 1.)
+    assert analysis.frontier_weights.to_numpy().max() <= .3 + 1e-6
+
+    app.select_slider[0].set_value(len(analysis.frontier) - 1).run()
+    assert not app.exception
+    displayed = next(item.value for item in app.dataframe if list(item.value.columns) == ["Weight"])
+    expected = analysis.frontier_weights.iloc[-1].sort_values(ascending=False).rename("Weight").to_frame()
+    pd.testing.assert_frame_equal(displayed, expected)
+
+
+def test_backtest_schedule_and_holdings_selector_match_shown_results():
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    next(item for item in app.number_input if item.label == "Sessions between trades").set_value(42)
+    next(item for item in app.number_input if item.label.startswith("Rolling estimation")).set_value(126)
+    app.number_input(key="cost_bps").set_value(25.)
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    study = app.session_state.backtests
+    assert study.settings["rebalance_every"] == 42
+    assert study.settings["rolling_window"] == 126
+    assert study.settings["cost_bps"] == 25.
+    selected = "Rolling window · Maximum Sharpe"
+    app.selectbox(key="holding_strategy").select(selected).run()
+    assert not app.exception
+    displayed = next(item.value for item in app.dataframe if "pnl_contribution" in item.value.columns)
+    pd.testing.assert_frame_equal(displayed, study.holdings[selected].sort_values("pnl_contribution", ascending=False))
+    displayed_metrics = next(item.value for item in app.dataframe if "total_turnover" in item.value.columns)
+    pd.testing.assert_frame_equal(displayed_metrics, study.metrics)
+    allocations = study.allocations[selected]
+    prices = app.session_state.result[1]
+    np.testing.assert_array_equal(np.diff(prices.index.get_indexer(allocations.index)), 42)
+    assert any(item.value.equals(allocations) for item in app.dataframe)
+    for strategy, holdings in study.holdings.items():
+        np.testing.assert_allclose(
+            holdings.pnl_contribution.sum() - study.metrics.loc[strategy, "total_cost"],
+            study.metrics.loc[strategy, "total_return"], atol=1e-12,
+        )
+
+
+def test_invalid_backtest_settings_clear_results_and_downloads():
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    assert len(app.get("download_button")) == 2
+    next(item for item in app.number_input if item.label.startswith("Rolling estimation")).set_value(1)
+    app.button[0].click().run()
+    assert not app.exception
+    assert any("rolling_window" in item.value for item in app.error)
+    assert "result" not in app.session_state
+    assert "backtests" not in app.session_state
+    assert not app.metric
+    assert not app.get("download_button")
+
+
+def test_yahoo_inputs_reach_downloader_and_failure_clears_previous_results(monkeypatch):
+    from datetime import date
+    from efficient_frontier import data
+
+    calls = []
+    prices = data.demo_prices().iloc[:, :3].copy()
+    prices.columns = ["AAPL", "MSFT", "BRK-B"]
+
+    def download(tickers, start, end):
+        calls.append((tickers, start, end))
+        if tickers == ["MISSING-TEST"]:
+            raise ValueError("Yahoo returned no prices for: MISSING-TEST.")
+        return prices
+
+    monkeypatch.setattr(data, "download_prices", download)
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app.selectbox(key="source").select("Yahoo Finance").run()
+    app.text_area[0].set_value("aapl, MSFT brk.b aapl")
+    app.date_input[0].set_value(date(2020, 1, 1))
+    app.date_input[1].set_value(date(2024, 1, 1))
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    assert calls == [(["AAPL", "MSFT", "BRK-B"], "2020-01-01", "2024-01-01")]
+    analysis, actual_prices, metadata = app.session_state.result
+    pd.testing.assert_frame_equal(actual_prices, prices)
+    assert list(analysis.portfolios["Minimum volatility"].weights.index) == list(prices.columns)
+    assert metadata["source"] == "Yahoo Finance"
+    assert metadata["requested_end_exclusive"] == "2024-01-01"
+    assert app.metric[0].value == "3"
+    assert not any("DEMO DATA" in item.value for item in app.info)
+
+    app.radio[0].set_value("Original 60 holdings").run()
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    assert len(calls[-1][0]) == 60
+    assert "MRSH" in calls[-1][0] and "MMC" not in calls[-1][0]
+    app.radio[0].set_value("Custom tickers").run()
+    app.text_area[0].set_value("MISSING-TEST")
+    app.button[0].click().run()
+    assert not app.exception
+    assert any("MISSING-TEST" in item.value for item in app.error)
+    assert "result" not in app.session_state
+    assert "backtests" not in app.session_state
+    assert not app.metric
+    assert not app.get("download_button")

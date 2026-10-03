@@ -30,6 +30,7 @@ jobs:
         run: python -m pytest -q
       - name: Run offline demo
         run: |
-          python -m efficient_frontier --output "$RUNNER_TEMP/efficientfrontier-demo"
+          python -m efficient_frontier --backtests --output "$RUNNER_TEMP/efficientfrontier-demo"
           test -s "$RUNNER_TEMP/efficientfrontier-demo/report.html"
           test -s "$RUNNER_TEMP/efficientfrontier-demo/report.zip"
+          test -s "$RUNNER_TEMP/efficientfrontier-demo/findings.md"

@@ -35,3 +35,55 @@ def test_explicit_empty_universe_does_not_fall_back_to_demo(tmp_path):
     assert run.returncode == 1
     assert "at least one" in run.stderr.lower()
     assert not output.exists()
+
+
+def test_backtest_export_has_all_methods_trades_and_reconciled_holdings(tmp_path):
+    output = tmp_path / "backtests"
+    run = subprocess.run([sys.executable, "-m", "efficient_frontier", "--backtests",
+                          "--rolling-window", "252", "--cost-bps", "10", "--output", str(output)],
+                         cwd=ROOT, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["backtests"]["train_end"] < metadata["backtests"]["initial_execution"]
+    assert len(metadata["backtest_files"]) == 12
+    metrics = pd.read_csv(output / "backtest_metrics.csv", index_col=0)
+    for prefix, strategy in metadata["backtest_files"].items():
+        holdings = pd.read_csv(output / f"{prefix}_holdings.csv", index_col=0)
+        trades = pd.read_csv(output / f"{prefix}_trades.csv", index_col=0)
+        assert abs(holdings.pnl_contribution.sum() - trades.cost.sum() - metrics.loc[strategy, "total_return"]) < 1e-10
+        assert all(pd.to_datetime(trades.train_end) < pd.to_datetime(trades.index))
+    findings = (output / "findings.md").read_text()
+    assert "synthetic" in findings and "Rolling window" in findings
+    document = (output / "report.html").read_text()
+    assert document.index("* plotly.js v") < document.index('<section id="backtesting">')
+    assert document.count("* plotly.js v") == 1
+    assert "Print / save PDF" in document
+
+
+def test_reruns_remove_obsolete_backtest_outputs_but_preserve_unrelated_files(tmp_path):
+    output = tmp_path / "reused"
+    command = [sys.executable, "-m", "efficient_frontier", "--output", str(output)]
+    run = subprocess.run([*command, "--backtests"], cwd=ROOT, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    preserved = [output / "notes.txt", output / "backtests" / "notes.csv",
+                 output / "backtests" / "13_custom.csv"]
+    for path in preserved:
+        path.write_text("Keep this user file.\n")
+    obsolete = output / "backtests" / "13_holdings.csv"
+    obsolete.write_text("old,output\n")
+
+    run = subprocess.run([*command, "--backtests", "--cost-bps", "0"],
+                         cwd=ROOT, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert not obsolete.exists()
+    assert len(list((output / "backtests").glob("[0-9][0-9]_holdings.csv"))) == 12
+    assert pd.read_csv(output / "backtest_metrics.csv").total_cost.eq(0).all()
+
+    run = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    for name in ("findings.md", "backtest_metrics.csv", "backtest_curve.csv"):
+        assert not (output / name).exists()
+    assert set((output / "backtests").iterdir()) == set(preserved[1:])
+    assert all(path.read_text() == "Keep this user file.\n" for path in preserved)
+    assert "backtests" not in json.loads((output / "metadata.json").read_text())
+    assert (output / "report.html").is_file()

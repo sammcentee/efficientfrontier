@@ -1,10 +1,22 @@
-# Efficient Frontier · Portfolio Lab
+![Portfolio Lab · Efficient Frontier](docs/images/header.svg)
 
 [![CI](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml)
 
 A local research app built from the original `Efficient Frontier v1.12.R` project. Explore portfolio risk and return, inspect allocations, and compare their performance on a later period excluded from optimization.
 
 **New to this? [Start here: no coding needed](#start-here-no-coding-needed).**
+
+## What the stock study found
+
+**Retrospective research:** the fixed list of **60 securities** was first recorded in **October 2024**. Applying it to earlier history introduces selection hindsight; these results are observations, not forecasts or stock recommendations.
+
+The main test ran **17 May 2023–2 October 2026**, in USD, after a **0.10% fee on each amount bought or sold**, before tax and FX. Trades use information from the preceding close; no final liquidation is charged.
+
+- **The highest return came with heavy concentration.** Estimate weights once, then restore them every 21 trading sessions (**fixed maximum Sharpe**): **+256.75%** total return. LLY started at **55.80%** of the portfolio and reached **63.48%** between trades.
+- **The rolling method had a smaller fall, but more trading.** Recalculate weights every 21 sessions using the latest 252 daily returns (**rolling maximum Sharpe**): **+130.26%** return, with a **9.91%** worst peak-to-trough fall versus **22.79%** for fixed targets. Gross turnover was **21.53× versus 3.91×**.
+- **The advantage changed with the period.** In the later test, **27 January 2025–2 October 2026**, rolling maximum Sharpe returned **28.07%**, versus **27.39%** for restoring equal allocations every 21 sessions—a gap of just **0.68 percentage points**. This was a sensitivity check chosen during research, not an untouched prospective test.
+
+Maximum Sharpe targets estimated return above the risk-free rate per unit of volatility. These methods differed in their initial estimation windows as well as later updates; the comparison does not isolate the benefit of one setting. See the [comparison table](#stock-holdings-comparison) or [complete study](docs/HOLDINGS_STUDY.md) for holdings, costs and limitations.
 
 The app runs in Python with the compiled Rust [Clarabel optimizer](https://clarabel.org/stable/python/getting_started_py/). It considers every supplied ticker, with no fixed ticker-count or holdings-count cap. The original R script and `spy_holdings.ods` are preserved as historical files; R is not needed to run the app.
 
@@ -36,7 +48,7 @@ Keep the launcher window open while using the app. To stop it, press **Ctrl+C** 
 
 1. Leave **Price data** on **Demo · synthetic**. The sample portfolio loads automatically; you do not need an account, an API key or a price file.
 2. Hover over the **Efficient frontier** chart. Further right means more historical price variability; higher up means a higher return estimated from the training data. These estimates are not forecasts.
-3. Look at the allocations and switch to **Holdout performance** to see how the portfolios performed during the later period excluded from optimization.
+3. Look at the allocations and switch to **Original holdout** to see how the portfolios performed during the later period excluded from optimization.
 4. Try one setting in the sidebar, then click **Build frontier**. When you are comfortable, switch **Price data** to **Upload CSV** or **Yahoo Finance**; the [price-data guide](#price-data) explains what to supply.
 
 ### Troubleshooting
@@ -82,9 +94,25 @@ The app binds to localhost. It needs no credentials or network connection for th
 - Use Yahoo adjusted daily prices, upload a CSV, or explore a deterministic synthetic demo.
 - Select the 60 tickers from the original spreadsheet as a Yahoo universe.
 - Compare buy-and-hold performance on the chronological holdout: growth, volatility, Sharpe and drawdown.
-- Download an offline interactive HTML report and CSVs containing prices, settings, weights, frontier points and holdout results.
+- Compare buy-and-hold, periodic rebalancing, expanding-window and rolling-window backtests with delayed execution and configurable trading costs.
+- Inspect each holding's contribution, allocation history, selection frequency and concentration after price drift.
+- Download an offline interactive HTML report, Markdown findings and CSVs; use the report's **Print / save PDF** button for a static copy.
 
 The demo is explicitly synthetic, with `DEMO_*` asset names. It is a software demonstration, not market history. Yahoo failures are reported rather than replaced with synthetic prices.
+
+## Stock-holdings comparison
+
+The [study above](#what-the-stock-study-found) used adjusted daily prices from **2 January 2020–2 October 2026**, with no additional position cap. The rolling method used 252 prior returns; the other initial estimates used 848. This table covers the main evaluation, **17 May 2023–2 October 2026**. Returns include the stated trading fees, before tax and FX.
+
+| Maximum-Sharpe method | Net total return | CAGR | Maximum drawdown | Realized Sharpe |
+| --- | ---: | ---: | ---: | ---: |
+| Buy and hold | 225.08% | 41.95% | -24.66% | 1.36 |
+| Fixed rebalance | 256.75% | 45.93% | -22.79% | 1.48 |
+| Expanding window | 186.77% | 36.76% | -21.04% | 1.39 |
+| Rolling window, 252 returns | 130.26% | 28.13% | -9.91% | 1.57 |
+| Equal weight, rebalanced baseline | 91.18% | 21.24% | -15.62% | 1.44 |
+
+See [the complete stock study](docs/HOLDINGS_STUDY.md) for all strategies, fee sensitivity, the later-period check and reproduction instructions. [Backtesting methodology](docs/BACKTESTING.md) explains timing and accounting. Downloaded prices and generated market reports remain local and excluded from Git.
 
 ## Price data
 
@@ -104,7 +132,7 @@ Downloaded market data is subject to the provider's terms. The [yfinance project
 
 The Yahoo integration is unofficial. [Yahoo's terms](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html) restrict automated collection without permission, and its [data redistribution guidance](https://help.yahoo.com/kb/SLN2352.html) restricts republication. Selecting Yahoo in this app does not grant that permission; use the integration only where your access and intended use are authorized. The offline demo and CSV input remain available without contacting Yahoo.
 
-The original holdings file is a static list of 60 symbols, **not a full S&P 500 universe or a record of historical membership**. Symbols and availability may have changed. Choosing today's survivors for a historical analysis introduces survivorship bias.
+The original holdings file is a static list of 60 symbols, **not a full S&P 500 universe or a record of historical membership**. The Yahoo preset requests Marsh as `MRSH`, following its [January 2026 ticker change](https://www.marsh.com/en/corp/about/news/marsh-mclennan-to-change-nyse-symbol-to-mrsh.html) from `MMC`; the historical spreadsheet stays unchanged. Other symbols and availability may change. Choosing today's survivors for a historical analysis introduces survivorship bias.
 
 ## Method
 
@@ -118,7 +146,9 @@ The original holdings file is a static list of 60 symbols, **not a full S&P 500 
 
 Frontier returns are **historical arithmetic estimates**, not CAGR or forecasts. Holdout annualized growth compounds realized returns, using 252 observations per year. Holdout Sharpe subtracts the selected annual risk-free rate from annualized mean realized daily portfolio returns. Drawdown includes the initial capital, so a loss on the first holdout day counts.
 
-The weight cap applies when positions are established. Weights can drift above the cap during the holdout. Cash is not an investable asset; the risk-free input is used only for Sharpe. Results exclude transaction costs, spreads, taxes, FX conversion and execution constraints. The asset universe is user-selected and fixed. Repeatedly selecting settings based on holdout performance contaminates that holdout. This is a research tool, not a trading system or an investment recommendation.
+The original holdout's weight cap applies when positions are established. Weights can drift above the cap during the holdout. Cash is not an investable asset; the risk-free input is used only for Sharpe. This original calculation excludes transaction costs, spreads, taxes, FX conversion and execution constraints. The separate backtest comparison deducts selected trading costs and delays execution by one session; its buy-and-hold result is therefore different. The asset universe is user-selected and fixed. Repeatedly selecting settings based on holdout performance contaminates that holdout. This is a research tool, not a trading system or an investment recommendation.
+
+The **Backtests & holdings** tab is enabled by default and compares all four methods. You can disable it when exploring a large frontier alone. No full frontier is reconstructed at each refit; only a small set of portfolio targets is needed. Repeated fits still add computational work. See [the accounting and evaluation rules](docs/BACKTESTING.md).
 
 With singular covariance, such as perfectly correlated assets and zero shrinkage, several allocations can tie for minimum variance at a target return. The curve may include equal-risk points with different returns; a unique allocation is not guaranteed.
 
@@ -145,6 +175,11 @@ For large inputs, the correlation chart initially displays a selectable subset t
 # Your adjusted prices, without an additional position cap
 .venv/bin/python -m efficient_frontier --csv prices.csv
 
+# Four backtesting methods, trading every 21 sessions, with 10 bps costs
+.venv/bin/python -m efficient_frontier --csv data/holdings.csv \
+  --backtests --train-fraction .5 --rolling-window 252 \
+  --rebalance-every 21 --cost-bps 10 --output results/holdings-study
+
 # Yahoo example; these symbols are demonstration inputs
 .venv/bin/python -m efficient_frontier \
   --tickers SPY,QQQ,IWM,EFA,TLT,GLD \
@@ -160,18 +195,22 @@ For large inputs, the correlation chart initially displays a selectable subset t
 
 The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
 
+With `--backtests`, exports also contain `findings.md`, comparison metrics/curves, and each strategy's holdings, dated target allocations and trade ledger. Open the HTML report and choose **Print / save PDF** for a static copy. The PDF uses the browser's print engine, so no extra Python PDF package is required.
+
 Keep local input files in `data/` or `private/`, which are ignored by Git. The default `results/` directory and a root-level `prices.csv` are also ignored; custom output locations may need an additional ignore rule. Reports include the full input prices, so review their contents before sharing.
 
 CSV exports prefix formula-like asset labels with an apostrophe to keep them as text in spreadsheet software. Numeric values and ordinary ticker labels are unchanged; unusual escaped labels will include that apostrophe if reloaded programmatically.
 
 ## Verify
 
+See the [validation record](docs/VALIDATION.md) for browser checks, automated coverage and remaining limitations.
+
 ```bash
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q
 ```
 
-Tests cover known two-asset optimization solutions, constraints, annualization, covariance shrinkage, no holdout lookahead, buy-and-hold accounting, drawdown, price validation, Yahoo response handling, report export and app behavior. Network responses are mocked in unit tests.
+Tests cover known optimization solutions, constraints, annualization, no lookahead, delayed execution, drift and rebalancing, self-financing trading fees, holdings attribution, drawdown, price validation, report export and app behavior. Network responses are mocked in unit tests.
 
 [GitHub Actions](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml) runs the tests, dependency checks, and an offline demo on pushes to `main` and on pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
@@ -180,6 +219,8 @@ Tests cover known two-asset optimization solutions, constraints, annualization, 
 ```text
 app.py                       Interactive Streamlit app
 efficient_frontier/core.py   Estimation, optimization and holdout evaluation
+efficient_frontier/backtest.py  Delayed execution, refits, costs and attribution
+efficient_frontier/backtest_report.py  Backtest findings and visualizations
 efficient_frontier/data.py   Demo, CSV, Yahoo and original spreadsheet inputs
 efficient_frontier/presentation.py  Charts and portable reports
 efficient_frontier/__main__.py      Command-line runner
