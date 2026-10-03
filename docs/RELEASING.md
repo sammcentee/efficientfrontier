@@ -1,15 +1,15 @@
-# Public release checklist
+# Release checklist
 
-This repository is being prepared for a later public release. Its default branch is `main`. This preparation does not publish a release, deploy the app, or change repository visibility. Project licensing remains undecided at the owner's request.
+The default branch is `main`. The owner authorized public source publication on 2026-10-03; the review is recorded in [PUBLIC_RELEASE_REVIEW.md](PUBLIC_RELEASE_REVIEW.md). Project licensing remains undecided at the owner's request. Source visibility does not create a versioned GitHub release or deploy an application.
 
 ## Before changing visibility
 
 - Decide whether to select a project license or publish the source with licensing still undecided. Keep the README accurate; do not call it open source without an appropriate license. Dependency licenses do not license this project's code.
-- Confirm the provenance and publication rights of the original R script and `spy_holdings.ods`. The spreadsheet is the original user-supplied list of 60 symbols; it is not a documented historical index-membership dataset.
+- Confirm rights to any newly added code or data. The owner confirmed publication rights for the original R script and `spy_holdings.ods` on 2026-10-03. The spreadsheet is a static list of 60 symbols, not a historical index-membership dataset.
 - Review Git authorship metadata. Existing commits contain the author's personal email; changing future Git settings does not remove it from earlier commits. No history rewrite has been performed.
-- Review tracked files and history for credentials and private data. The preparation audit found no common credential patterns in the two existing commits; it is not a guarantee about later changes or every possible secret.
+- Review tracked files and history for credentials and private data. The publication audit covered the four prior commits plus the release-preparation files; it is not a guarantee about later changes or every possible secret.
 - Keep downloaded market prices and reports containing them out of public examples unless redistribution is permitted by the provider's terms. Use the deterministic synthetic demo for release screenshots and examples.
-- Decide how you want to receive issue reports and private vulnerability reports when public access opens. Configure those GitHub features before advertising them as available.
+- Verify that the security-reporting route described in `SECURITY.md` works, and review the repository's secret-scanning and dependency-alert settings.
 
 ## Validate the release candidate
 

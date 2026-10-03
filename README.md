@@ -8,6 +8,8 @@ The app runs in Python with the compiled Rust [Clarabel optimizer](https://clara
 
 **Pre-release:** project licensing is undecided. See the [release checklist](docs/RELEASING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
+The [public-source review](docs/PUBLIC_RELEASE_REVIEW.md) records the security, licensing and API checks. Report security issues through the process in [SECURITY.md](SECURITY.md).
+
 ![Portfolio Lab showing an efficient frontier for synthetic demonstration assets](docs/images/portfolio-lab.png)
 
 ## Run on Linux
@@ -19,8 +21,6 @@ git clone https://github.com/sammcentee/efficientfrontier.git
 cd efficientfrontier
 ./run.sh
 ```
-
-Until the repository is public, cloning requires GitHub access to it.
 
 Open **http://localhost:8501**. In VS Code Remote/WSL, forward port 8501 if the link does not open automatically. Stop the server with `Ctrl+C`.
 
@@ -61,6 +61,8 @@ The file needs at least 100 complete daily price observations and one or more as
 Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. Downloads are cached for one hour in the app. If a requested ticker is unavailable or its history is incomplete, change the ticker list or requested dates and rerun. A narrow common trading calendar works best; cross-market holidays can cause gaps.
 
 Downloaded market data is subject to the provider's terms. The [yfinance project](https://github.com/ranaroussi/yfinance) describes Yahoo's API as intended for personal use and links to the applicable data terms. A software license does not grant permission to redistribute downloaded prices or reports containing them. Use synthetic data for public examples.
+
+The Yahoo integration is unofficial. [Yahoo's terms](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html) restrict automated collection without permission, and its [data redistribution guidance](https://help.yahoo.com/kb/SLN2352.html) restricts republication. Selecting Yahoo in this app does not grant that permission; use the integration only where your access and intended use are authorized. The offline demo and CSV input remain available without contacting Yahoo.
 
 The original holdings file is a static list of 60 symbols, **not a full S&P 500 universe or a record of historical membership**. Symbols and availability may have changed. Choosing today's survivors for a historical analysis introduces survivorship bias.
 
@@ -119,6 +121,8 @@ For large inputs, the correlation chart initially displays a selectable subset t
 The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
 
 Keep local input files in `data/` or `private/`, which are ignored by Git. The default `results/` directory and a root-level `prices.csv` are also ignored; custom output locations may need an additional ignore rule. Reports include the full input prices, so review their contents before sharing.
+
+CSV exports prefix formula-like asset labels with an apostrophe to keep them as text in spreadsheet software. Numeric values and ordinary ticker labels are unchanged; unusual escaped labels will include that apostrophe if reloaded programmatically.
 
 ## Verify
 
