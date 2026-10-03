@@ -1,5 +1,7 @@
+import html
 import io
 import json
+from pathlib import Path
 import zipfile
 from types import SimpleNamespace
 
@@ -42,7 +44,7 @@ def test_zip_contains_reproducible_results_and_assumptions(report_analysis):
     prices = pd.DataFrame({"AAA": [100.0, 101.0], "BBB": [100.0, 100.5]}, index=pd.bdate_range("2024-01-01", periods=2))
     archive = report_zip(report_analysis, prices, {"source": "Synthetic demo", "max_weight": 0.7})
     with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
-        assert set(bundle.namelist()) == {"report.html", "weights.csv", "frontier.csv", "frontier_weights.csv", "holdout_metrics.csv", "holdout_curve.csv", "prices.csv", "metadata.json"}
+        assert set(bundle.namelist()) == {"report.html", "weights.csv", "frontier.csv", "frontier_weights.csv", "holdout_metrics.csv", "holdout_curve.csv", "prices.csv", "metadata.json", "THIRD_PARTY_NOTICES.txt"}
         metadata = json.loads(bundle.read("metadata.json"))
         assert metadata["training_observations"] == 4
         assert metadata["holdout_observations"] == 2
@@ -53,6 +55,19 @@ def test_zip_contains_reproducible_results_and_assumptions(report_analysis):
         equity = pd.read_csv(bundle.open("holdout_curve.csv"), index_col=0)
         assert equity.iloc[0, 0] == 1.0
         assert bundle.read("report.html").startswith(b"<!doctype html>")
+
+
+def test_standalone_report_and_archive_include_complete_plotly_license(report_analysis):
+    license_text = (Path(__file__).resolve().parents[1] / "efficient_frontier" / "third_party" / "plotly.js.LICENSE.txt").read_text(encoding="utf-8")
+    assert "Permission is hereby granted, free of charge" in license_text
+    assert "THE SOFTWARE IS PROVIDED" in license_text
+    document = report_html(report_analysis, {"source": "Synthetic demo"})
+    assert f"<pre>{html.escape(license_text)}</pre>" in document
+    assert 'the &quot;Software&quot;' in document
+    archive = report_zip(report_analysis, pd.DataFrame(), {"source": "Synthetic demo"})
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        assert license_text in bundle.read("THIRD_PARTY_NOTICES.txt").decode("utf-8")
+        assert html.escape(license_text) in bundle.read("report.html").decode("utf-8")
 
 
 def test_charts_preserve_training_estimates_and_holdout_baseline(report_analysis):

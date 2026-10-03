@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import io
 import json
+from pathlib import Path
 import zipfile
 from typing import Any
 
@@ -13,6 +14,7 @@ import plotly.graph_objects as go
 
 
 COLORS = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff"}
+PLOTLY_JS_LICENSE = (Path(__file__).parent / "third_party" / "plotly.js.LICENSE.txt").read_text(encoding="utf-8")
 
 
 def _style(figure: go.Figure, title: str) -> go.Figure:
@@ -126,7 +128,7 @@ main{{max-width:1150px;margin:auto;padding:40px 24px}}h1{{font-size:36px;line-he
 p{{max-width:950px}}.muted{{color:#adbbce}}.source,aside{{padding:16px 20px;background:#172a3b;border-left:4px solid #40d4be}}
 .chart{{background:#111c2e;border-radius:12px;margin:24px 0}}.scroll{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:14px}}
 th,td{{border-bottom:1px solid #26344a;padding:10px 12px;text-align:right}}th:first-child,td:first-child{{text-align:left}}
-.metadata th{{width:30%;text-align:left}}.metadata td{{text-align:left;overflow-wrap:anywhere}}footer{{margin-top:32px;color:#adbbce}}
+.metadata th{{width:30%;text-align:left}}.metadata td{{text-align:left;overflow-wrap:anywhere}}footer{{margin-top:32px;color:#adbbce}}pre{{white-space:pre-wrap}}
 </style></head><body><main>
 <p class="muted">PORTFOLIO RESEARCH / REPRODUCIBLE ANALYSIS</p><h1>Efficient Frontier</h1>
 <p class="source"><strong>{source_label}:</strong> {html.escape(source)}</p>
@@ -146,7 +148,8 @@ CAGR is annualized using 252 trading days.</p><div class="chart">{holdout_plot}<
 <div class="scroll">{_table(holdout, [column for column in holdout.columns if column != "Realized Sharpe"])}</div>
 <h2>Data and assumptions</h2><div class="scroll"><table class="metadata">{metadata_rows}</table></div>
 <footer>No trading costs, taxes, or currency conversion (FX) are included. Price series must share a consistent currency basis.
-This report is a historical research tool and does not predict investment outcomes. Charts work offline.</footer>
+This report is a historical research tool and does not predict investment outcomes. Charts work offline.
+<details><summary>Third-party notice: Plotly.js (MIT)</summary><pre>{html.escape(PLOTLY_JS_LICENSE)}</pre></details></footer>
 </main></body></html>'''
 
 
@@ -160,6 +163,7 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict) -> bytes:
     }
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         bundle.writestr("report.html", report_html(analysis, metadata))
+        bundle.writestr("THIRD_PARTY_NOTICES.txt", "Plotly.js (embedded in report.html)\n\n" + PLOTLY_JS_LICENSE)
         for name, frame in frames.items():
             bundle.writestr(name, frame.to_csv())
         bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata), indent=2, default=str))

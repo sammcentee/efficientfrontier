@@ -1,15 +1,26 @@
 # Efficient Frontier · Portfolio Lab
 
+[![CI](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml)
+
 A local research app built from the original `Efficient Frontier v1.12.R` project. Explore portfolio risk and return, inspect allocations, and compare their performance on a later period excluded from optimization.
 
 The original R script and `spy_holdings.ods` are preserved unchanged. The Python app replaces the ten-million-portfolio simulation with constrained convex optimization.
 
+**Pre-release:** project licensing is undecided. See the [release checklist](docs/RELEASING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+
+![Portfolio Lab showing an efficient frontier for synthetic demonstration assets](docs/images/portfolio-lab.png)
+
 ## Run on Linux
 
+Install Git and Python 3.14, then clone the repository:
+
 ```bash
-cd /root/projects/efficientfrontier
+git clone https://github.com/sammcentee/efficientfrontier.git
+cd efficientfrontier
 ./run.sh
 ```
+
+Until the repository is public, cloning requires GitHub access to it.
 
 Open **http://localhost:8501**. In VS Code Remote/WSL, forward port 8501 if the link does not open automatically. Stop the server with `Ctrl+C`.
 
@@ -47,6 +58,8 @@ Date,ASSET_A,ASSET_B
 The file needs at least 100 complete daily price observations and two assets. Supply adjusted prices in a common currency. Duplicate dates or columns, nonnumeric values, missing observations and nonpositive prices are rejected. Dates are sorted; assets are not silently removed and prices are not forward-filled. The app cannot infer adjustment status, currency, or whether an uploaded series is genuinely daily.
 
 Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. Downloads are cached for one hour in the app. If a requested ticker is unavailable or its history is incomplete, change the ticker list or requested dates and rerun. A narrow common trading calendar works best; cross-market holidays can cause gaps.
+
+Downloaded market data is subject to the provider's terms. The [yfinance project](https://github.com/ranaroussi/yfinance) describes Yahoo's API as intended for personal use and links to the applicable data terms. A software license does not grant permission to redistribute downloaded prices or reports containing them. Use synthetic data for public examples.
 
 The original holdings file is a static list of 60 symbols, **not a full S&P 500 universe or a record of historical membership**. Symbols and availability may have changed. Choosing today's survivors for a historical analysis introduces survivorship bias.
 
@@ -87,6 +100,8 @@ With singular covariance, such as perfectly correlated assets and zero shrinkage
 
 The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
 
+Keep local input files in `data/` or `private/`, which are ignored by Git. The default `results/` directory and a root-level `prices.csv` are also ignored; custom output locations may need an additional ignore rule. Reports include the full input prices, so review their contents before sharing.
+
 ## Verify
 
 ```bash
@@ -95,6 +110,8 @@ The default output is `results/latest/`. Each run writes `report.html`, `report.
 ```
 
 Tests cover known two-asset optimization solutions, constraints, annualization, covariance shrinkage, no holdout lookahead, buy-and-hold accounting, drawdown, price validation, Yahoo response handling, report export and app behavior. Network responses are mocked in unit tests.
+
+[GitHub Actions](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml) runs the tests, dependency checks, and an offline demo on pushes to `main` and on pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
 ## Project layout
 
@@ -112,3 +129,7 @@ spy_holdings.ods             Original 60-ticker spreadsheet, unchanged
 The original script overwrote the daily return mean with a terminal price-ratio expression, omitted the risk-free rate from Sharpe, and allocated ten million weight vectors. Its 12-worker cluster was unused by the serial simulation loop. The new implementation addresses those issues without altering the historical files.
 
 Implementation references: [CVXPY quadratic programming](https://www.cvxpy.org/examples/basic/quadratic_program.html), [yfinance download arguments](https://ranaroussi.github.io/yfinance/reference/api/yfinance.download.html), and [Streamlit app testing](https://docs.streamlit.io/develop/api-reference/app-testing/st.testing.v1.apptest).
+
+## License status
+
+No project license has been selected. Third-party software keeps its own license and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Public visibility alone does not make a project open source; GitHub explains the distinction in its [licensing guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository).
