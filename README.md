@@ -4,6 +4,8 @@
 
 A local research app built from the original `Efficient Frontier v1.12.R` project. Explore portfolio risk and return, inspect allocations, and compare their performance on a later period excluded from optimization.
 
+**New to this? [Start here: no coding needed](#start-here-no-coding-needed).**
+
 The app runs in Python with the compiled Rust [Clarabel optimizer](https://clarabel.org/stable/python/getting_started_py/). It considers every supplied ticker, with no fixed ticker-count or holdings-count cap. The original R script and `spy_holdings.ods` are preserved as historical files; R is not needed to run the app.
 
 **Pre-release:** original code and documentation are [MIT licensed](LICENSE). See the [release checklist](docs/RELEASING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
@@ -12,7 +14,45 @@ The [public-source review](docs/PUBLIC_RELEASE_REVIEW.md) records the security, 
 
 ![Portfolio Lab showing an efficient frontier for synthetic demonstration assets](docs/images/portfolio-lab.png)
 
-## Run on Linux
+## Start here: no coding needed
+
+Portfolio Lab runs on your computer and opens in your usual web browser. You do not need Git, VS Code or R to use it.
+
+1. **Install Python once.** On Windows, install the [Python Install Manager](https://www.python.org/downloads/windows/); the launcher can then download Python 3.14 for you. On macOS, install Python **3.14** from the [official macOS downloads](https://www.python.org/downloads/macos/). Linux users need Python 3.14 with `venv` support; see the terminal option below.
+2. **[Download Portfolio Lab as a ZIP](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).** On Windows, right-click the downloaded ZIP and choose **Extract All**. On macOS, double-click the ZIP to unpack it. Open the extracted `efficientfrontier-main` folder before continuing.
+3. **Start the app** using the launcher for your computer:
+
+| Your computer | What to open |
+| --- | --- |
+| Windows | Double-click **`Start Portfolio Lab.bat`**. |
+| macOS | Double-click **`Start Portfolio Lab.command`**. |
+| Linux or WSL | Open a terminal in the extracted folder and run **`bash run.sh`**. |
+
+The first launch needs an internet connection and may take several minutes to install the app's packages. Later launches reuse that setup; updated requirements trigger another package install. A browser tab opens automatically. If it does not, open **http://localhost:8501** or the **Local URL** shown in the launcher window.
+
+Keep the launcher window open while using the app. To stop it, press **Ctrl+C** in that window. Closing the browser tab alone does not stop the app. Next time, open the same launcher again.
+
+### Your first two minutes
+
+1. Leave **Price data** on **Demo · synthetic**. The sample portfolio loads automatically; you do not need an account, an API key or a price file.
+2. Hover over the **Efficient frontier** chart. Further right means more historical price variability; higher up means a higher return estimated from the training data. These estimates are not forecasts.
+3. Look at the allocations and switch to **Holdout performance** to see how the portfolios performed during the later period excluded from optimization.
+4. Try one setting in the sidebar, then click **Build frontier**. When you are comfortable, switch **Price data** to **Upload CSV** or **Yahoo Finance**; the [price-data guide](#price-data) explains what to supply.
+
+### Troubleshooting
+
+| What happened | What to do |
+| --- | --- |
+| Python was not found, or the launcher asks for Python 3.14 | Install Python using the links above, then reopen the launcher. An older Windows Python launcher needs an installed 3.14 runtime; the current Python Install Manager can fetch it automatically. |
+| Setup stopped while downloading packages | Check your internet connection and reopen the launcher. An incomplete package install is retried. |
+| The app window disappeared immediately | Extract the entire ZIP first and keep its files together. Use the launcher from the extracted folder. |
+| macOS reports that the `.command` file is not executable | Open Terminal, type `bash `, drag `Start Portfolio Lab.command` into the window, then press Enter. |
+| No browser tab opened | Visit **http://localhost:8501**. For VS Code Remote/WSL, forward port **8501** from the **Ports** panel if needed. |
+| Port 8501 is already in use | Close the earlier Portfolio Lab launcher with **Ctrl+C** and retry. From a terminal, you can instead pass `--server.port=8502` to the launcher and use the URL it prints. |
+
+The synthetic demo and CSV analysis work offline after setup. Yahoo downloads need internet access. Python 3.14 is the tested version; native Windows startup has a smoke check, while macOS startup has not yet been tested on a Mac.
+
+## Terminal setup on Linux or WSL
 
 Install Git and Python 3.14, then clone the repository:
 
@@ -24,7 +64,7 @@ cd efficientfrontier
 
 Open **http://localhost:8501**. In VS Code Remote/WSL, forward port 8501 if the link does not open automatically. Stop the server with `Ctrl+C`.
 
-The launcher creates a project-local `.venv` and installs dependencies on first use. Python 3.14 is the tested runtime. To install or update an existing environment explicitly:
+The launcher creates a project-local `.venv`, installs dependencies on first use or when `requirements.txt` changes, and opens the browser. Pass `--server.headless=true` to leave browser opening to your remote setup. To install or update an existing environment explicitly:
 
 ```bash
 python3 -m venv .venv
