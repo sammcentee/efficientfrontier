@@ -1,6 +1,6 @@
 # Contributing
 
-This project is pre-release, and its licensing is undecided. Confirm the contribution and licensing terms with the maintainer before submitting code for a future public release.
+This project is pre-release. Contributions to original project code and documentation are made under the [MIT License](LICENSE). Submit only material you have permission to contribute under those terms, and preserve third-party notices.
 
 ## Development setup
 

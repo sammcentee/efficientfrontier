@@ -6,7 +6,7 @@ A local research app built from the original `Efficient Frontier v1.12.R` projec
 
 The app runs in Python with the compiled Rust [Clarabel optimizer](https://clarabel.org/stable/python/getting_started_py/). It considers every supplied ticker, with no fixed ticker-count or holdings-count cap. The original R script and `spy_holdings.ods` are preserved as historical files; R is not needed to run the app.
 
-**Pre-release:** project licensing is undecided. See the [release checklist](docs/RELEASING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+**Pre-release:** original code and documentation are [MIT licensed](LICENSE). See the [release checklist](docs/RELEASING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 The [public-source review](docs/PUBLIC_RELEASE_REVIEW.md) records the security, licensing and API checks. Report security issues through the process in [SECURITY.md](SECURITY.md).
 
@@ -152,6 +152,8 @@ The original script overwrote the daily return mean with a terminal price-ratio 
 
 Implementation references: [CVXPY quadratic programming](https://www.cvxpy.org/examples/basic/quadratic_program.html), [yfinance download arguments](https://ranaroussi.github.io/yfinance/reference/api/yfinance.download.html), and [Streamlit app testing](https://docs.streamlit.io/develop/api-reference/app-testing/st.testing.v1.apptest).
 
-## License status
+## License
 
-No project license has been selected. Third-party software keeps its own license and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Public visibility alone does not make a project open source; GitHub explains the distinction in its [licensing guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository).
+Original project code and documentation are available under the [MIT License](LICENSE), copyright © 2026 sammcentee. You may use, modify and distribute them, including commercially, provided copies or substantial portions retain the copyright and permission notices.
+
+Third-party software and data are excluded from this license and retain their own terms and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The MIT License does not grant rights to access or redistribute market data.

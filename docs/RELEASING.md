@@ -1,10 +1,10 @@
 # Release checklist
 
-The default branch is `main`. The owner authorized public source publication on 2026-10-03; the review is recorded in [PUBLIC_RELEASE_REVIEW.md](PUBLIC_RELEASE_REVIEW.md). Project licensing remains undecided at the owner's request. Source visibility does not create a versioned GitHub release or deploy an application.
+The default branch is `main`. The owner authorized public source publication on 2026-10-03; the review is recorded in [PUBLIC_RELEASE_REVIEW.md](PUBLIC_RELEASE_REVIEW.md). Original project code and documentation are licensed under the [MIT License](../LICENSE). Source visibility does not create a versioned GitHub release or deploy an application.
 
 ## Before changing visibility
 
-- Decide whether to select a project license or publish the source with licensing still undecided. Keep the README accurate; do not call it open source without an appropriate license. Dependency licenses do not license this project's code.
+- Include the project's MIT license and preserve third-party licenses and notices. Keep the README accurate about the license scope; the project license does not grant rights to third-party software or data.
 - Confirm rights to any newly added code or data. The owner confirmed publication rights for the original R script and `spy_holdings.ods` on 2026-10-03. The spreadsheet is a static list of 60 symbols, not a historical index-membership dataset.
 - Review Git authorship metadata. Existing commits contain the author's personal email; changing future Git settings does not remove it from earlier commits. No history rewrite has been performed.
 - Review tracked files and history for credentials and private data. The publication audit covered the four prior commits plus the release-preparation files; it is not a guarantee about later changes or every possible secret.

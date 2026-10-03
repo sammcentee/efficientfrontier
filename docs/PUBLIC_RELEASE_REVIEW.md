@@ -5,7 +5,7 @@ Scope: publish the source of `sammcentee/efficientfrontier` on GitHub. This revi
 ## Ownership and licensing
 
 - The owner explicitly authorized public publication and confirmed that the original R script and `spy_holdings.ods` are theirs or permitted to publish.
-- The project's own licensing remains undecided, as requested. No MIT, GPL or other project license has been applied. Public visibility permits GitHub viewing/forking under GitHub's terms; it does not make the project open source. See [GitHub's licensing explanation](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository).
+- Project licensing was undecided at the original publication review. The owner subsequently selected the [MIT License](../LICENSE) for original project code and documentation. Third-party software and data retain their own terms; this choice does not expand data-access or redistribution rights.
 - Installed metadata for the eight direct runtime/development dependencies agrees with [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Installed dependency code is not vendored in this repository.
 - The preserved Plotly.js 4.1.1 license matches the versioned upstream license byte-for-byte. The complete Plotly notice is included in generated HTML and ZIP output. This does not constitute a complete license inventory of every component inside the generated upstream JavaScript bundle; generated bundles and reports are excluded from source publication.
 

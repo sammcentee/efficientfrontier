@@ -1,6 +1,6 @@
 # Third-party software and data
 
-This file records dependency notices. It does not select or grant a license for Efficient Frontier's own code; project licensing remains undecided.
+Original project code and documentation are licensed under the [MIT License](LICENSE). This file records third-party notices; third-party software and data retain their own terms and are not relicensed by the project's license.
 
 ## Python dependencies
 
