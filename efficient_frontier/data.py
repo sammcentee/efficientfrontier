@@ -144,8 +144,8 @@ def demo_prices() -> pd.DataFrame:
     return pd.DataFrame(100 * np.exp(np.cumsum(log_returns, axis=0)), index=dates, columns=names)
 
 
-def original_tickers(path=None) -> list[str]:
-    """Read the historical ticker list bundled with the original R project."""
+def original_tickers(path=None, *, current_symbols=False) -> list[str]:
+    """Read the historical list, optionally using known current Yahoo symbols."""
     source = Path(path) if path is not None else Path(__file__).resolve().parent.parent / "spy_holdings.ods"
     table_ns = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}"
     try:
@@ -165,4 +165,8 @@ def original_tickers(path=None) -> list[str]:
     tickers = list(dict.fromkeys(cells[1:]))
     if not tickers:
         raise ValueError("The original holdings file contains no tickers.")
+    if current_symbols:
+        # Marsh changed its NYSE symbol on 2026-01-14; the ODS stays historical.
+        # Source: https://www.marsh.com/en/corp/about/news/marsh-mclennan-to-change-nyse-symbol-to-mrsh.html
+        tickers = ["MRSH" if ticker == "MMC" else ticker for ticker in tickers]
     return tickers

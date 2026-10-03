@@ -8,6 +8,8 @@ import plotly.express as px
 import streamlit as st
 
 from efficient_frontier.core import analyze
+from efficient_frontier.backtest import run_backtests
+from efficient_frontier.backtest_report import backtest_chart, findings
 from efficient_frontier.data import demo_prices, download_prices, load_csv, original_tickers, parse_tickers
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, report_zip, weights_frame
 
@@ -35,8 +37,13 @@ def calculate(prices, settings):
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
-def export_report(analysis, prices, metadata):
-    return report_zip(analysis, prices, metadata)
+def compare_backtests(prices, settings, backtest_settings):
+    return run_backtests(prices, **settings, **backtest_settings)
+
+
+@st.cache_data(show_spinner=False, max_entries=2)
+def export_report(analysis, prices, metadata, study):
+    return report_zip(analysis, prices, metadata, study)
 
 
 with st.sidebar:
@@ -51,8 +58,9 @@ with st.sidebar:
     with st.form("analysis_settings"):
         if source == "Yahoo Finance":
             if universe == "Original 60 holdings":
-                tickers = original_tickers()
+                tickers = original_tickers(current_symbols=True)
                 st.caption(f"{len(tickers)} tickers from your original spreadsheet. This is a static list, not historical index membership.")
+                st.caption("Marsh's renamed ticker is requested as MRSH (formerly MMC).")
             else:
                 ticker_text = st.text_area("Tickers", "SPY, QQQ, IWM, EFA, TLT, GLD", height=90)
             start = st.date_input("Start date", date(2020, 1, 1))
@@ -68,10 +76,16 @@ with st.sidebar:
         risk_free = st.number_input("Annual risk-free rate (%)", min_value=-10.0, max_value=100.0, value=2.0, step=0.25, key="risk_free")
         train_pct = st.slider("Data used for training", 50, 90, 70, step=5, format="%d%%")
         shrink = st.slider("Covariance shrinkage", 0, 100, 10, step=5, format="%d%%", help="Blend the training covariance toward its diagonal. 0% uses the sample covariance; 100% removes estimated correlations.")
+        with st.expander("Backtest comparison", expanded=True):
+            include_backtests = st.checkbox("Compare four backtesting methods", value=True, key="include_backtests")
+            rebalance_every = st.number_input("Sessions between trades", min_value=1, value=21, step=1)
+            rolling_window = st.number_input("Rolling estimation sessions (0 = initial training length)", min_value=0, value=0, step=21)
+            cost_bps = st.number_input("Trading cost (basis points per bought or sold unit)", min_value=0., max_value=9999., value=10., step=1., key="cost_bps")
+            st.caption("Targets use the previous close's data and trade at the next close. Repeated fits take longer for large universes.")
         submitted = st.form_submit_button("Build frontier", type="primary", width="stretch")
     st.caption("No ticker-count limit · Long-only · Fully invested")
     st.divider()
-    st.caption("Historical research. Estimated returns are not forecasts. Costs, taxes and currency conversion are excluded.")
+    st.caption("Historical research. Estimated returns are not forecasts. Backtests include the selected trading costs; taxes and currency conversion are excluded.")
 
 st.caption("PORTFOLIO RESEARCH / EFFICIENT FRONTIER")
 st.title("Find the balance.")
@@ -81,6 +95,7 @@ settings = dict(train_fraction=train_pct / 100, risk_free_rate=risk_free / 100,
                 max_weight=cap / 100, shrinkage=shrink / 100)
 if submitted or ("result" not in st.session_state and source == "Demo · synthetic"):
     st.session_state.pop("result", None)
+    st.session_state.pop("backtests", None)
     try:
         with st.spinner("Preparing prices and solving the frontier…"):
             if source == "Demo · synthetic":
@@ -94,10 +109,13 @@ if submitted or ("result" not in st.session_state and source == "Demo · synthet
                     raise ValueError("Choose a CSV of adjusted daily prices before building the frontier.")
                 prices = load_csv(BytesIO(uploaded.getvalue()))
             result = calculate(prices, settings)
+            study = compare_backtests(prices, settings, dict(rebalance_every=rebalance_every,
+                                      rolling_window=rolling_window or None, cost_bps=cost_bps)) if include_backtests else None
             metadata = {"source": source, **settings}
             if source == "Yahoo Finance":
                 metadata.update(requested_start=start.isoformat(), requested_end_exclusive=end.isoformat(), universe=universe)
             st.session_state.result = (result, prices, metadata)
+            st.session_state.backtests = study
     except (ValueError, RuntimeError) as exc:
         st.error(str(exc))
 
@@ -106,6 +124,7 @@ if "result" not in st.session_state or st.session_state.result[2]["source"] != s
     st.stop()
 
 result, prices, metadata = st.session_state.result
+study = st.session_state.get("backtests")
 if "synthetic" in metadata["source"]:
     st.info("DEMO DATA · These prices are synthetic. Use Yahoo Finance or upload your own adjusted prices to research real assets.")
 else:
@@ -120,7 +139,7 @@ cols[2].metric("Holdout sessions", f"{len(result.test_returns):,}")
 cols[3].metric("Position weight limit", "None" if metadata["max_weight"] == 1 else f"{metadata['max_weight'] * 100:g}%")
 st.caption(f"Train: {result.train_returns.index[0]:%d %b %Y} – {result.train_returns.index[-1]:%d %b %Y}  ·  Holdout: {result.test_returns.index[0]:%d %b %Y} – {result.test_returns.index[-1]:%d %b %Y}")
 
-frontier_tab, holdout_tab, data_tab = st.tabs(["Efficient frontier", "Holdout performance", "Data & methodology"])
+frontier_tab, backtest_tab, holdout_tab, data_tab = st.tabs(["Efficient frontier", "Backtests & holdings", "Original holdout", "Data & methodology"])
 with frontier_tab:
     st.plotly_chart(frontier_chart(result), width="stretch", theme=None)
     st.caption("The curve shows minimum estimated volatility at each target return, using every supplied ticker. A position limit applies only if enabled. All estimates use the training period only.")
@@ -150,6 +169,29 @@ with holdout_tab:
     metrics = result.holdout_metrics.rename(columns={"total_return": "Total return", "cagr": "Annualized growth", "volatility": "Annual volatility", "sharpe": "Sharpe ratio", "max_drawdown": "Max drawdown"})
     st.dataframe(metrics.style.format({col: "{:.2f}" if col == "Sharpe ratio" else "{:.2%}" for col in metrics.columns}), width="stretch")
     st.caption("The starting weight cap applies at allocation; later weights can exceed it as prices move. Annualized growth compounds realized returns, while frontier returns are arithmetic estimates. Repeatedly tuning settings against this holdout makes it less independent.")
+
+with backtest_tab:
+    if study is None:
+        st.info("Enable Compare four backtesting methods and build the frontier to include this study.")
+    else:
+        st.subheader("Backtesting methods and holding contributions")
+        st.caption("All methods share evaluation dates and costs. Buy and hold lets weights drift; fixed rebalancing restores the initial targets; expanding and rolling windows estimate new targets. Trades execute one session after the last estimation close. These are retrospective comparisons, not forecasts.")
+        for item in findings(study):
+            st.write(item)
+        st.plotly_chart(backtest_chart(study), width="stretch", theme=None)
+        st.plotly_chart(backtest_chart(study, drawdown=True), width="stretch", theme=None)
+        formats = {column: ("{:.0f}" if column.endswith("count") else "{:.2f}" if column in ("sharpe", "total_turnover") else "{:.2%}") for column in study.metrics.columns}
+        st.dataframe(study.metrics.style.format(formats), width="stretch")
+        selected = st.selectbox("Inspect holdings for", list(study.equity.columns), key="holding_strategy")
+        holdings = study.holdings[selected].sort_values("pnl_contribution", ascending=False)
+        st.dataframe(holdings.style.format("{:.2%}"), width="stretch")
+        st.caption("Contributions are profit/loss as a fraction of initial capital, before separately charged fees. Their sum minus fees equals the strategy's net total return. Selection frequency counts target allocations; average weight includes drift and the initial cash session.")
+        st.subheader("Target allocations through time")
+        st.dataframe(study.allocations[selected].style.format("{:.2%}"), width="stretch")
+        if study.warnings:
+            with st.expander("Backtest notes"):
+                for warning in study.warnings:
+                    st.write(warning)
 
 with data_tab:
     left, right = st.columns(2)
@@ -181,6 +223,6 @@ with data_tab:
     st.download_button("Download prices CSV", csv_text(prices, index_label="Date"), "prices.csv", "text/csv")
 
 st.divider()
-st.download_button("Download research report + CSVs", export_report(result, prices, metadata),
+st.download_button("Download research report + CSVs", export_report(result, prices, metadata, study),
                    "efficient-frontier-report.zip", "application/zip", type="primary")
-st.caption("Includes a standalone interactive HTML report, exact input prices, allocations, frontier points, holdout results and settings.")
+st.caption("Includes an offline HTML report with Print / save PDF, exact inputs and results. Enabled backtests add findings.md, daily curves, holding contributions, target allocations and trading costs.")

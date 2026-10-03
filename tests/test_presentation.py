@@ -105,6 +105,13 @@ def test_csv_preserves_normal_labels_dates_and_negative_numeric_values():
     pd.testing.assert_frame_equal(recovered, frame, check_freq=False)
 
 
+def test_csv_escapes_formula_text_cells_without_changing_numeric_cells():
+    frame = pd.DataFrame({"label": ["=1+1", "normal"], "return": [-.5, .1]})
+    recovered = pd.read_csv(io.StringIO(csv_text(frame)), index_col=0)
+    assert recovered.label.tolist() == ["'=1+1", "normal"]
+    assert recovered["return"].tolist() == [-.5, .1]
+
+
 def test_report_zip_escapes_formula_asset_labels(report_analysis):
     label = "=1+1"
     report_analysis.portfolios["Minimum volatility"].weights.index = [label, "BBB"]

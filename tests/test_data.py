@@ -213,3 +213,12 @@ def test_original_tickers_reads_bundled_ods():
 def test_original_tickers_missing_file_is_actionable(tmp_path):
     with pytest.raises(ValueError, match="could not be read"):
         original_tickers(tmp_path / "absent.ods")
+
+
+def test_original_preset_updates_renamed_symbol_without_changing_historical_list():
+    historical = original_tickers()
+    current = original_tickers(current_symbols=True)
+    assert "MMC" in historical and "MRSH" not in historical
+    assert "MRSH" in current and "MMC" not in current
+    assert len(current) == len(historical) == 60
+    assert current == ["MRSH" if ticker == "MMC" else ticker for ticker in historical]

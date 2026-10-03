@@ -11,6 +11,9 @@ from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.offline import get_plotlyjs
+
+from .backtest_report import backtest_html, findings_markdown
 
 
 COLORS = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff"}
@@ -72,7 +75,7 @@ def weights_frame(analysis: Any) -> pd.DataFrame:
 
 
 def csv_text(frame: pd.DataFrame, index_label=None) -> str:
-    """Export numeric data while treating formula-like axis labels as text."""
+    """Export numeric data while escaping formula-like labels and text cells."""
     def text_label(value):
         if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
             return "'" + value
@@ -81,10 +84,12 @@ def csv_text(frame: pd.DataFrame, index_label=None) -> str:
     display = frame.copy(deep=False)
     display.index = frame.index.map(text_label).rename(text_label(frame.index.name))
     display.columns = frame.columns.map(text_label).rename(text_label(frame.columns.name))
+    for column in display.select_dtypes(include=["object", "string"]).columns:
+        display[column] = display[column].map(text_label)
     return display.to_csv(index_label=text_label(index_label), lineterminator="\r\n")
 
 
-def _metadata(analysis: Any, metadata: dict) -> dict:
+def _metadata(analysis: Any, metadata: dict, study=None) -> dict:
     result = dict(metadata)
     for label, returns in (("training", analysis.train_returns), ("holdout", analysis.test_returns)):
         result[f"{label}_start"] = str(returns.index[0].date()) if len(returns) else None
@@ -97,6 +102,11 @@ def _metadata(analysis: Any, metadata: dict) -> dict:
         estimation="Historical arithmetic mean returns and covariance estimated from training data only.",
         exclusions="No trading costs, taxes, or currency conversion (FX).",
     )
+    if study is not None:
+        result["backtests"] = study.settings
+        result["backtest_warnings"] = study.warnings
+        result["backtest_files"] = {f"backtests/{i:02d}": name for i, name in enumerate(study.equity.columns, 1)}
+        result["exclusions"] = "The original holdout excludes trading costs; the backtest comparison deducts the selected fees. Both exclude taxes and FX."
     return result
 
 
@@ -110,14 +120,14 @@ def _table(frame: pd.DataFrame, percent_columns: list | None = None) -> str:
     return display.to_html(escape=True, border=0, classes="data", na_rep="—")
 
 
-def report_html(analysis: Any, metadata: dict) -> str:
+def report_html(analysis: Any, metadata: dict, study=None) -> str:
     """Return an offline HTML report with a single embedded Plotly bundle."""
-    details = _metadata(analysis, metadata)
+    details = _metadata(analysis, metadata, study)
     source = str(details.get("source", "Unspecified source"))
     source_label = "Synthetic demonstration data" if any(word in source.lower() for word in ("demo", "synthetic")) else "Data source"
     metadata_rows = "".join(
         f"<tr><th>{html.escape(str(key).replace('_', ' ').capitalize())}</th><td>{html.escape(str(value))}</td></tr>"
-        for key, value in details.items()
+        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files")
     )
     warnings = "".join(f"<li>{html.escape(str(warning))}</li>" for warning in analysis.warnings)
     warnings_html = f'<aside><h2>Analysis notes</h2><ul>{warnings}</ul></aside>' if warnings else ""
@@ -130,8 +140,14 @@ def report_html(analysis: Any, metadata: dict) -> str:
         "sharpe": "Realized Sharpe", "max_drawdown": "Maximum drawdown",
     })
     chart_options = {"responsive": True, "displaylogo": False}
-    frontier = frontier_chart(analysis).to_html(full_html=False, include_plotlyjs=True, config=chart_options)
+    frontier = frontier_chart(analysis).to_html(full_html=False, include_plotlyjs=False, config=chart_options)
     holdout_plot = holdout_chart(analysis).to_html(full_html=False, include_plotlyjs=False, config=chart_options)
+    comparison_html = backtest_html(study) if study is not None else ""
+    cost_note = ("The original holdout excludes trading costs. The backtest comparison deducts the selected fees."
+                 if study is not None else "No trading costs are included.")
+    introduction = ("The backtest comparison updates portfolios using only information available before each trade. "
+                    "The original fixed-allocation holdout is shown separately."
+                    if study is not None else "Weights are selected using the training period, then evaluated on later, held-out observations.")
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Efficient Frontier · Research Report</title>
@@ -142,12 +158,21 @@ p{{max-width:950px}}.muted{{color:#adbbce}}.source,aside{{padding:16px 20px;back
 .chart{{background:#111c2e;border-radius:12px;margin:24px 0}}.scroll{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:14px}}
 th,td{{border-bottom:1px solid #26344a;padding:10px 12px;text-align:right}}th:first-child,td:first-child{{text-align:left}}
 .metadata th{{width:30%;text-align:left}}.metadata td{{text-align:left;overflow-wrap:anywhere}}footer{{margin-top:32px;color:#adbbce}}pre{{white-space:pre-wrap}}
-</style></head><body><main>
+button{{padding:10px 16px;cursor:pointer}}@media print{{
+@page{{size:A4 landscape;margin:12mm}}:root{{color-scheme:light}}body{{background:white;color:#172337;font-size:10pt}}
+main{{max-width:none;padding:0}}h1{{font-size:25pt}}h2{{break-after:avoid}}.source,aside{{background:#eef4f7}}
+.muted,footer{{color:#35445a}}.chart{{break-inside:avoid;background:white}}.scroll{{overflow:visible}}
+table{{font-size:8pt}}th,td{{padding:5px}}tr{{break-inside:avoid}}thead{{display:table-header-group}}
+button,.modebar{{display:none!important}}details{{display:none}}.metadata{{font-size:8pt}}
+}}
+</style><script>{get_plotlyjs()}</script></head><body><main>
 <p class="muted">PORTFOLIO RESEARCH / REPRODUCIBLE ANALYSIS</p><h1>Efficient Frontier</h1>
+<button onclick="window.print()">Print / save PDF</button>
 <p class="source"><strong>{source_label}:</strong> {html.escape(source)}</p>
-<p>Weights are selected using the training period, then evaluated on later, held-out observations.
+<p>{introduction}
 Training estimates describe historical data. They are not predictions or guarantees of future performance.</p>
 {warnings_html}
+{comparison_html}
 <h2>Training estimates</h2><p class="muted">Arithmetic mean returns and covariance are annualized using 252 trading days.
 Covariance shrinkage is applied using training data only. The configured risk-free rate is used for Sharpe ratios.</p>
 <div class="chart">{frontier}</div>
@@ -160,13 +185,13 @@ Distributions follow the provider's price adjustments rather than accumulating a
 CAGR is annualized using 252 trading days.</p><div class="chart">{holdout_plot}</div>
 <div class="scroll">{_table(holdout, [column for column in holdout.columns if column != "Realized Sharpe"])}</div>
 <h2>Data and assumptions</h2><div class="scroll"><table class="metadata">{metadata_rows}</table></div>
-<footer>No trading costs, taxes, or currency conversion (FX) are included. Price series must share a consistent currency basis.
+<footer>{cost_note} Taxes and currency conversion (FX) are excluded. Price series must share a consistent currency basis.
 This report is a historical research tool and does not predict investment outcomes. Charts work offline.
 <details><summary>Third-party notice: Plotly.js (MIT)</summary><pre>{html.escape(PLOTLY_JS_LICENSE)}</pre></details></footer>
 </main></body></html>'''
 
 
-def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict) -> bytes:
+def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None) -> bytes:
     """Bundle the report, inputs, and numeric results for offline inspection."""
     output = io.BytesIO()
     frames = {
@@ -174,10 +199,18 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict) -> bytes:
         "frontier_weights.csv": analysis.frontier_weights, "holdout_metrics.csv": analysis.holdout_metrics,
         "holdout_curve.csv": analysis.equity, "prices.csv": prices,
     }
+    if study is not None:
+        frames.update({"backtest_metrics.csv": study.metrics, "backtest_curve.csv": study.equity})
+        for i, name in enumerate(study.equity.columns, 1):
+            frames[f"backtests/{i:02d}_holdings.csv"] = study.holdings[name]
+            frames[f"backtests/{i:02d}_allocations.csv"] = study.allocations[name]
+            frames[f"backtests/{i:02d}_trades.csv"] = study.trades[name]
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        bundle.writestr("report.html", report_html(analysis, metadata))
+        bundle.writestr("report.html", report_html(analysis, metadata, study))
+        if study is not None:
+            bundle.writestr("findings.md", findings_markdown(study, str(metadata.get("source", "Unspecified source"))))
         bundle.writestr("THIRD_PARTY_NOTICES.txt", "Plotly.js (embedded in report.html)\n\n" + PLOTLY_JS_LICENSE)
         for name, frame in frames.items():
             bundle.writestr(name, csv_text(frame))
-        bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata), indent=2, default=str))
+        bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata, study), indent=2, default=str))
     return output.getvalue()
