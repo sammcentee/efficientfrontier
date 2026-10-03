@@ -29,12 +29,12 @@ def fetch_prices(tickers, start, end):
     return download_prices(tickers, start, end)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=2)
 def calculate(prices, settings):
     return analyze(prices, **settings)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=2)
 def export_report(analysis, prices, metadata):
     return report_zip(analysis, prices, metadata)
 
@@ -46,6 +46,8 @@ with st.sidebar:
     universe = "Custom tickers"
     if source == "Yahoo Finance":
         universe = st.radio("Universe", ["Custom tickers", "Original 60 holdings"])
+    use_cap = st.toggle("Limit weight per asset", value=False, key="use_cap",
+                        help="Optional concentration limit. There is no limit on the number of tickers or holdings.")
     with st.form("analysis_settings"):
         if source == "Yahoo Finance":
             if universe == "Original 60 holdings":
@@ -60,13 +62,14 @@ with st.sidebar:
             st.caption("Date in the first column; one asset per remaining column. Use a common currency and complete daily observations.")
         else:
             st.caption("Six simulated assets. Repeatable data for exploring the app; no market performance claims.")
-        st.markdown("**Portfolio constraints**")
-        cap = st.slider("Maximum weight per asset", 5, 100, 40, step=5, format="%d%%")
-        risk_free = st.number_input("Annual risk-free rate (%)", min_value=-10.0, max_value=100.0, value=2.0, step=0.25)
+        st.markdown("**Portfolio settings**")
+        cap = st.number_input("Maximum weight per asset (%)", min_value=0.0, max_value=100.0,
+                              value=40.0, step=1.0, format="%.4f", key="cap") if use_cap else 100.0
+        risk_free = st.number_input("Annual risk-free rate (%)", min_value=-10.0, max_value=100.0, value=2.0, step=0.25, key="risk_free")
         train_pct = st.slider("Data used for training", 50, 90, 70, step=5, format="%d%%")
         shrink = st.slider("Covariance shrinkage", 0, 100, 10, step=5, format="%d%%", help="Blend the training covariance toward its diagonal. 0% uses the sample covariance; 100% removes estimated correlations.")
         submitted = st.form_submit_button("Build frontier", type="primary", width="stretch")
-    st.caption("Long-only · Fully invested · No leverage")
+    st.caption("No ticker-count limit · Long-only · Fully invested")
     st.divider()
     st.caption("Historical research. Estimated returns are not forecasts. Costs, taxes and currency conversion are excluded.")
 
@@ -114,13 +117,13 @@ cols = st.columns(4)
 cols[0].metric("Assets", str(len(prices.columns)))
 cols[1].metric("Training sessions", f"{len(result.train_returns):,}")
 cols[2].metric("Holdout sessions", f"{len(result.test_returns):,}")
-cols[3].metric("Maximum starting weight", f"{metadata['max_weight']:.0%}")
+cols[3].metric("Position weight limit", "None" if metadata["max_weight"] == 1 else f"{metadata['max_weight'] * 100:g}%")
 st.caption(f"Train: {result.train_returns.index[0]:%d %b %Y} – {result.train_returns.index[-1]:%d %b %Y}  ·  Holdout: {result.test_returns.index[0]:%d %b %Y} – {result.test_returns.index[-1]:%d %b %Y}")
 
 frontier_tab, holdout_tab, data_tab = st.tabs(["Efficient frontier", "Holdout performance", "Data & methodology"])
 with frontier_tab:
     st.plotly_chart(frontier_chart(result), width="stretch", theme=None)
-    st.caption("The curve shows minimum estimated volatility at each target return, under your weight limit. All estimates use the training period only.")
+    st.caption("The curve shows minimum estimated volatility at each target return, using every supplied ticker. A position limit applies only if enabled. All estimates use the training period only.")
     comparison = pd.DataFrame({name: {"Estimated annual return": p.expected_return,
                                     "Annual volatility": p.volatility, "Sharpe ratio": p.sharpe}
                                for name, p in result.portfolios.items()}).T
@@ -131,8 +134,12 @@ with frontier_tab:
         st.dataframe(weights_frame(result).style.format("{:.2%}"), width="stretch")
     with right:
         st.subheader("Explore the curve")
-        point = st.select_slider("Target-return point", options=list(range(len(result.frontier))),
-                                 format_func=lambda i: f"{result.frontier.iloc[i]['expected_return']:.2%} estimated annual return")
+        if len(result.frontier) == 1:
+            point = 0
+            st.caption("These inputs have a single frontier point.")
+        else:
+            point = st.select_slider("Target-return point", options=list(range(len(result.frontier))),
+                                     format_func=lambda i: f"{result.frontier.iloc[i]['expected_return']:.2%} estimated annual return")
         frontier_weights = result.frontier_weights.iloc[point].sort_values(ascending=False)
         st.dataframe(frontier_weights.rename("Weight").to_frame().style.format("{:.2%}"), width="stretch")
 
@@ -148,10 +155,15 @@ with data_tab:
     left, right = st.columns(2)
     with left:
         st.subheader("Training correlations")
-        fig = px.imshow(result.train_returns.corr(), zmin=-1, zmax=1,
-                        color_continuous_scale="Tealrose", aspect="auto")
-        fig.update_layout(template="plotly_dark", paper_bgcolor="#0b1220", plot_bgcolor="#0b1220", height=430, margin=dict(l=0,r=0,t=10,b=0))
-        st.plotly_chart(fig, width="stretch", theme=None)
+        chart_assets = list(prices.columns)
+        if len(chart_assets) > 30:
+            chart_assets = st.multiselect("Assets shown in the correlation chart", chart_assets, default=chart_assets[:20])
+            st.caption("This selection controls the chart. All supplied assets remain in the portfolio analysis.")
+        if chart_assets:
+            fig = px.imshow(result.train_returns[chart_assets].corr(), zmin=-1, zmax=1,
+                            color_continuous_scale="Tealrose", aspect="auto")
+            fig.update_layout(template="plotly_dark", paper_bgcolor="#0b1220", plot_bgcolor="#0b1220", height=430, margin=dict(l=0,r=0,t=10,b=0))
+            st.plotly_chart(fig, width="stretch", theme=None)
     with right:
         st.subheader("How it works")
         st.markdown(f"""
@@ -161,7 +173,7 @@ with data_tab:
 - Covariance blends **{metadata['shrinkage']:.0%}** toward its diagonal to temper estimated correlations.
 - Convex optimization finds minimum-volatility portfolios and, when positive excess return is feasible, maximum Sharpe.
 - Sharpe uses the **{metadata['risk_free_rate']:.2%}** annual risk-free assumption; cash is not an investable asset in this model.
-- All weights are nonnegative, sum to 100%, and obey the starting position limit.
+- All weights are nonnegative and sum to 100%. A starting position limit is optional; there is no minimum or maximum number of holdings.
 """)
         st.caption("Use daily observations in a common currency. The app cannot verify whether a CSV is adjusted, daily, or in a common currency. A fixed ticker list can introduce survivorship bias. Historical averages are sensitive to the chosen period.")
     st.subheader("Price observations")

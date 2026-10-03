@@ -15,13 +15,14 @@ def main():
     parser = argparse.ArgumentParser(description="Build an efficient frontier and chronological holdout report.")
     sources = parser.add_mutually_exclusive_group()
     sources.add_argument("--csv", type=Path, help="Adjusted daily prices: Date,ASSET1,ASSET2,…")
-    sources.add_argument("--tickers", help="Comma-separated Yahoo Finance symbols")
+    sources.add_argument("--tickers", help="Comma-separated Yahoo Finance symbols; no ticker-count cap")
     sources.add_argument("--original-holdings", action="store_true", help="Use the original 60 tickers from spy_holdings.ods")
     parser.add_argument("--start", default="2020-01-01")
     parser.add_argument("--end", help="Yahoo end date, exclusive; defaults to today")
     parser.add_argument("--train-fraction", type=float, default=.7)
     parser.add_argument("--risk-free-rate", type=float, default=.02, help="Annual decimal, e.g. .02")
-    parser.add_argument("--max-weight", type=float, default=.4)
+    parser.add_argument("--max-weight", type=float, default=1.0,
+                        help="Optional per-asset cap as a decimal; default 1 means no additional cap")
     parser.add_argument("--shrinkage", type=float, default=.1)
     parser.add_argument("--output", type=Path, default=Path("results/latest"))
     args = parser.parse_args()
@@ -29,7 +30,7 @@ def main():
     try:
         if args.csv:
             prices, source = load_csv(args.csv), "CSV: " + args.csv.name
-        elif args.tickers or args.original_holdings:
+        elif args.tickers is not None or args.original_holdings:
             from datetime import date
             tickers = original_tickers() if args.original_holdings else parse_tickers(args.tickers)
             prices = download_prices(tickers, args.start, args.end or date.today().isoformat())

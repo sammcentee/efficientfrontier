@@ -53,15 +53,15 @@ def test_validation_rejects_duplicate_days_after_normalization(prices):
 
 
 @pytest.mark.parametrize("kind, message", [
-    ("short", "100"), ("one_asset", "two assets"),
+    ("short", "100"), ("no_assets", "at least one asset"),
     ("duplicate_asset", "unique"), ("numeric_index", "dates"),
     ("missing_date", "valid date"), ("invalid_date", "valid date"),
 ])
 def test_validation_rejects_invalid_shape_and_dates(prices, kind, message):
     if kind == "short":
         prices = prices.iloc[:99]
-    elif kind == "one_asset":
-        prices = prices.iloc[:, :1]
+    elif kind == "no_assets":
+        prices = prices.iloc[:, :0]
     elif kind == "duplicate_asset":
         prices.columns = ["AAA", "AAA"]
     elif kind == "numeric_index":
@@ -85,6 +85,17 @@ def test_csv_accepts_filelike_objects_and_paths(prices, source_type, tmp_path):
         source = tmp_path / "prices.csv"
         source.write_text(content)
     pd.testing.assert_frame_equal(load_csv(source), prices, check_freq=False)
+
+
+@pytest.mark.parametrize("asset_count", [1, 128])
+def test_csv_preserves_any_nonempty_asset_universe(prices, asset_count):
+    rng = np.random.default_rng(12)
+    table = pd.DataFrame(
+        rng.lognormal(mean=4, sigma=0.1, size=(len(prices), asset_count)),
+        index=prices.index,
+        columns=[f"ASSET_{number:03d}" for number in reversed(range(asset_count))],
+    )
+    pd.testing.assert_frame_equal(load_csv(StringIO(table.to_csv())), table, check_freq=False)
 
 
 @pytest.mark.parametrize("header, message", [
@@ -123,9 +134,16 @@ def test_ticker_normalization():
     assert parse_tickers(" aapl, msft\nBRK.B\tAAPL,brk-b  ") == ["AAPL", "MSFT", "BRK-B"]
 
 
+def test_ticker_normalization_preserves_a_large_universe_in_input_order():
+    symbols = [f"TICKER{number:03d}" for number in reversed(range(128))]
+    assert parse_tickers(", ".join(symbols).lower()) == symbols
+
+
+@pytest.mark.parametrize("symbols", [["AAA"], ["AAA", "BBB"]])
 @pytest.mark.parametrize("ticker_level_first", [False, True])
-def test_download_selects_adjusted_close_in_requested_order(monkeypatch, prices, ticker_level_first):
-    close = prices.loc[:, ["BBB", "AAA"]]
+def test_download_selects_adjusted_close_in_requested_order(monkeypatch, prices, ticker_level_first, symbols):
+    expected = prices.loc[:, symbols]
+    close = expected.iloc[:, ::-1]
     raw = pd.concat({"Open": close * 2, "Close": close}, axis=1)
     if ticker_level_first:
         raw = raw.swaplevel(axis=1)
@@ -136,12 +154,23 @@ def test_download_selects_adjusted_close_in_requested_order(monkeypatch, prices,
         return raw
 
     monkeypatch.setattr("efficient_frontier.data.yf.download", download)
-    result = download_prices(["AAA", "BBB"], "2020-01-01", "2021-01-01")
-    pd.testing.assert_frame_equal(result, prices, check_freq=False)
+    result = download_prices(symbols, "2020-01-01", "2021-01-01")
+    pd.testing.assert_frame_equal(result, expected, check_freq=False)
+    assert calls[0][0][0] == symbols
     assert calls[0][1]["auto_adjust"] is True
     assert calls[0][1]["actions"] is False
     assert calls[0][1]["multi_level_index"] is True
     assert calls[0][1]["keepna"] is True
+
+
+@pytest.mark.parametrize("symbols", [[], ["", " "]])
+def test_download_rejects_an_empty_universe_before_fetching(monkeypatch, symbols):
+    def download(*args, **kwargs):
+        pytest.fail("An empty universe must be rejected before downloading prices.")
+
+    monkeypatch.setattr("efficient_frontier.data.yf.download", download)
+    with pytest.raises(ValueError, match="at least one ticker"):
+        download_prices(symbols, "2020-01-01", "2021-01-01")
 
 
 @pytest.mark.parametrize("failure, message", [

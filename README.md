@@ -4,7 +4,7 @@
 
 A local research app built from the original `Efficient Frontier v1.12.R` project. Explore portfolio risk and return, inspect allocations, and compare their performance on a later period excluded from optimization.
 
-The original R script and `spy_holdings.ods` are preserved unchanged. The Python app replaces the ten-million-portfolio simulation with constrained convex optimization.
+The app runs in Python with the compiled Rust [Clarabel optimizer](https://clarabel.org/stable/python/getting_started_py/). It considers every supplied ticker, with no fixed ticker-count or holdings-count cap. The original R script and `spy_holdings.ods` are preserved as historical files; R is not needed to run the app.
 
 **Pre-release:** project licensing is undecided. See the [release checklist](docs/RELEASING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -37,7 +37,8 @@ The app binds to localhost. It needs no credentials or network connection for th
 
 - View the efficient frontier and allocations at individual target returns.
 - Compare minimum volatility, maximum Sharpe, and equal-weight portfolios.
-- Set a maximum starting position size, risk-free rate, training fraction, and covariance shrinkage.
+- Analyze one ticker or a larger custom universe; the original 60-ticker list is an optional preset.
+- Optionally set a maximum starting position size, plus risk-free rate, training fraction, and covariance shrinkage. Position caps are off by default.
 - Use Yahoo adjusted daily prices, upload a CSV, or explore a deterministic synthetic demo.
 - Select the 60 tickers from the original spreadsheet as a Yahoo universe.
 - Compare buy-and-hold performance on the chronological holdout: growth, volatility, Sharpe and drawdown.
@@ -55,7 +56,7 @@ Date,ASSET_A,ASSET_B
 2023-01-04,101.00,79.50
 ```
 
-The file needs at least 100 complete daily price observations and two assets. Supply adjusted prices in a common currency. Duplicate dates or columns, nonnumeric values, missing observations and nonpositive prices are rejected. Dates are sorted; assets are not silently removed and prices are not forward-filled. The app cannot infer adjustment status, currency, or whether an uploaded series is genuinely daily.
+The file needs at least 100 complete daily price observations and one or more assets. There is no hardcoded upper limit on columns. Supply adjusted prices in a common currency. Duplicate dates or columns, nonnumeric values, missing observations and nonpositive prices are rejected. Dates are sorted; assets are not silently removed and prices are not forward-filled. The app cannot infer adjustment status, currency, or whether an uploaded series is genuinely daily.
 
 Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. Downloads are cached for one hour in the app. If a requested ticker is unavailable or its history is incomplete, change the ticker list or requested dates and rerun. A narrow common trading calendar works best; cross-market holidays can cause gaps.
 
@@ -69,7 +70,7 @@ The original holdings file is a static list of 60 symbols, **not a full S&P 500 
 2. Use the first `floor(training_fraction × number_of_returns)` observations for estimation. The rest are held aside.
 3. Annualize arithmetic mean returns and sample covariance using 252 sessions per year.
 4. Blend covariance toward its diagonal: `(1 - shrinkage) × covariance + shrinkage × diag(covariance)`. The default 10% is a user-controlled assumption, not an automatically fitted estimator.
-5. Solve long-only, fully invested portfolios subject to `0 ≤ weight ≤ maximum_weight`. The frontier minimizes variance at target returns on its efficient branch. CVXPY uses the Clarabel solver.
+5. Solve long-only, fully invested portfolios with nonnegative weights summing to one. Any asset can receive zero weight, so the optimizer can select subsets without sampling or enumerating combinations. A per-asset maximum is optional; the default is 100%, imposing no additional concentration restriction. The frontier minimizes variance at target returns on its efficient branch. CVXPY calls the compiled Clarabel solver.
 6. Solve maximum Sharpe using a convex change of variables when a feasible portfolio has positive expected excess return. If none does, omit this portfolio and explain why. Near-zero risk yields an undefined Sharpe rather than an artificial infinity.
 7. Allocate at the final training price and use each asset's adjusted-price growth throughout the holdout, without subsequent trading between assets. Distributions are reflected in the provider's price adjustments, rather than accumulated as separate cash. The first holdout return starts at the final training price. Equal weight uses the same timing and buy-and-hold convention.
 
@@ -79,14 +80,28 @@ The weight cap applies when positions are established. Weights can drift above t
 
 With singular covariance, such as perfectly correlated assets and zero shrinkage, several allocations can tie for minimum variance at a target return. The curve may include equal-risk points with different returns; a unique allocation is not guaranteed.
 
+## Ticker counts and performance
+
+The historical R simulation sampled only 5–40 holdings from a fixed list of 60 tickers. The Python app accepts any nonempty supplied universe and optimizes weights across the entire universe. It imposes no minimum number of selected holdings, no maximum holdings count, and no fixed input-ticker cap. Forty frontier points means forty target-return levels, not forty assets. A single asset naturally produces one frontier point.
+
+Position limits are optional. Enable **Limit weight per asset** in the app, or pass `--max-weight .01` for a 1% starting-weight cap. Caps below 5% are supported. A chosen cap must still allow the weights to sum to one; for example, a 1% cap needs at least 100 assets.
+
+The computational work already runs in compiled numerical libraries and a Rust solver. The scaling improvements remove redundant bounds and replace a dense maximum-Sharpe constraint with a sparse equivalent; they preserve the same full covariance model. Rewriting the interface in C++ would not by itself change that model's computational cost.
+
+Measured on this Linux/WSL machine, an uncapped 40-point frontier for 1,000 synthetic assets took **20.76 seconds** and **461 MiB peak process memory**. The previous Python implementation took 29.77 seconds and 601 MiB on identical inputs. See [the benchmark method and results](docs/PERFORMANCE.md) for timings at other sizes and commands to reproduce them.
+
+There is no promise of unlimited hardware capacity: dense covariance storage grows quadratically with ticker count, and solving large dense systems becomes progressively more expensive. These timings exclude downloads, price-to-covariance estimation, UI rendering and report generation. Yahoo availability/rate limits and the browser's upload size limit are separate practical constraints. Large universes also need enough history for useful estimates; adding tickers or changing programming language does not guarantee better investment performance.
+
+For large inputs, the correlation chart initially displays a selectable subset to keep the browser responsive. All supplied assets remain in the optimization, allocations and exports.
+
 ## Reports without the browser
 
 ```bash
 # Offline synthetic example
 .venv/bin/python -m efficient_frontier
 
-# Your adjusted prices
-.venv/bin/python -m efficient_frontier --csv prices.csv --max-weight .50
+# Your adjusted prices, without an additional position cap
+.venv/bin/python -m efficient_frontier --csv prices.csv
 
 # Yahoo example; these symbols are demonstration inputs
 .venv/bin/python -m efficient_frontier \
@@ -95,7 +110,10 @@ With singular covariance, such as perfectly correlated assets and zero shrinkage
   --max-weight .40 --risk-free-rate .02 --output results/market
 
 # Original spreadsheet universe
-.venv/bin/python -m efficient_frontier --original-holdings --max-weight .10
+.venv/bin/python -m efficient_frontier --original-holdings
+
+# Optional 1% starting-weight limit, using a universe with at least 100 assets
+.venv/bin/python -m efficient_frontier --csv data/prices.csv --max-weight .01
 ```
 
 The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
