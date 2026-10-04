@@ -17,7 +17,8 @@ from .backtest_report import backtest_html, findings_markdown
 from .risk import risk_contributions, risk_summary
 
 
-COLORS = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff"}
+COLORS = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff",
+          "Low": "#6cbaff", "Medium": "#edb1f1", "Extreme": "#ff8b87"}
 PLOTLY_JS_LICENSE = (Path(__file__).parent / "third_party" / "plotly.js.LICENSE.txt").read_text(encoding="utf-8")
 
 
@@ -69,6 +70,25 @@ def holdout_chart(analysis: Any) -> go.Figure:
     return figure
 
 
+def latest_profile_chart(profiles: Any) -> go.Figure:
+    """Plot the lowest historical window mean against estimated volatility."""
+    figure = go.Figure(go.Scatter(
+        x=profiles.frontier["volatility"], y=profiles.frontier["worst_window_return"],
+        mode="lines", name="Window frontier", line={"color": "#40d4be", "width": 3},
+        hovertemplate="Annual volatility: %{x:.2%}<br>Lowest annual window mean: %{y:.2%}<extra>%{fullData.name}</extra>",
+    ))
+    for name, row in profiles.summary.iterrows():
+        figure.add_trace(go.Scatter(
+            x=[row["volatility"]], y=[row["worst_window_return"]], mode="markers", name=html.escape(str(name)),
+            marker={"size": 13, "color": COLORS.get(name, "#f3a7da"), "line": {"width": 2, "color": "#111c2e"}},
+            hovertemplate="Annual volatility: %{x:.2%}<br>Lowest annual window mean: %{y:.2%}<extra>%{fullData.name}</extra>",
+        ))
+    _style(figure, "Latest risk profiles")
+    figure.update_xaxes(title="Annual volatility", tickformat=".1%", rangemode="tozero")
+    figure.update_yaxes(title="Lowest annual window mean", tickformat=".1%")
+    return figure
+
+
 def weights_frame(analysis: Any) -> pd.DataFrame:
     frame = pd.DataFrame({name: portfolio.weights for name, portfolio in analysis.portfolios.items()})
     frame.index.name = "ticker"
@@ -90,7 +110,7 @@ def csv_text(frame: pd.DataFrame, index_label=None) -> str:
     return display.to_csv(index_label=text_label(index_label), lineterminator="\r\n")
 
 
-def _metadata(analysis: Any, metadata: dict, study=None) -> dict:
+def _metadata(analysis: Any, metadata: dict, study=None, latest_profiles=None) -> dict:
     result = dict(metadata)
     for label, returns in (("training", analysis.train_returns), ("holdout", analysis.test_returns)):
         result[f"{label}_start"] = str(returns.index[0].date()) if len(returns) else None
@@ -109,6 +129,15 @@ def _metadata(analysis: Any, metadata: dict, study=None) -> dict:
         result["backtest_warnings"] = study.warnings
         result["backtest_files"] = {f"backtests/{i:02d}": name for i, name in enumerate(study.equity.columns, 1)}
         result["exclusions"] = "The original holdout excludes trading costs; the backtest comparison deducts the selected fees. Both exclude taxes and FX."
+    if latest_profiles is not None:
+        result["latest_profiles"] = {
+            "as_of": latest_profiles.as_of,
+            "observations": latest_profiles.observations,
+            "settings": latest_profiles.settings,
+            "windows": latest_profiles.windows.rename_axis("window").reset_index().to_dict(orient="records"),
+            "warnings": latest_profiles.warnings,
+            "interpretation": "Fits all supplied history through the last input date. Window means are in-sample estimates, not forecasts or holdout results.",
+        }
     return result
 
 
@@ -122,14 +151,55 @@ def _table(frame: pd.DataFrame, percent_columns: list | None = None) -> str:
     return display.to_html(escape=True, border=0, classes="data", na_rep="—")
 
 
-def report_html(analysis: Any, metadata: dict, study=None) -> str:
+def _latest_profiles_html(profiles: Any) -> str:
+    summary = profiles.summary.rename(columns={
+        "expected_return": "Annual mean return", "volatility": "Annual volatility",
+        "sharpe": "Estimated Sharpe", "worst_window_return": "Lowest annual window mean",
+        "max_weight": "Largest weight", "effective_holdings": "Effective holdings",
+    })
+    windows = profiles.windows.rename(columns={
+        "start": "Start", "end": "End", "observations": "Observations", "years": "Years of observations",
+    }).rename_axis("Window")
+    window_returns = profiles.window_returns.rename_axis("Window")
+    warnings = "".join(f"<li>{html.escape(str(note))}</li>" for note in profiles.warnings)
+    chart = latest_profile_chart(profiles).to_html(
+        full_html=False, include_plotlyjs=False, config={"responsive": True, "displaylogo": False},
+    )
+    return (
+        '<section id="latest-profiles">'
+        f'<h2>Latest model holdings as of {html.escape(str(profiles.as_of))}</h2>'
+        '<p class="source">These model weights use all supplied history through the last input date. '
+        'The date above is the last price observation, not a live quote.</p>'
+        '<p>Low, Medium, and Extreme are relative risk levels within this frontier. They are not universal risk ratings. '
+        'The three historical windows are part of the fit. Their means are in-sample estimates, not forecasts or holdout results.</p>'
+        + (f'<aside><h3>Profile notes</h3><ul>{warnings}</ul></aside>' if warnings else '')
+        + '<h3>Latest weights</h3>'
+        f'<div class="scroll">{_table(weights_frame(profiles))}</div>'
+        '<h3>Profile estimates</h3>'
+        f'<div class="scroll">{_table(summary, ["Annual mean return", "Annual volatility", "Lowest annual window mean", "Largest weight"])}</div>'
+        '<p class="muted">The model minimizes estimated variance at a return target that applies to every historical window. '
+        'Low uses the minimum-variance point. Extreme uses the highest feasible target for the lowest window mean. '
+        'Medium targets the midpoint of this return range, not the midpoint of volatility.</p>'
+        f'<div class="chart">{chart}</div>'
+        '<h3>Historical windows</h3>'
+        f'<p class="muted">The model divides {profiles.observations} return observations into three consecutive windows without overlap. '
+        f'Annual arithmetic means use {profiles.settings["periods_per_year"]:g} observations per year. '
+        'The means assume fixed weights each period and exclude fees and taxes.</p>'
+        f'<div class="scroll">{windows.to_html(escape=True, border=0, classes="data", float_format=lambda value: f"{value:.2f}")}</div>'
+        '<h3>Annual mean return in each window</h3>'
+        f'<div class="scroll">{_table(window_returns)}</div>'
+        '</section>'
+    )
+
+
+def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None) -> str:
     """Return an offline HTML report with a single embedded Plotly bundle."""
-    details = _metadata(analysis, metadata, study)
+    details = _metadata(analysis, metadata, study, latest_profiles)
     source = str(details.get("source", "Unspecified source"))
     source_label = "Synthetic demonstration data" if any(word in source.lower() for word in ("demo", "synthetic")) else "Data source"
     metadata_rows = "".join(
         f"<tr><th>{html.escape(str(key).replace('_', ' ').capitalize())}</th><td>{html.escape(str(value))}</td></tr>"
-        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days")
+        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days", "latest_profiles")
     )
     warnings = "".join(f"<li>{html.escape(str(warning))}</li>" for warning in analysis.warnings)
     warnings_html = f'<aside><h2>Analysis notes</h2><ul>{warnings}</ul></aside>' if warnings else ""
@@ -150,11 +220,12 @@ def report_html(analysis: Any, metadata: dict, study=None) -> str:
     frontier = frontier_chart(analysis).to_html(full_html=False, include_plotlyjs=False, config=chart_options)
     holdout_plot = holdout_chart(analysis).to_html(full_html=False, include_plotlyjs=False, config=chart_options)
     comparison_html = backtest_html(study) if study is not None else ""
+    profiles_html = _latest_profiles_html(latest_profiles) if latest_profiles is not None else ""
     cost_note = ("The original holdout excludes trading costs. The backtest comparison deducts the selected fees."
                  if study is not None else "No trading costs are included.")
     introduction = ("The backtest comparison updates portfolios using only information available before each trade. "
                     "The original fixed-allocation holdout is shown separately."
-                    if study is not None else "Weights are selected using the training period, then evaluated on later, held-out observations.")
+                    if study is not None else "The original holdout selects weights from the training period, then evaluates them on later observations.")
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Efficient Frontier · Research Report</title>
@@ -178,6 +249,7 @@ button,.modebar{{display:none!important}}details{{display:none}}.metadata{{font-
 <p class="muted">PORTFOLIO RESEARCH / REPRODUCIBLE ANALYSIS</p><h1>Efficient Frontier</h1>
 <button onclick="window.print()">Print / save PDF</button>
 <p class="source"><strong>{source_label}:</strong> {html.escape(source)}</p>
+{profiles_html}
 <p>{introduction}
 Training estimates describe historical data. They are not predictions or guarantees of future performance.</p>
 {warnings_html}
@@ -210,7 +282,7 @@ This report is a historical research tool and does not predict investment outcom
 </main></body></html>'''
 
 
-def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None) -> bytes:
+def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None, latest_profiles=None) -> bytes:
     """Bundle the report, inputs, and numeric results for offline inspection."""
     output = io.BytesIO()
     frames = {
@@ -225,12 +297,21 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None) 
             frames[f"backtests/{i:02d}_holdings.csv"] = study.holdings[name]
             frames[f"backtests/{i:02d}_allocations.csv"] = study.allocations[name]
             frames[f"backtests/{i:02d}_trades.csv"] = study.trades[name]
+    if latest_profiles is not None:
+        frames.update({
+            "latest_profile_summary.csv": latest_profiles.summary,
+            "latest_profile_weights.csv": weights_frame(latest_profiles),
+            "latest_profile_windows.csv": latest_profiles.windows,
+            "latest_profile_window_returns.csv": latest_profiles.window_returns,
+            "latest_profile_frontier.csv": latest_profiles.frontier,
+            "latest_profile_frontier_weights.csv": latest_profiles.frontier_weights,
+        })
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        bundle.writestr("report.html", report_html(analysis, metadata, study))
+        bundle.writestr("report.html", report_html(analysis, metadata, study, latest_profiles))
         if study is not None:
             bundle.writestr("findings.md", findings_markdown(study, str(metadata.get("source", "Unspecified source"))))
         bundle.writestr("THIRD_PARTY_NOTICES.txt", "Plotly.js (embedded in report.html)\n\n" + PLOTLY_JS_LICENSE)
         for name, frame in frames.items():
             bundle.writestr(name, csv_text(frame, index_label="Date" if name == "prices.csv" else None))
-        bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata, study), indent=2, default=str))
+        bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata, study, latest_profiles), indent=2, default=str))
     return output.getvalue()

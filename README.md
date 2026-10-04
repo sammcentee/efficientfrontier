@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml)
 
-A local research app built from the original `Efficient Frontier v1.12.R` project. Explore portfolio risk and return, inspect allocations, and compare their performance on a later period excluded from optimization.
+A local research app built from the original `Efficient Frontier v1.12.R` project. Inspect the latest model allocations, compare portfolio risk, and evaluate allocation rules on later historical data.
 
 **New to this? [Start here: no coding needed](#start-here-no-coding-needed).**
 
@@ -11,11 +11,28 @@ A local research app built from the original `Efficient Frontier v1.12.R` projec
 Use adjusted prices for your own assets, from one ticker to a larger portfolio. The original 60-stock list is an optional example.
 
 - **Choose the data frequency.** Use daily, weekly, or monthly CSV prices and set the number of observations per year.
+- **Compare Low, Medium, and Extreme profiles.** Inspect the latest model holdings and their results across three historical windows.
 - **Inspect portfolio risk.** Compare concentration, effective holdings, diversification, and each asset's share of portfolio variance.
 - **Compare backtests.** Inspect costs, drawdown, Sortino, and Calmar alongside returns. Select the curves you want to compare.
 - **Keep the full results.** Chart selections do not remove data from the exports. Reports include the inputs, assumptions, allocations, and risk tables.
 
 The historical stock study below remains a separate example. It uses daily data and 252 observations per year.
+
+## Latest model holdings
+
+The latest model uses all supplied prices through the last available date. It needs at least seven price rows. It divides the returns into three chronological windows. Its objective favors portfolios with a stronger weakest window, measured by annualized arithmetic mean return. It also accounts for covariance and your weight limit.
+
+| Profile | Position on the worst-window return frontier |
+| --- | --- |
+| Low | Minimum estimated volatility for the supplied assets and settings |
+| Medium | Halfway between the Low and Extreme worst-window return targets |
+| Extreme | Highest achievable worst-window mean return, with minimum variance among tied solutions |
+
+These labels describe relative positions in this model. Low can still contain risky assets. Extreme does not use leverage or maximize all possible portfolio variance. Profiles can coincide when the frontier has no meaningful range.
+
+The three windows give each profile a comparison across historical periods. The objective rewards consistency in their estimated means. It does not guarantee positive years, minimize drawdown, or provide a statistical lower bound on future returns. The optimized allocation depends on your assets, history, risk model, and constraints.
+
+**Latest holdings are an in-sample fit.** Their date is the last supplied price date, which can be older than today. The separate backtests rebuild each profile from data available before its execution date. They provide historical evaluation of the rule. [Profile construction and evaluation](docs/BACKTESTING.md#latest-model-holdings-and-profiles) gives the exact method and data requirements.
 
 ## What the stock study found
 
@@ -57,10 +74,28 @@ Keep the launcher window open while using the app. To stop it, press **Ctrl+C** 
 
 ### Your first two minutes
 
-1. Leave **Price data** on **Demo · synthetic**. The sample portfolio loads automatically; you do not need an account, an API key or a price file.
-2. Hover over the **Efficient frontier** chart. Further right means more historical price variability; higher up means a higher return estimated from the training data. These estimates are not forecasts.
-3. Look at the allocations and switch to **Original holdout** to see how the portfolios performed during the later period excluded from optimization.
-4. Try one setting in the sidebar, then click **Build frontier**. When you are comfortable, switch **Price data** to **Upload CSV** or **Yahoo Finance**; the [price-data guide](#price-data) explains what to supply.
+1. Leave **Price data** on **Yahoo Finance**. Enter your tickers or choose **Original 60 holdings**. The default tickers are example inputs.
+2. Set the date range. Select **Build frontier** to download prices and calculate the results.
+3. Open **Latest holdings**. Compare Low, Medium, and Extreme allocations, their fit date, and their three historical windows.
+4. Open **Backtests & holdings** to inspect later performance with costs. Compare drawdown and concentration as well as return.
+5. Inspect the original **Efficient frontier** and **Portfolio risk** for the mean-return model. These estimates are not forecasts.
+6. Open **Portfolio settings explained** or **Backtest methods explained** for help. Select **Build frontier** after a change.
+
+Yahoo Finance needs an internet connection. The app waits for **Build frontier** before it requests Yahoo data. For an offline example, select **Demo · synthetic**. For your own price file, select **Upload CSV**. The [price-data guide](#price-data) explains the required format.
+
+### What the settings mean
+
+| Setting | Effect |
+| --- | --- |
+| Weight limit | Limits each asset's target allocation. A 25% cap needs at least four assets. Prices can move weights above the cap between trades. |
+| Annual risk-free rate | Sets the comparison rate for Sharpe and Sortino. It affects maximum-Sharpe weights but does not add cash. |
+| Data used for training | Sets the earliest observations for the initial fit. A larger share leaves fewer later observations for evaluation. |
+| Covariance shrinkage | Reduces estimated relationships between assets while it keeps each asset's variance. |
+| Backtest comparison | Compares four allocation rules on the same later observations, with the selected trade interval and costs. |
+
+Covariance describes how asset returns move together. Historical estimates can be noisy, particularly with many assets or little data. At 0% shrinkage, the model uses sample covariance. At 100%, it sets covariance between different assets to zero. The default 10% reduces these covariances by 10% and leaves individual variances unchanged. This manual adjustment can reduce sensitivity to noisy estimates, but it does not guarantee better results.
+
+The four backtest methods differ in how they update weights. Buy and hold allocates once. Fixed rebalance restores the original weights. Expanding window refits with all earlier observations. Rolling window refits with a fixed number of recent returns. The [backtest guide](docs/BACKTESTING.md) explains trade delays, costs, and interpretation.
 
 ### Troubleshooting
 
@@ -98,7 +133,8 @@ The app binds to localhost. It needs no credentials or network connection for th
 
 ## What you can do
 
-- View the efficient frontier and allocations at individual target returns.
+- Inspect latest Low, Medium, and Extreme allocations on the worst-window return frontier.
+- View the original mean-return frontier and allocations at individual target returns.
 - Compare minimum volatility, maximum Sharpe, and equal-weight portfolios.
 - Analyze one ticker or a larger custom universe; the original 60-ticker list is an optional preset.
 - Optionally set a maximum starting position size, plus risk-free rate, training fraction, and covariance shrinkage. Position caps are off by default.
@@ -111,6 +147,28 @@ The app binds to localhost. It needs no credentials or network connection for th
 - Download an offline interactive HTML report, Markdown findings and CSVs; use the report's **Print / save PDF** button for a static copy.
 
 The demo is explicitly synthetic, with `DEMO_*` asset names. It is a software demonstration, not market history. Yahoo failures are reported rather than replaced with synthetic prices.
+
+## Industry and sector allocations
+
+**There is no universal optimal percentage for each sector.** The SEC describes asset allocation as a choice that depends on investment horizon and risk tolerance. Diversification applies both across asset classes and within them. [SEC Investor.gov](https://www.investor.gov/introduction-investing/getting-started/asset-allocation)
+
+In this optimizer, the supplied assets, estimated returns, covariance, and weight limits determine the allocation. A high-return historical result can still depend heavily on one company or sector. A sector label alone does not establish that an allocation fits your goals.
+
+GICS separates **sectors**, **industry groups**, **industries**, and **sub-industries**. Comparisons need the same classification level and date. [MSCI GICS](https://www.msci.com/indexes/index-resources/gics)
+
+Bonds and gold are separate asset classes, not equity sectors. A broad ETF can contain companies from several sectors.
+
+A broad equity benchmark offers a useful comparison for sector weights. For example, MSCI ACWI covers large and medium companies across developed and emerging markets. Its composition represents that market, not an optimized allocation for your goals. [MSCI ACWI](https://www.msci.com/indexes/index/892400/msci-acwi-index)
+
+For a practical review:
+
+1. Compare each profile with a benchmark for the same markets and date. Record large sector differences.
+2. Inspect each ETF's underlying holdings. Combine repeated company exposures across funds and direct stocks. Several ETF tickers do not establish diversification. [SEC Investor.gov](https://www.investor.gov/introduction-investing/getting-started/asset-allocation)
+3. Compare allocation weights with shares of portfolio variance. Inspect common factor exposures as well as sector names. Factors describe common drivers of risk and return. [MSCI factor analysis](https://www.msci.com/data-and-analytics/factor-investing/facs)
+4. Compare concentration, drawdown, and costs across several historical windows. Keep the evaluation rules fixed before each comparison. Backtests remain hypothetical. [SEC performance claims bulletin](https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-bulletins-47)
+5. Choose a rebalance rule in advance. Include trade costs when you compare it with buy and hold. Rebalancing restores an intended allocation after prices change. [SEC Investor.gov](https://www.investor.gov/introduction-investing/getting-started/asset-allocation)
+
+The app calculates allocations and covariance risk for the supplied price series. It does not infer sector membership or ETF holdings from ticker names. The review above requires separate classification and holdings data.
 
 ## Stock-holdings comparison
 
@@ -237,6 +295,8 @@ For large inputs, the correlation chart initially displays a selectable subset t
 ```
 
 The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Risk exports include `risk_summary.csv` and `risk_contributions.csv`.
+
+With sufficient history, latest profile exports include `latest_profile_summary.csv` and `latest_profile_weights.csv`. The bundle also includes window dates, window returns, frontier estimates, and frontier weights. `metadata.json` records the fit date and assumptions. The [export guide](docs/BACKTESTING.md#reproduce-and-inspect) lists the filenames.
 
 Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
 

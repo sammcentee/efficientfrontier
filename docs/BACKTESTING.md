@@ -1,6 +1,6 @@
 # Backtesting methods and accounting
 
-The **Backtests & holdings** tab compares four methods with minimum-volatility, maximum-Sharpe and equal-weight targets. The CLI enables the same comparison with `--backtests`. All supplied assets remain eligible; there is no ticker-count or holdings-count cap.
+The **Backtests & holdings** tab compares four methods. The original targets are minimum volatility, maximum Sharpe, and equal weight. With sufficient history, the app and CLI also include Low, Medium, and Extreme profiles. The CLI enables the comparison with `--backtests`. All supplied assets remain eligible. There is no fixed ticker-count or holdings-count cap.
 
 | Method | Target weights | Estimation sample |
 | --- | --- | --- |
@@ -9,7 +9,7 @@ The **Backtests & holdings** tab compares four methods with minimum-volatility, 
 | Expanding window | Estimate new targets every N observations | All returns available before the execution close |
 | Rolling window | Estimate new targets every N observations | Latest L returns available before the execution close |
 
-There are 12 method/portfolio combinations. Equal-weight targets do not depend on estimated returns, so the fixed, expanding and rolling equal-weight paths intentionally coincide. This is not three independent pieces of evidence. The original **holdout** remains available as a separate, cost-free calculation with its original entry timing.
+The original targets give 12 method/portfolio combinations. With the three profiles, the comparison contains 24 combinations. Equal-weight targets do not depend on estimated returns, so the fixed, expanding and rolling equal-weight paths intentionally coincide. This is not three independent pieces of evidence. The original **holdout** remains available as a separate, cost-free calculation with its original entry timing.
 
 ## Timing and information
 
@@ -27,6 +27,45 @@ All schedules use the supplied price rows. With weekly data, `--rebalance-every 
 The `--periods-per-year` option controls annualization. Its default is 252, and it accepts positive, finite numbers. App presets include 252, 365, 52, and 12. Custom app values must be finite and at least 1. This setting does not resample prices or change trade dates. Yahoo downloads remain daily.
 
 Both engines need at least two training returns and two holdout returns. The CSV reader accepts at least five price rows. The chosen split must still meet both return counts. Results include a warning for fewer than 30 training returns. They also include a warning when the asset count equals or exceeds the training return count.
+
+## Latest model holdings and profiles
+
+The latest model fits all supplied returns through the final price date. It uses three chronological, nonoverlapping windows with nearly equal numbers of returns. Each window needs at least two returns, so the fit needs at least six returns in total. Window dates identify the first and last return observations. The annualization setting converts each window's arithmetic mean into an annual estimate.
+
+For weights `w`, each window has a portfolio mean `mu_window @ w`. The worst-window return is the smallest of these three means. The optimizer finds the weights with the largest achievable worst-window return. It does not select each asset's worst window separately.
+
+Covariance uses the complete fit period and the selected shrinkage. Weights are long-only, sum to one, and obey the chosen per-asset cap. For each return target, the frontier minimizes portfolio variance with that target as a minimum in every window:
+
+```text
+minimize: w.T @ covariance @ w
+subject to: mu_window @ w >= target, for all three windows
+            sum(w) = 1
+            0 <= w_i <= max_weight
+```
+
+The solver allows return-target slack of `1e-8 * S` to preserve the minimum-variance tie-break near numerical ties. Here, `S` is the largest absolute annual asset mean across the three windows, or one if all means are zero. The final check rejects target shortfalls greater than `2e-8 * S`. Tables report the actual means of the computed weights.
+
+If the solver reports reduced accuracy, the profile notes retain that warning. The output must still pass the weight and return-target checks.
+
+The first target is the worst-window mean of the minimum-variance portfolio. The last target is the largest achievable worst-window mean. The profiles select these positions:
+
+| Profile | Return target |
+| --- | --- |
+| Low | First target: minimum variance |
+| Medium | Arithmetic midpoint of the first and last targets |
+| Extreme | Last target, with minimum variance among portfolios that meet it |
+
+The labels are relative to the supplied assets and model. Extreme is the high-return endpoint of this efficient branch. It does not add leverage or seek the largest possible variance. Medium is halfway along the return targets, not necessarily halfway along volatility. Identical targets or tied solutions can make profiles coincide.
+
+The objective favors the weakest of three estimated window means. It is not a forecast, a statistical confidence bound, or a minimum-drawdown objective. It does not guarantee positive returns in any future year. Reports show the three windows and give a warning when any window contains fewer observations than the selected periods per year. They also warn when no feasible portfolio has positive estimated means in all windows. A separate warning identifies profiles with no distinct risk levels.
+
+**Latest model holdings use an in-sample fit.** Their `as_of` date is the final supplied price date, not a guarantee of current market quotes. The original mean-return frontier and holdout remain separate.
+
+For historical profile backtests, each fit uses only returns through the close before execution. The engine forms three windows inside that fit period. Fixed rebalance retains the initial profile targets. Expanding and rolling methods rebuild their profiles at each scheduled fit. Latest full-history weights never enter those earlier trades.
+
+The initial sample and rolling window each need at least six returns for the complete profile comparison. If either is too short, the app and CLI retain the original 12 combinations and explain why they omitted the profiles. A latest full-history fit can still be available when the earlier backtest fit is too short.
+
+The Python API keeps `include_profiles=False` as its compatibility default. `run_backtests(..., include_profiles=True)` requests the additional profiles. Direct API calls reject shorter fits. The app and CLI use the fallback above.
 
 ## Costs and constraints
 
@@ -95,7 +134,20 @@ A fixed list chosen later in history creates universe-selection and survivorship
   --rebalance-every 21 --cost-bps 10 --output results/holdings-study
 ```
 
-The report includes `findings.md`, `backtest_metrics.csv`, `backtest_curve.csv` and one set of allocation, holdings and trade CSVs per combination under `backtests/`. `metadata.json` maps numbered file prefixes to strategy names. Trade logs record the exact estimation start/end dates as well as wealth, fees and turnover. All exports include the full input universe.
+Latest profile exports contain:
+
+| File | Contents |
+| --- | --- |
+| `latest_profile_summary.csv` | Profile estimates and concentration measures |
+| `latest_profile_weights.csv` | Complete asset weights for Low, Medium, and Extreme |
+| `latest_profile_windows.csv` | Dates and observation counts for the three windows |
+| `latest_profile_window_returns.csv` | Annual arithmetic mean estimates for each profile and window |
+| `latest_profile_frontier.csv` | Worst-window frontier estimates |
+| `latest_profile_frontier_weights.csv` | Complete asset weights at each frontier point |
+
+`metadata.json` includes the latest fit date, observation count, window details, settings, and warnings. These exports describe the latest model, separately from historical strategy allocations.
+
+The backtest report includes `findings.md`, `backtest_metrics.csv`, `backtest_curve.csv` and one set of allocation, holdings and trade CSVs per combination under `backtests/`. `metadata.json` maps numbered file prefixes to strategy names. Trade logs record the exact estimation start/end dates as well as wealth, fees and turnover. All exports include the full input universe.
 
 App selections change only the curves on screen. They do not remove strategies or assets from the exports.
 

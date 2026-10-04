@@ -118,6 +118,28 @@ def test_chart_filter_rejects_unknown_strategy(study):
         backtest_chart(study, strategies=["Missing portfolio"])
 
 
+def test_chart_styles_new_profiles_and_keeps_all_existing_paths(study):
+    for method in ("Buy and hold", "Fixed rebalance", "Expanding window", "Rolling window"):
+        for profile in ("Low", "Medium", "Extreme"):
+            study.equity[f"{method} · {profile}"] = study.equity.iloc[:, 0]
+    chart = backtest_chart(study)
+    assert len(chart.data) == 24
+    assert len({trace.line.color for trace in chart.data[12:15]}) == 3
+    assert chart.data[12].line.dash == "solid"
+    assert chart.data[15].line.dash == "dash"
+    assert chart.data[18].line.dash == "dot"
+    assert chart.data[21].line.dash == "dashdot"
+
+
+def test_profile_backtest_reports_explain_separate_past_only_fits(study):
+    study.settings["include_profiles"] = True
+    for document in (backtest_html(study), findings_markdown(study, "Synthetic demo")):
+        assert "relative risk levels within each fit" in document
+        assert "only the history available before each allocation" in document
+        assert "latest model holdings use all supplied history" in document
+        assert "separate from these backtests and the original holdout" in document
+
+
 def test_html_escapes_asset_names_settings_and_warnings_without_bundle(study):
     best = study.metrics.total_return.idxmax()
     study.holdings[best].rename(index={"AAA": '<img src=x onerror="asset()">'}, inplace=True)

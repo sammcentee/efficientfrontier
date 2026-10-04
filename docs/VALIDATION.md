@@ -1,5 +1,32 @@
 # Validation record
 
+## Latest risk profiles and Yahoo default: 4 October 2026
+
+**257 tests passed**, including **20 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65 on Linux/WSL.
+
+- Yahoo Finance is the initial app source. Tests confirm that downloads start only after **Build frontier**.
+- Profile tests cover known solutions, weight limits, short histories, zero variance, data scaling, and nearly tied return estimates.
+- An independent analytic reference matched 80 two-asset frontier cases across different caps and shrinkage levels. Maximum allocation error was below `3.2e-7`.
+- A separate scale check confirmed the minimum-variance tie-break at the Extreme endpoint. Numerical tolerances are documented in [Backtesting](BACKTESTING.md#latest-model-holdings-and-profiles).
+- A half-variance objective resolved a solver precision warning. Tests confirm that future approximate solver results produce explicit profile notes.
+- Latest profiles use all supplied history. Changes to the training split do not change that fit. Backtest targets exclude future prices and execution-day returns.
+- Profile backtests preserve the original 12 combinations and add 12 profile combinations. Costs and holding contributions reconcile.
+- Reports contain profile weights, estimates, windows, and frontier data. Short-history reruns remove obsolete generated profile files and preserve unrelated files.
+
+The suite still reports the pre-existing pandas warning in the invalid-date rejection test. That test passes.
+
+### Browser and live-data checks
+
+The T3 Code collaborative browser loaded live Yahoo prices for the six default example tickers. The request returned 1,697 adjusted-price rows from 2 January 2020 through 2 October 2026.
+
+- The initial screen showed Yahoo Finance and waited for submission. Settings and backtest explanations were available before calculation.
+- The Latest holdings view showed three dated profiles. The backtest charts initially showed expanding Low, Medium, and Extreme alongside fixed equal weight.
+- The downloaded ZIP contained all 24 backtest holding files. Independent calculations confirmed profile weight totals, window boundaries, and annual arithmetic window means.
+- At 390 × 844, the profile cards stacked vertically. Profile and backtest charts had no page-wide horizontal overflow.
+- The offline report rendered six charts without external requests. Its chart titles fit the narrow viewport, and wide tables stayed in scroll areas.
+
+This live request confirms provider access during this check only. Automated Yahoo tests still use mocked responses. These browser checks do not establish physical-phone or native Windows/macOS support. No new PDF was generated in this pass.
+
 ## General portfolio upgrade: 4 October 2026
 
 **212 tests passed**. The suite contains **16 Streamlit AppTest cases**. Dependency checks passed. These checks used Python 3.14 and Streamlit 1.65 on Linux/WSL.
