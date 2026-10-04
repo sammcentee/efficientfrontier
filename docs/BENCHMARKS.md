@@ -19,7 +19,8 @@ Benchmark prices must cover every supplied asset date. The app does not fill mis
 
 | Asset source | Benchmark source |
 | --- | --- |
-| Yahoo Finance | Reuse the asset columns when both SPY and QQQ are present. Otherwise, download both benchmark series separately. |
+| Nasdaq-100 | Reuse the SPY/QQQ prices that define the complete market calendar for constituent eligibility. |
+| Other Yahoo inputs | Reuse the asset columns when both SPY and QQQ are present. Otherwise, download both benchmark series separately. |
 | CSV | Reuse both SPY and QQQ asset columns, or supply a separate file with `Date`, `SPY`, and `QQQ` columns. |
 | CSV with an explicit download choice | Request benchmark data from Yahoo for the supplied asset dates. |
 | Synthetic demo | No comparison with actual market benchmarks. |
@@ -30,17 +31,22 @@ CSV analysis remains offline unless you explicitly request a download. A separat
 
 These comparisons require asset and benchmark prices in USD. The currency declaration records your assumption. It does not verify the data or perform currency conversion. A portfolio in another currency needs consistent conversion before this comparison. Otherwise, exchange-rate changes can distort the result.
 
-If benchmark data is unavailable or invalid, the report gives the reason. Portfolio analysis remains available. A non-USD declaration disables the benchmark comparison without currency conversion.
+If benchmark data is unavailable or invalid, the report gives the reason. Other portfolio analysis remains available. A non-USD declaration disables the benchmark comparison without currency conversion.
+
+The Nasdaq-100 loader also needs SPY and QQQ dates to check constituent history. It downloads these series even when you disable benchmark comparisons. Failure to obtain this calendar stops the Nasdaq-100 analysis. The [universe coverage rules](../README.md#the-full-nasdaq-100-universe) explain exclusions and the current-membership limitation.
 
 ## App use
 
-1. Open **Market benchmarks** in the sidebar.
-2. Enable **Compare with S&P 500 and Nasdaq-100**.
+1. Open **Market & settings**, then **Fine-tune the model**.
+2. Enable **Include S&P 500 and Nasdaq-100 benchmarks**.
 3. Set **Price currency** to **USD** only when every asset price uses USD. Otherwise, select **Other currency**.
-4. Select **Build frontier** to apply the inputs.
-5. Open **Market comparison** to inspect the results and evidence.
+4. Select **Find portfolios** for a new analysis, or **Update portfolios** to replace the result.
+5. Select **Compare**. Inspect **Comparison settings**, then select **Run comparison**.
+6. Choose an **Allocation rule** and **Risk level**. Open **Consistency and uncertainty** for period results and statistical evidence.
 
-For an offline CSV comparison, use **Benchmark adjusted prices (optional)** to supply the separate benchmark file. For a download, select **Download Yahoo benchmarks for this CSV**. An uploaded file takes precedence over the download choice. If both benchmark columns already exist in the asset file, the app can reuse them without a separate file.
+The app displays the Highest profile as **Extreme** in strategy names and exports. All comparison strategies remain in the statistical test family when you change the displayed rule or risk level.
+
+For an offline CSV comparison, use **Benchmark prices (optional)** to supply the separate benchmark file. For a download, select **Download Yahoo benchmarks for this CSV**. An uploaded file takes precedence over the download choice. If both benchmark columns already exist in the asset file, the app can reuse them without a separate file.
 
 ## Command-line use
 
@@ -80,7 +86,7 @@ The selected trading fee is separate from fund expenses already reflected in ETF
 
 The original efficient frontier uses the training sample. Latest model holdings use all supplied history. Both are fitted estimates. Benchmark markers use the same fit period as the corresponding frontier. Neither supplies evidence of future benchmark outperformance.
 
-Historical backtests fit each strategy with information available before its execution date. Benchmark evidence uses their later evaluation returns. If backtests are disabled, the evidence uses the original cost-free holdout instead. The report identifies which evaluation supplies the evidence.
+Historical backtests fit each strategy with information available before its execution date. Benchmark evidence uses their later evaluation returns. Before you run the app comparison, report evidence uses the original cost-free holdout. The CLI also uses this holdout when you omit `--backtests`. The report identifies which evaluation supplies the evidence.
 
 The comparison also divides the evaluation returns into up to three chronological windows without overlap. Fewer than three returns give fewer windows. These evaluation windows differ from the three estimation windows in the profile model. A result that changes sign across evaluation windows shows period sensitivity. The windows do not form three independent experiments.
 
@@ -162,6 +168,8 @@ Statuses use Holm-adjusted p-values at the 5% level:
 These labels summarize statistical results. They do not rank future prospects. A negative mean advantage that passes its test takes precedence over a positive alpha label.
 
 ## Exports
+
+In the app, open **Export your research**. Select **Prepare report**, then **Download report and data**. The bundle contains the completed calculations. Run the comparison first if you need its backtests and statistical evidence.
 
 | File | Contents |
 | --- | --- |

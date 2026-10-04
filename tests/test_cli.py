@@ -20,6 +20,27 @@ def benchmark_inputs():
     return prices.iloc[:, :2], prices.loc[:, ["SPY", "QQQ"]]
 
 
+@pytest.fixture
+def nasdaq_universe(benchmark_inputs):
+    from efficient_frontier.universe import NASDAQ100_URL, UNIVERSE_LIMITATION, UniversePrices, UniverseSnapshot
+
+    prices, benchmarks = benchmark_inputs
+    members = pd.DataFrame({"symbol": [*prices.columns, "SHORT"],
+                            "name": ["Company A", "Company B", "Recent company"],
+                            "industry": ["Technology", "Industrials", "Technology"]})
+    snapshot = UniverseSnapshot(members, NASDAQ100_URL, "2026-10-02", "2026-10-04T12:00:00+00:00")
+    coverage = members.assign(status=["included", "included", "excluded"],
+                              reason=["", "", "Incomplete historical prices."],
+                              observations=[len(prices), len(prices), 20],
+                              first_date=[str(prices.index[0].date()), str(prices.index[0].date()), str(prices.index[-20].date())],
+                              last_date=str(prices.index[-1].date()))
+    metadata = {"universe": "Current Nasdaq-100 members", "universe_source_url": NASDAQ100_URL,
+                "universe_source_date": snapshot.source_date, "universe_retrieved_at": snapshot.retrieved_at,
+                "universe_requested": 3, "universe_included": 2, "universe_excluded": 1,
+                "universe_limitation": UNIVERSE_LIMITATION, "universe_coverage": coverage.to_dict(orient="records")}
+    return snapshot, UniversePrices(prices, coverage, benchmarks, metadata)
+
+
 def forbid_download(*args, **kwargs):
     pytest.fail("This CLI invocation must not request network data.")
 
@@ -385,4 +406,141 @@ def test_demo_rejects_market_benchmarks_without_network(tmp_path, monkeypatch, c
     monkeypatch.setattr(sys, "argv", ["efficient_frontier", *flags, "--output", str(output)])
     assert cli.main() == 1
     assert "Synthetic demo data cannot use real market benchmarks" in capsys.readouterr().err
+    assert not output.exists()
+
+
+def test_nasdaq100_source_exports_coverage_and_reuses_downloaded_benchmarks(
+    tmp_path, monkeypatch, capsys, nasdaq_universe,
+):
+    from efficient_frontier import __main__ as cli
+
+    snapshot, universe = nasdaq_universe
+    calls = []
+    monkeypatch.setattr(cli, "fetch_nasdaq100", lambda: snapshot)
+
+    def download(current_snapshot, start, end):
+        calls.append((current_snapshot, start, end))
+        return universe
+
+    monkeypatch.setattr(cli, "download_universe_prices", download)
+    monkeypatch.setattr(cli, "download_prices", forbid_download)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    output = tmp_path / "nasdaq"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--nasdaq100", "--start", "2022-01-01",
+                                      "--end", "2023-01-01", "--output", str(output)])
+    assert cli.main() == 0
+    assert len(calls) == 1
+    assert calls[0][0] is snapshot
+    assert calls[0][1:] == ("2022-01-01", "2023-01-01")
+    text = capsys.readouterr().out
+    assert "Nasdaq-100 coverage: 2 of 3 securities included; 1 excluded." in text
+    assert "not the members at each historical date" in text
+    assert "2026-10-02" in text
+    assert snapshot.source_url in text
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["source"] == "Nasdaq-100 · Yahoo Finance"
+    assert metadata["universe_coverage"] == universe.coverage.to_dict(orient="records")
+    assert metadata["universe_source_date"] == snapshot.source_date
+    assert metadata["universe_retrieved_at"] == snapshot.retrieved_at
+    assert metadata["universe_requested"] == 3
+    assert metadata["universe_excluded"] == 1
+    assert metadata["requested_start"] == "2022-01-01"
+    assert metadata["requested_end_exclusive"] == "2023-01-01"
+    assert metadata["benchmark_source"] == "Yahoo Finance · Nasdaq-100 download"
+    assert list(pd.read_csv(output / "weights.csv", index_col=0).index) == list(universe.prices.columns)
+    pd.testing.assert_frame_equal(pd.read_csv(output / "benchmark_prices.csv", index_col=0, parse_dates=True),
+                                  universe.benchmarks, check_freq=False)
+    coverage = pd.read_csv(output / "universe_coverage.csv")
+    assert coverage.status.tolist() == ["included", "included", "excluded"]
+    assert coverage.loc[coverage.symbol == "SHORT", "reason"].item() == "Incomplete historical prices."
+    assert "Universe coverage" in (output / "report.html").read_text()
+
+    # The default stays offline and removes only the obsolete generated coverage file.
+    preserved = output / "universe_coverage_notes.csv"
+    preserved.write_text("Keep this user file.\n")
+    monkeypatch.setattr(cli, "fetch_nasdaq100", forbid_download)
+    monkeypatch.setattr(cli, "download_universe_prices", forbid_download)
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--output", str(output)])
+    assert cli.main() == 0
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["source"] == "Demo · synthetic"
+    assert "universe_coverage" not in metadata
+    assert not (output / "universe_coverage.csv").exists()
+    assert preserved.read_text() == "Keep this user file.\n"
+
+
+@pytest.mark.parametrize("benchmark_mode", ["disabled", "other_currency", "csv", "download"])
+def test_nasdaq100_source_preserves_explicit_benchmark_controls(
+    tmp_path, monkeypatch, nasdaq_universe, benchmark_mode,
+):
+    from efficient_frontier import __main__ as cli
+
+    snapshot, universe = nasdaq_universe
+    monkeypatch.setattr(cli, "fetch_nasdaq100", lambda: snapshot)
+    monkeypatch.setattr(cli, "download_universe_prices", lambda *args: universe)
+    monkeypatch.setattr(cli, "download_prices", forbid_download)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    if benchmark_mode == "disabled":
+        flags = ["--no-benchmarks"]
+    elif benchmark_mode == "other_currency":
+        flags = ["--currency", "EUR"]
+    elif benchmark_mode == "csv":
+        path = tmp_path / "override.csv"
+        (universe.benchmarks * 2).to_csv(path)
+        flags = ["--benchmark-csv", str(path)]
+    else:
+        flags = ["--download-benchmarks"]
+        calls = []
+
+        def download(dates):
+            calls.append(dates)
+            return universe.benchmarks * 2
+
+        monkeypatch.setattr(cli, "download_benchmarks", download)
+    output = tmp_path / "report"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--nasdaq100", *flags, "--output", str(output)])
+    assert cli.main() == 0
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["universe_included"] == 2
+    assert (output / "universe_coverage.csv").is_file()
+    if benchmark_mode in ("disabled", "other_currency"):
+        assert "benchmarks_note" in metadata
+        assert not (output / "benchmark_prices.csv").exists()
+    else:
+        assert metadata["benchmark_source"] == ("CSV: override.csv" if benchmark_mode == "csv" else "Yahoo Finance")
+        pd.testing.assert_frame_equal(pd.read_csv(output / "benchmark_prices.csv", index_col=0, parse_dates=True),
+                                      universe.benchmarks * 2, check_freq=False)
+        if benchmark_mode == "download":
+            assert len(calls) == 1
+            pd.testing.assert_index_equal(calls[0], universe.prices.index)
+
+
+@pytest.mark.parametrize("failure", ["snapshot", "coverage"])
+def test_nasdaq100_failure_does_not_fall_back_to_demo(tmp_path, monkeypatch, capsys, nasdaq_universe, failure):
+    from efficient_frontier import __main__ as cli
+    from efficient_frontier.universe import UniversePrices
+
+    snapshot, universe = nasdaq_universe
+    monkeypatch.setattr(cli, "demo_prices", forbid_download)
+    monkeypatch.setattr(cli, "download_prices", forbid_download)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    if failure == "snapshot":
+        def unavailable():
+            raise ValueError("The current Nasdaq-100 list is unavailable or incomplete.")
+
+        monkeypatch.setattr(cli, "fetch_nasdaq100", unavailable)
+        monkeypatch.setattr(cli, "download_universe_prices", forbid_download)
+        error = "current Nasdaq-100 list is unavailable"
+    else:
+        excluded = UniversePrices(
+            universe.prices.iloc[:, :0], universe.coverage.assign(status="excluded", reason="No complete prices."),
+            universe.benchmarks, {**universe.metadata, "universe_included": 0, "universe_excluded": 3},
+        )
+        monkeypatch.setattr(cli, "fetch_nasdaq100", lambda: snapshot)
+        monkeypatch.setattr(cli, "download_universe_prices", lambda *args: excluded)
+        error = "Only 0 of 3 Nasdaq-100 securities have complete prices. At least two are required. 3 securities were excluded."
+    output = tmp_path / "failed"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--nasdaq100", "--output", str(output)])
+    assert cli.main() == 1
+    assert error in capsys.readouterr().err
     assert not output.exists()

@@ -10,6 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .benchmark_report import add_benchmark_paths, benchmark_html, benchmark_markdown
+from .style import COLORS, style_chart
 
 
 METRICS = {
@@ -159,8 +160,6 @@ def findings(study: Any) -> list[str]:
 
 def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None, benchmark_equity=None) -> go.Figure:
     """Plot selected paths without changes to the complete study data."""
-    colors = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff",
-              "Low": "#6cbaff", "Medium": "#edb1f1", "Extreme": "#ff8b87"}
     dashes = {"Buy and hold": "solid", "Fixed rebalance": "dash", "Expanding window": "dot", "Rolling window": "dashdot"}
     figure = go.Figure()
     names = study.equity.columns if strategies is None else strategies
@@ -173,22 +172,15 @@ def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | N
         values = path / path.cummax() - 1 if drawdown else path * 10_000
         figure.add_trace(go.Scatter(
             x=study.equity.index, y=values, name=html.escape(str(name)), mode="lines",
-            line={"color": colors.get(policy, "#f3a7da"), "dash": dashes.get(method, "solid"), "width": 2},
+            line={"color": COLORS.get(policy, "#737b85"), "dash": dashes.get(method, "solid"), "width": 2},
             hovertemplate="%{x|%Y-%m-%d}<br>" + ("Drawdown: %{y:.2%}" if drawdown else "Net portfolio value: %{y:,.2f}")
             + "<extra>%{fullData.name}</extra>",
         ))
     add_benchmark_paths(figure, benchmark_equity, drawdown)
-    figure.update_layout(
-        title={"text": "Backtest drawdowns" if drawdown else "Backtest performance", "font": {"size": 19}},
-        template="plotly_dark", paper_bgcolor="#111c2e", plot_bgcolor="#111c2e",
-        font={"family": "Arial, sans-serif", "color": "#e6edf7"},
-        height=650, margin={"l": 55, "r": 15, "t": 55, "b": 200},
-        legend={"orientation": "h", "y": -0.2, "x": 0, "xanchor": "left", "maxheight": 150,
-                "font": {"size": 11}}, hovermode="x unified",
-    )
-    figure.update_xaxes(title="Date", gridcolor="#26344a")
+    style_chart(figure, "Backtest drawdowns" if drawdown else "Backtest performance", hovermode="x unified")
+    figure.update_xaxes(title="Date")
     figure.update_yaxes(title="Drawdown" if drawdown else "Value (initial 10,000)",
-                        tickformat=".1%" if drawdown else ",.0f", gridcolor="#26344a", automargin=True)
+                        tickformat=".1%" if drawdown else ",.0f")
     return figure
 
 
@@ -244,12 +236,11 @@ def backtest_html(study: Any, benchmarks=None, evidence=None) -> str:
     bar_rows = holdings.sort_values("pnl_contribution")
     bars = go.Figure(go.Bar(
         x=bar_rows["pnl_contribution"], y=[html.escape(str(asset)) for asset in bar_rows.index],
-        orientation="h", marker_color=["#40d4be" if value >= 0 else "#ef8c8c" for value in bar_rows["pnl_contribution"]],
+        orientation="h", marker_color=["#3977b8" if value >= 0 else "#ad5b57" for value in bar_rows["pnl_contribution"]],
         hovertemplate="%{y}<br>P&L / initial capital: %{x:.2%}<extra></extra>",
     ))
-    bars.update_layout(title={"text": "Holding contributions", "font": {"size": 19}}, template="plotly_dark",
-                       paper_bgcolor="#111c2e", plot_bgcolor="#111c2e", height=430,
-                       margin={"l": 110, "r": 25, "t": 65, "b": 65})
+    style_chart(bars, "Holding contributions", height=430)
+    bars.update_layout(margin={"l": 65, "r": 18, "t": 55, "b": 65})
     bars.update_xaxes(title="P&L / initial capital", tickformat=".1%", automargin=True)
     chart_options = {"full_html": False, "include_plotlyjs": False,
                      "config": {"responsive": True, "displaylogo": False}}

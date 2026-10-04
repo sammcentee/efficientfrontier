@@ -1,12 +1,16 @@
 import base64
+from datetime import date
 import html
 from io import BytesIO
 import json
 from pathlib import Path
+from types import SimpleNamespace
+import zipfile
 
 import numpy as np
 import pandas as pd
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 
@@ -14,24 +18,28 @@ APP = Path(__file__).resolve().parents[1] / "app.py"
 
 
 @pytest.fixture(autouse=True)
-def offline_benchmark_downloads(monkeypatch):
-    from efficient_frontier import data
+def offline_app(monkeypatch):
+    from efficient_frontier import data, universe
 
+    st.cache_data.clear()
+    demo = data.demo_prices().iloc[:240].copy()
+    monkeypatch.setattr(data, "demo_prices", lambda: demo.copy())
     calls = []
 
-    def unavailable(dates):
-        calls.append(dates)
-        raise ValueError("Benchmark downloads are unavailable in offline AppTests.")
+    def blocked(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("An AppTest attempted an unmocked market download.")
 
-    monkeypatch.setattr(data, "download_benchmarks", unavailable)
-    return calls
+    monkeypatch.setattr(data, "download_prices", blocked)
+    monkeypatch.setattr(data, "download_benchmarks", blocked)
+    monkeypatch.setattr(universe, "fetch_nasdaq100", blocked)
+    monkeypatch.setattr(universe, "download_universe_prices", blocked)
+    yield calls
+    st.cache_data.clear()
 
 
 @pytest.fixture
 def market_prices():
-    import streamlit as st
-
-    st.cache_data.clear()
     rng = np.random.default_rng(902)
     return pd.DataFrame(
         100 * np.exp(np.cumsum(rng.normal([.0008, .0005, .0006], [.012, .009, .011], (360, 3)), axis=0)),
@@ -40,632 +48,730 @@ def market_prices():
     )
 
 
+@pytest.fixture
+def nasdaq_data(monkeypatch, market_prices):
+    from efficient_frontier import universe
+
+    prices = market_prices.set_axis(["AAA", "BBB", "CCC"], axis=1)
+    members = pd.DataFrame({"symbol": ["AAA", "BBB", "CCC", "MISSING"],
+                            "name": ["First company", "Second company", "Third company", "Missing company"],
+                            "industry": ["Unknown"] * 4})
+    coverage = members.assign(status=["included"] * 3 + ["excluded"], reason=[""] * 3 + ["Incomplete prices"])
+    metadata = {
+        "universe_requested": 4, "universe_included": 3, "universe_excluded": 1,
+        "universe_coverage": coverage.to_dict(orient="records"), "universe_limitation": universe.UNIVERSE_LIMITATION,
+        "universe_source_date": "2026-10-01", "universe_retrieved_at": "2026-10-04T09:00:00+00:00",
+    }
+    snapshot = universe.UniverseSnapshot(members, universe.NASDAQ100_URL, "2026-10-01", "2026-10-04T09:00:00+00:00")
+    loaded = universe.UniversePrices(prices, coverage, market_prices[["SPY", "QQQ"]], metadata)
+    calls = []
+
+    def fetch():
+        calls.append("members")
+        return snapshot
+
+    def download(actual_snapshot, start, end, *, progress=None):
+        calls.append((start, end))
+        pd.testing.assert_frame_equal(actual_snapshot.members, members)
+        if progress is not None:
+            progress(4, 4, "All fixture securities checked")
+        return loaded
+
+    monkeypatch.setattr(universe, "fetch_nasdaq100", fetch)
+    monkeypatch.setattr(universe, "download_universe_prices", download)
+    return SimpleNamespace(prices=prices, coverage=coverage, metadata=metadata, calls=calls)
+
+
+def app_start():
+    return AppTest.from_file(str(APP), default_timeout=30).run()
+
+
+def demo_app():
+    app = app_start()
+    app.selectbox(key="market").select("Demo").run()
+    return app.button(key="build").click().run()
+
+
+def market_app(monkeypatch, prices):
+    from efficient_frontier import data
+
+    monkeypatch.setattr(data, "download_prices", lambda *args: prices)
+    app = app_start()
+    app.selectbox(key="market").select("My tickers").run()
+    app.text_area(key="ticker_text").set_value(",".join(prices.columns))
+    return app.button(key="build").click().run()
+
+
+def run_comparison(app):
+    app.segmented_control(key="view").set_value("Compare").run()
+    return app.button(key="run_comparison").click().run()
+
+
+def research_view(app, topic):
+    app.segmented_control(key="view").set_value("Research").run()
+    return app.selectbox(key="research_topic").select(topic).run()
+
+
+def figures(app):
+    return [json.loads(item.proto.spec) for item in app.get("plotly_chart")]
+
+
 def chart_values(values):
     if isinstance(values, dict):
         return np.frombuffer(base64.b64decode(values["bdata"]), dtype=values["dtype"])
     return np.asarray(values)
 
 
-def demo_app():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
-    return app.selectbox(key="source").select("Demo · synthetic").run()
+def test_nasdaq_is_default_and_no_network_or_work_starts_before_submit(nasdaq_data, offline_app):
+    app = app_start()
+    assert not app.exception
+    assert app.selectbox(key="market").value == "Nasdaq-100"
+    assert app.selectbox(key="market").options == ["Nasdaq-100", "My tickers", "Original 60 holdings", "Upload CSV", "Demo"]
+    assert app.selectbox(key="history").value == "5 years"
+    assert nasdaq_data.calls == offline_app == []
+    assert "result" not in app.session_state
+    assert not app.metric and not app.get("download_button")
+    app.selectbox(key="history").select("10 years").run()
+    assert nasdaq_data.calls == []
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert nasdaq_data.calls[0] == "members"
+    assert len(nasdaq_data.calls) == 2
+    pd.testing.assert_frame_equal(app.session_state.result[1], nasdaq_data.prices)
+    assert app.session_state.result[2]["universe_requested"] == 4
+    assert "backtests" not in app.session_state
+    assert "report_bytes" not in app.session_state
+    assert not app.get("download_button")
 
 
-def test_yahoo_is_default_and_only_submit_downloads_prices(monkeypatch):
-    from efficient_frontier import data
+def test_nasdaq_coverage_and_company_names_preserve_every_checked_security(nasdaq_data):
+    app = app_start().button(key="build").click().run()
+    assert not app.exception
+    holdings = next(item.value for item in app.dataframe if "Company" in item.value.columns)
+    assert set(holdings.Symbol) == {"AAA", "BBB", "CCC"}
+    assert set(holdings.Company) == {"First company", "Second company", "Third company"}
+    assert holdings.Weight.sum() == pytest.approx(1)
+    research_view(app, "Data & coverage")
+    assert any(item.value.equals(nasdaq_data.coverage) for item in app.dataframe)
+    assert any("not a historical reconstruction" in item.value for item in app.caption)
+    assert app.session_state.result[2]["universe_coverage"][-1]["reason"] == "Incomplete prices"
+
+
+def test_repeated_nasdaq_submit_replays_progress_cache_and_preserves_coverage(nasdaq_data):
+    app = app_start().button(key="build").click().run()
+    assert not app.exception and not app.error
+    calls = nasdaq_data.calls.copy()
+    assert len(calls) == 2
+    weights = app.session_state.latest_profiles.frontier_weights.copy()
+
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert nasdaq_data.calls == calls
+    pd.testing.assert_frame_equal(app.session_state.result[1], nasdaq_data.prices)
+    pd.testing.assert_frame_equal(app.session_state.coverage, nasdaq_data.coverage)
+    pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, weights)
+    assert app.session_state.result[2]["universe_coverage"] == nasdaq_data.metadata["universe_coverage"]
+    assert not any("differs from this result" in item.value for item in app.info)
+
+
+def test_demo_requires_submit_and_does_not_create_market_evidence(offline_app):
+    app = app_start()
+    app.selectbox(key="market").select("Demo").run()
+    assert "result" not in app.session_state
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert app.segmented_control(key="view").value == "Portfolio"
+    assert app.segmented_control(key="risk_profile").value == "Medium"
+    assert app.segmented_control(key="risk_profile").options == ["Low", "Medium", "Highest"]
+    assert app.session_state.benchmarks is None and app.session_state.evidence is None
+    assert "backtests" not in app.session_state
+    assert "report_bytes" not in app.session_state
+    assert offline_app == []
+    assert any("synthetic" in item.value for item in app.info)
+
+
+def test_risk_choice_changes_display_without_refitting_or_dropping_holdings(monkeypatch):
+    from efficient_frontier import profiles
 
     calls = []
-    prices = data.demo_prices().iloc[:, :2].copy()
-    prices.columns = ["DEFAULT-AAA", "DEFAULT-BBB"]
+    original = profiles.build_profiles
 
-    def download(tickers, start, end):
-        calls.append((tickers, start, end))
-        return prices
+    def calculate(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
 
-    monkeypatch.setattr(data, "download_prices", download)
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
-    assert not app.exception
-    assert app.selectbox(key="source").value == "Yahoo Finance"
-    assert calls == []
-    assert "result" not in app.session_state
-    assert not app.metric
-    assert not app.get("download_button")
-    app.toggle(key="use_cap").set_value(True).run()
-    assert calls == []
-    app.number_input(key="cap").set_value(100.)
-    app.text_area[0].set_value("DEFAULT-AAA, DEFAULT-BBB")
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    assert len(calls) == 1
-    assert calls[0][0] == ["DEFAULT-AAA", "DEFAULT-BBB"]
-    assert app.session_state.result[2]["source"] == "Yahoo Finance"
-    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
-
-
-def test_setting_and_backtest_explanations_are_available_before_first_run():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
-    assert not app.exception
-    assert "result" not in app.session_state
-    labels = [item.label for item in app.expander]
-    assert "Portfolio settings explained" in labels
-    assert "Backtest methods explained" in labels
-    explanation = "\n".join(item.value for item in app.markdown)
-    for phrase in (
-        "Covariance measures how asset returns move together",
-        "reduces off-diagonal covariance toward zero",
-        "keeps each asset's individual variance",
-        "does not guarantee better results",
-        "not automatic Ledoit-Wolf estimation",
-        "does not add cash",
-        "requires at least four assets",
-        "later observations form the holdout, in date order",
-        "Buy and hold", "Fixed rebalance", "Expanding window", "Rolling window",
-        "next observation's close", "One basis point is 0.01%",
-        "does not change observation dates or trade dates",
-    ):
-        assert phrase in explanation
-
-
-def test_demo_renders_and_invalid_cap_clears_old_result(offline_benchmark_downloads):
+    monkeypatch.setattr(profiles, "build_profiles", calculate)
     app = demo_app()
-    assert not app.exception
-    assert not app.error
-    assert app.metric[0].value == "6"
-    assert app.metric[3].value == "None"
-    assert app.session_state.result[2]["max_weight"] == 1
-    assert app.session_state.benchmarks is None
-    assert app.session_state.evidence is None
-    assert offline_benchmark_downloads == []
-    assert any("synthetic" in item.value.lower() for item in app.info)
-    app.toggle(key="use_cap").set_value(True).run()
-    app.number_input(key="cap").set_value(5.0)
-    app.button[0].click().run()
-    assert not app.exception
-    assert any("infeasible" in item.value.lower() for item in app.error)
-    assert len(app.metric) == 0
+    latest = app.session_state.latest_profiles
+    for profile in ("Low", "Extreme", "Medium"):
+        app.segmented_control(key="risk_profile").set_value(profile).run()
+        assert not app.exception
+        displayed = next(item.value for item in app.dataframe if list(item.value.columns) == ["Symbol", "Weight"])
+        expected = latest.portfolios[profile].weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
+        pd.testing.assert_frame_equal(displayed, expected)
+        assert len(displayed) == len(app.session_state.result[1].columns)
+    assert calls == [1]
+    app.button(key="go_compare").click().run()
+    assert app.segmented_control(key="view").value == "Compare"
+    assert "backtests" not in app.session_state
+    assert app.segmented_control(key="risk_profile").value == "Medium"
 
 
-def test_high_risk_free_rate_omits_sharpe_without_breaking_app():
+def test_settings_apply_on_submit_and_latest_fit_does_not_depend_on_split():
     app = demo_app()
-    app.number_input(key="risk_free").set_value(100.0)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    assert any("Maximum Sharpe omitted" in item.value for item in app.warning)
-    assert "Maximum Sharpe" not in app.session_state.result[0].portfolios
-
-
-def test_switching_source_does_not_show_stale_demo_results():
-    app = demo_app()
-    app.selectbox(key="source").select("Upload CSV").run()
-    assert not app.exception
-    assert len(app.metric) == 0
-    app.button[0].click().run()
-    assert not app.exception
-    assert any("Choose a CSV" in item.value for item in app.error)
-
-
-def test_single_asset_renders_its_single_frontier_point(monkeypatch):
-    from efficient_frontier import data
-    prices = data.demo_prices().iloc[:, :1]
-    monkeypatch.setattr(data, "demo_prices", lambda: prices)
-    app = demo_app()
-    assert not app.exception
-    assert not app.error
-    assert app.metric[0].value == "1"
-    assert len(app.session_state.result[0].frontier) == 1
-    for portfolio in app.session_state.result[0].portfolios.values():
-        np.testing.assert_allclose(portfolio.weights, [1.0])
-
-
-def test_large_universe_chart_selection_keeps_all_assets_in_analysis(monkeypatch):
-    from efficient_frontier import data
-    rng = np.random.default_rng(44)
-    prices = pd.DataFrame(100 * np.exp(np.cumsum(rng.normal(.0003, .01, (150, 64)), axis=0)),
-                          index=pd.bdate_range("2024-01-01", periods=150),
-                          columns=[f"DEMO_{i}" for i in range(64)])
-    monkeypatch.setattr(data, "demo_prices", lambda: prices)
-    app = demo_app()
-    assert not app.exception
-    assert not app.error
-    assert app.metric[0].value == "64"
-    assert len(app.multiselect(key="correlation_assets").value) == 20
-    app.multiselect(key="correlation_assets").set_value([]).run()
-    assert not app.exception
-    assert len(app.session_state.result[0].portfolios["Minimum volatility"].weights) == 64
-
-
-def test_backtest_controls_update_costs_and_can_disable_comparison():
-    app = demo_app()
-    assert not app.exception
-    assert len(app.session_state.backtests.metrics) == 24
-    assert app.session_state.backtests.settings["cost_bps"] == 10
-    app.number_input(key="cost_bps").set_value(0.)
-    app.button[0].click().run()
-    assert not app.exception
-    assert app.session_state.backtests.metrics.total_cost.eq(0).all()
-    app.checkbox(key="include_backtests").set_value(False)
-    app.button[0].click().run()
-    assert not app.exception
-    assert app.session_state.backtests is None
-
-
-def test_portfolio_settings_apply_to_results_and_frontier_selection():
-    app = demo_app()
-    app.toggle(key="use_cap").set_value(True).run()
+    latest = app.session_state.latest_profiles
+    prices = app.session_state.result[1].copy()
+    app.slider(key="train_pct").set_value(50).run()
+    assert app.session_state.result[2]["train_fraction"] == .7
+    assert any("differs from this result" in item.value for item in app.info)
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, latest.frontier_weights)
+    assert app.session_state.latest_profiles.observations == len(prices) - 1
+    assert app.session_state.latest_profiles.as_of == prices.index[-1].date().isoformat()
+    assert len(app.session_state.result[0].train_returns) == int((len(prices) - 1) * .5)
+    app.checkbox(key="use_cap").set_value(True).run()
     app.number_input(key="cap").set_value(30.)
     app.number_input(key="risk_free").set_value(1.)
-    app.slider[0].set_value(60)
-    app.slider[1].set_value(35)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    analysis, prices, metadata = app.session_state.result
-    assert {key: metadata[key] for key in ("max_weight", "risk_free_rate", "train_fraction", "shrinkage")} == {
-        "max_weight": .3, "risk_free_rate": .01, "train_fraction": .6, "shrinkage": .35,
+    app.slider(key="shrink").set_value(35)
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    analysis, _, metadata = app.session_state.result
+    assert {key: metadata[key] for key in ("max_weight", "risk_free_rate", "shrinkage")} == {
+        "max_weight": .3, "risk_free_rate": .01, "shrinkage": .35,
     }
-    assert len(analysis.train_returns) == int((len(prices) - 1) * .6)
-    assert len(analysis.test_returns) == len(prices) - 1 - len(analysis.train_returns)
-    assert app.metric[3].value == "30%"
-    for portfolio in analysis.portfolios.values():
+    for portfolio in [*analysis.portfolios.values(), *app.session_state.latest_profiles.portfolios.values()]:
         assert portfolio.weights.max() <= .3 + 1e-6
-        np.testing.assert_allclose(portfolio.weights.sum(), 1.)
-    assert analysis.frontier_weights.to_numpy().max() <= .3 + 1e-6
+        assert portfolio.weights.sum() == pytest.approx(1)
 
-    app.select_slider[0].set_value(len(analysis.frontier) - 1).run()
+
+def test_invalid_new_fit_clears_previous_results_comparison_and_report():
+    app = run_comparison(demo_app())
+    app.button(key="prepare_report").click().run()
+    assert "report_bytes" in app.session_state
+    app.checkbox(key="use_cap").set_value(True).run()
+    app.number_input(key="cap").set_value(5.)
+    app.button(key="build").click().run()
     assert not app.exception
-    displayed = next(item.value for item in app.dataframe if list(item.value.columns) == ["Weight"])
-    expected = analysis.frontier_weights.iloc[-1].sort_values(ascending=False).rename("Weight").to_frame()
-    pd.testing.assert_frame_equal(displayed, expected)
+    assert any("infeasible" in item.value.lower() for item in app.error)
+    for key in ("result", "latest_profiles", "backtests", "benchmarks", "evidence", "report_bytes"):
+        assert key not in app.session_state
+    assert not app.metric and not app.get("download_button")
 
 
-def test_backtest_schedule_and_holdings_selector_match_shown_results():
-    app = demo_app()
-    next(item for item in app.number_input if item.label == "Sessions between trades").set_value(42)
-    next(item for item in app.number_input if item.label.startswith("Rolling estimation")).set_value(126)
-    app.number_input(key="cost_bps").set_value(25.)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    study = app.session_state.backtests
-    assert study.settings["rebalance_every"] == 42
-    assert study.settings["rolling_window"] == 126
-    assert study.settings["cost_bps"] == 25.
-    selected = "Rolling window · Maximum Sharpe"
-    app.selectbox(key="holding_strategy").select(selected).run()
-    assert not app.exception
-    displayed = next(item.value for item in app.dataframe if "pnl_contribution" in item.value.columns)
-    pd.testing.assert_frame_equal(displayed, study.holdings[selected].sort_values("pnl_contribution", ascending=False))
-    displayed_metrics = next(item.value for item in app.dataframe if "total_turnover" in item.value.columns)
-    pd.testing.assert_frame_equal(displayed_metrics, study.metrics)
-    allocations = study.allocations[selected]
-    prices = app.session_state.result[1]
-    np.testing.assert_array_equal(np.diff(prices.index.get_indexer(allocations.index)), 42)
-    assert any(item.value.equals(allocations) for item in app.dataframe)
-    for strategy, holdings in study.holdings.items():
-        np.testing.assert_allclose(
-            holdings.pnl_contribution.sum() - study.metrics.loc[strategy, "total_cost"],
-            study.metrics.loc[strategy, "total_return"], atol=1e-12,
-        )
-
-
-def test_invalid_backtest_settings_clear_results_and_downloads():
-    app = demo_app()
-    assert len(app.get("download_button")) == 2
-    next(item for item in app.number_input if item.label.startswith("Rolling estimation")).set_value(1)
-    app.button[0].click().run()
-    assert not app.exception
-    assert any("rolling_window" in item.value for item in app.error)
-    assert "result" not in app.session_state
-    assert "backtests" not in app.session_state
-    assert not app.metric
-    assert not app.get("download_button")
-
-
-def test_yahoo_inputs_reach_downloader_and_failure_clears_previous_results(monkeypatch):
-    from datetime import date
+def test_custom_tickers_dates_and_original_list_reach_only_explicit_downloads(monkeypatch, market_prices):
     from efficient_frontier import data
 
     calls = []
-    prices = data.demo_prices().iloc[:, :3].copy()
-    prices.columns = ["AAPL", "MSFT", "BRK-B"]
 
     def download(tickers, start, end):
         calls.append((tickers, start, end))
         if tickers == ["MISSING-TEST"]:
             raise ValueError("Yahoo returned no prices for: MISSING-TEST.")
-        return prices
+        return market_prices
 
     monkeypatch.setattr(data, "download_prices", download)
-    app = demo_app()
-    app.selectbox(key="source").select("Yahoo Finance").run()
-    app.text_area[0].set_value("aapl, MSFT brk.b aapl")
-    app.date_input[0].set_value(date(2020, 1, 1))
-    app.date_input[1].set_value(date(2024, 1, 1))
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
+    app = app_start()
+    app.selectbox(key="market").select("My tickers").run()
+    app.selectbox(key="history").select("Custom dates").run()
+    app.text_area(key="ticker_text").set_value("aapl, MSFT brk.b aapl")
+    app.date_input(key="start").set_value(date(2020, 1, 1))
+    app.date_input(key="end").set_value(date(2024, 1, 1))
+    assert calls == []
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
     assert calls == [(["AAPL", "MSFT", "BRK-B"], "2020-01-01", "2024-01-01")]
-    analysis, actual_prices, metadata = app.session_state.result
-    pd.testing.assert_frame_equal(actual_prices, prices)
-    assert list(analysis.portfolios["Minimum volatility"].weights.index) == list(prices.columns)
-    assert metadata["source"] == "Yahoo Finance"
-    assert metadata["requested_end_exclusive"] == "2024-01-01"
-    assert app.metric[0].value == "3"
-    assert not any("DEMO DATA" in item.value for item in app.info)
-
-    app.radio[0].set_value("Original 60 holdings").run()
-    assert any("sidebar has changes" in item.value for item in app.info)
-    assert any("Applied settings · Custom tickers" in item.value for item in app.caption)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
+    app.selectbox(key="market").select("Original 60 holdings").run()
+    assert len(calls) == 1
+    assert app.session_state.result[2]["universe"] == "My tickers"
+    assert any("differs from this result" in item.value for item in app.info)
+    app.button(key="build").click().run()
     assert len(calls[-1][0]) == 60
     assert "MRSH" in calls[-1][0] and "MMC" not in calls[-1][0]
-    app.radio[0].set_value("Custom tickers").run()
-    app.text_area[0].set_value("MISSING-TEST")
-    app.button[0].click().run()
+    app.selectbox(key="market").select("My tickers").run()
+    app.text_area(key="ticker_text").set_value("MISSING-TEST")
+    app.button(key="build").click().run()
     assert not app.exception
     assert any("MISSING-TEST" in item.value for item in app.error)
     assert "result" not in app.session_state
-    assert "backtests" not in app.session_state
-    assert not app.metric
-    assert not app.get("download_button")
 
 
-@pytest.mark.parametrize("preset,periods", [("Calendar days (365)", 365), ("Weekly (52)", 52), ("Monthly (12)", 12)])
-def test_frequency_changes_annualization_without_resampling_prices(preset, periods):
-    app = demo_app()
-    original_prices = app.session_state.result[1].copy()
-    app.selectbox(key="observation_frequency").select(preset).run()
-    assert not app.exception
-    assert app.session_state.result[2]["periods_per_year"] == 252
-    assert any("sidebar has changes" in item.value for item in app.info)
-    assert any("252 observations/year" in item.value for item in app.caption)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    analysis, prices, metadata = app.session_state.result
-    assert analysis.periods_per_year == periods
-    assert metadata["periods_per_year"] == periods
-    assert app.session_state.backtests.settings["periods_per_year"] == periods
-    pd.testing.assert_frame_equal(prices, original_prices)
-    np.testing.assert_allclose(analysis.mean_returns, analysis.train_returns.mean() * periods)
-    assert any(f"{periods} observations/year" in item.value for item in app.caption)
-    assert any("does not resample prices or convert currency" in item.value for item in app.caption)
-    assert not any("sidebar has changes" in item.value for item in app.info)
-
-
-def test_custom_frequency_and_cap_changes_keep_applied_settings_clear():
-    app = demo_app()
-    app.selectbox(key="observation_frequency").select("Custom").run()
-    app.number_input(key="periods_per_year").set_value(48.5).run()
-    app.toggle(key="use_cap").set_value(True).run()
-    assert any("sidebar has changes" in item.value for item in app.info)
-    assert app.session_state.result[2]["max_weight"] == 1
-    app.number_input(key="cap").set_value(30.)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    analysis, _, metadata = app.session_state.result
-    assert analysis.periods_per_year == 48.5
-    assert metadata["periods_per_year"] == 48.5
-    assert metadata["use_cap"] is True
-    assert metadata["max_weight"] == .3
-    assert app.session_state.backtests.settings["periods_per_year"] == 48.5
-    assert any("48.5 observations/year" in item.value and "Position limit 30.00%" in item.value
-               for item in app.caption)
-    assert not any("sidebar has changes" in item.value for item in app.info)
-
-
-def test_risk_selector_displays_matching_weights_and_variance_contributions():
-    from efficient_frontier.risk import risk_contributions, risk_summary
-
-    app = demo_app()
-    app.selectbox(key="risk_portfolio").select("Equal weight").run()
-    assert not app.exception
-    analysis = app.session_state.result[0]
-    summary = next(item.value for item in app.dataframe if "effective_holdings" in item.value.columns)
-    pd.testing.assert_frame_equal(summary, risk_summary(analysis))
-    assert summary.loc["Equal weight", "effective_holdings"] == pytest.approx(len(analysis.mean_returns))
-    displayed = next(item.value for item in app.dataframe if "Share of portfolio variance" in item.value.columns)
-    expected = pd.DataFrame({"Allocation weight": analysis.portfolios["Equal weight"].weights,
-                             "Share of portfolio variance": risk_contributions(analysis)["Equal weight"]})
-    pd.testing.assert_frame_equal(displayed, expected.sort_values("Allocation weight", ascending=False))
-    assert displayed["Share of portfolio variance"].sum() == pytest.approx(1.)
-    holdout = next(item.value for item in app.dataframe if "Sortino ratio" in item.value.columns)
-    np.testing.assert_allclose(holdout["Sortino ratio"], analysis.holdout_metrics.sortino, equal_nan=True)
-    np.testing.assert_allclose(holdout["Calmar ratio"], analysis.holdout_metrics.calmar, equal_nan=True)
-
-
-def test_backtest_chart_selection_preserves_all_results():
-    app = demo_app()
-    assert len(app.multiselect(key="chart_strategies").value) == 4
-    assert {"Expanding window · Low", "Expanding window · Medium", "Expanding window · Extreme"} <= set(app.multiselect(key="chart_strategies").value)
-    original_metrics = app.session_state.backtests.metrics.copy()
-    selected = "Rolling window · Maximum Sharpe"
-    app.multiselect(key="chart_strategies").set_value([selected]).run()
-    assert not app.exception
-    figures = [json.loads(item.proto.spec) for item in app.get("plotly_chart")]
-    backtests = [figure for figure in figures if figure["layout"].get("title", {}).get("text", "").startswith("Backtest")]
-    assert len(backtests) == 2
-    assert all([trace["name"] for trace in figure["data"]] == [selected] for figure in backtests)
-    displayed = next(item.value for item in app.dataframe if "total_turnover" in item.value.columns)
-    pd.testing.assert_frame_equal(displayed, original_metrics)
-    assert len(app.get("download_button")) == 2
-    app.multiselect(key="chart_strategies").set_value([]).run()
-    assert not app.exception
-    assert any("Select at least one strategy" in item.value for item in app.info)
-    pd.testing.assert_frame_equal(app.session_state.backtests.metrics, original_metrics)
-    assert len(app.get("download_button")) == 2
-
-
-def test_latest_holdings_use_all_history_and_do_not_depend_on_holdout_split():
-    app = demo_app()
-    assert not app.exception
-    assert app.tabs[0].label == "Latest holdings"
-    latest = app.session_state.latest_profiles
-    prices = app.session_state.result[1]
-    assert latest.as_of == str(prices.index[-1].date())
-    assert latest.observations == len(prices) - 1
-    assert list(latest.portfolios) == ["Low", "Medium", "Extreme"]
-    weights = pd.DataFrame({name: p.weights for name, p in latest.portfolios.items()})
-    assert any(item.value.equals(weights.rename_axis("ticker")) for item in app.dataframe)
-    assert any("not out-of-sample results" in item.value for item in app.info)
-    app.slider[0].set_value(50)
-    app.button[0].click().run()
-    assert not app.exception
-    pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, latest.frontier_weights)
-    assert len(app.session_state.result[0].train_returns) < len(prices) * .6
-
-
-def test_short_history_keeps_original_analysis_and_explains_missing_profiles(monkeypatch):
+def test_ticker_draft_keeps_applied_result_and_downloads_only_after_submit(monkeypatch, market_prices):
     from efficient_frontier import data
 
-    prices = data.demo_prices().iloc[:5, :2]
-    monkeypatch.setattr(data, "demo_prices", lambda: prices)
-    app = demo_app()
-    assert not app.exception
-    assert not app.error
-    assert app.session_state.latest_profiles is None
-    assert len(app.session_state.backtests.metrics) == 12
-    assert app.session_state.backtests.settings["include_profiles"] is False
-    assert any("at least seven" in item.value for item in app.info)
-    assert any("at least six" in message for message in app.session_state.backtests.warnings)
-
-
-@pytest.mark.parametrize("reuse_columns", [False, True])
-def test_yahoo_market_charts_and_evidence_keep_full_comparison_family(monkeypatch, market_prices, reuse_columns):
-    from efficient_frontier import data
-
-    prices = market_prices if reuse_columns else market_prices.set_axis(["FUND_X", "FUND_Y", "FUND_Z"], axis=1)
-    benchmarks = market_prices.loc[:, ["SPY", "QQQ"]]
     calls = []
-    monkeypatch.setattr(data, "download_prices", lambda *args: prices)
 
-    def download(dates):
-        calls.append(dates)
-        return benchmarks
+    def download(tickers, start, end):
+        calls.append(tickers)
+        return market_prices.rename(columns={"FUND_X": tickers[0]})
 
-    monkeypatch.setattr(data, "download_benchmarks", download)
-    app = AppTest.from_file(str(APP), default_timeout=30).run()
-    app.text_area[0].set_value(",".join(prices.columns))
-    app.number_input(key="cost_bps").set_value(35.)
-    app.button[0].click().run()
+    monkeypatch.setattr(data, "download_prices", download)
+    app = app_start()
+    app.selectbox(key="market").select("My tickers").run()
+    app.text_area(key="ticker_text").set_value("FUND_X, SPY, QQQ")
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    original_inputs = app.session_state.applied_inputs.copy()
+    original_weights = app.session_state.latest_profiles.frontier_weights.copy()
+    assert not any("differs from this result" in item.value for item in app.info)
+
+    app.text_area(key="ticker_text").set_value("FUND_NEW, SPY, QQQ").run()
     assert not app.exception
-    assert not app.error
-    assert len(calls) == (0 if reuse_columns else 1)
-    if calls:
-        pd.testing.assert_index_equal(calls[0], prices.index)
-    analysis, actual_prices, metadata = app.session_state.result
-    comparison = app.session_state.benchmarks
+    assert calls == [["FUND_X", "SPY", "QQQ"]]
+    assert any("differs from this result" in item.value for item in app.info)
+    assert app.session_state.applied_inputs == original_inputs
+    pd.testing.assert_frame_equal(app.session_state.result[1], market_prices)
+    pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, original_weights)
+
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert calls == [["FUND_X", "SPY", "QQQ"], ["FUND_NEW", "SPY", "QQQ"]]
+    assert list(app.session_state.result[1]) == ["FUND_NEW", "SPY", "QQQ"]
+    assert app.session_state.applied_inputs["tickers"] == "FUND_NEW, SPY, QQQ"
+    assert not any("differs from this result" in item.value for item in app.info)
+
+
+def test_csv_content_and_benchmark_consent_edits_mark_pending_without_download(monkeypatch, market_prices, offline_app):
+    prices = market_prices.set_axis(["FUND_X", "FUND_Y", "FUND_Z"], axis=1)
+    benchmarks = market_prices[["SPY", "QQQ"]]
+    assets_upload = BytesIO(prices.to_csv().encode())
+    assets_upload.name = "portfolio.csv"
+    benchmark_upload = BytesIO(benchmarks.to_csv().encode())
+    benchmark_upload.name = "benchmarks.csv"
+    originals = {"prices_upload": assets_upload, "benchmark_upload": benchmark_upload}
+    uploads = originals.copy()
+    monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: uploads[kwargs["key"]])
+    app = app_start()
+    app.selectbox(key="market").select("Upload CSV").run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    original_inputs = app.session_state.applied_inputs.copy()
+    assert not any("differs from this result" in item.value for item in app.info)
+
+    for key, frame in (("prices_upload", prices), ("benchmark_upload", benchmarks)):
+        changed = frame.copy()
+        changed.iloc[-1, 0] *= 1.05
+        replacement = BytesIO(changed.to_csv().encode())
+        replacement.name = originals[key].name
+        uploads[key] = replacement
+        app.run()
+        assert not app.exception and not app.error
+        assert any("differs from this result" in item.value for item in app.info)
+        assert app.session_state.applied_inputs == original_inputs
+        pd.testing.assert_frame_equal(app.session_state.result[1], prices, check_freq=False)
+        pd.testing.assert_frame_equal(app.session_state.benchmarks.prices, benchmarks, check_freq=False)
+        assert offline_app == []
+        restored = BytesIO(originals[key].getvalue())
+        restored.name = originals[key].name
+        uploads[key] = restored
+        app.run()
+        assert not any("differs from this result" in item.value for item in app.info)
+
+    uploads["benchmark_upload"] = None
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert app.session_state.benchmarks is None
+    assert not any("differs from this result" in item.value for item in app.info)
+    app.checkbox(key="download_benchmarks").set_value(True).run()
+    assert not app.exception and not app.error
+    assert any("differs from this result" in item.value for item in app.info)
+    assert app.session_state.applied_inputs["download_benchmarks"] is False
+    assert app.session_state.benchmarks is None
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices, check_freq=False)
+    assert offline_app == []
+
+
+def test_comparison_runs_only_on_request_and_display_changes_keep_cached_results(monkeypatch):
+    from efficient_frontier import backtest
+
+    calls = []
+    original = backtest.run_backtests
+
+    def calculate(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(backtest, "run_backtests", calculate)
+    app = demo_app()
+    app.segmented_control(key="view").set_value("Compare").run()
+    assert calls == []
+    app.number_input(key="rebalance_every").set_value(42)
+    app.number_input(key="rolling_window").set_value(84)
+    app.number_input(key="cost_bps").set_value(25.)
+    app.button(key="run_comparison").click().run()
+    assert not app.exception and not app.error
     study = app.session_state.backtests
-    evidence = app.session_state.evidence
-    pd.testing.assert_frame_equal(actual_prices, prices)
-    assert list(analysis.mean_returns.index) == list(prices.columns)
-    pd.testing.assert_frame_equal(comparison.prices, benchmarks)
-    pd.testing.assert_index_equal(comparison.holdout_equity.index, analysis.equity.index)
+    assert len(study.metrics) == 24
+    assert study.settings["rebalance_every"] == 42
+    assert study.settings["rolling_window"] == 84
+    assert study.settings["cost_bps"] == 25
+    assert len(calls) == 1
+    app.selectbox(key="comparison_method").select("Rolling window").run()
+    app.segmented_control(key="risk_profile").set_value("Extreme").run()
+    app.segmented_control(key="comparison_chart").set_value("Drawdown").run()
+    assert not app.exception
+    assert len(calls) == 1
+    assert [trace["name"] for trace in figures(app)[0]["data"]] == ["Rolling window · Highest"]
+    pd.testing.assert_frame_equal(app.session_state.backtests.metrics, study.metrics)
+    app.button(key="run_comparison").click().run()
+    assert len(calls) == 1
+    app.number_input(key="cost_bps").set_value(0.)
+    app.button(key="run_comparison").click().run()
+    assert len(calls) == 2
+    assert app.session_state.backtests.metrics.total_cost.eq(0).all()
+
+
+def test_failed_comparison_preserves_portfolios_and_clears_stale_derived_state(monkeypatch, market_prices):
+    app = run_comparison(market_app(monkeypatch, market_prices))
+    assert app.session_state.evidence.settings["multiple_testing_tests"] == 96
+    app.button(key="prepare_report").click().run()
+    original = app.session_state.latest_profiles.frontier_weights.copy()
+    app.number_input(key="rolling_window").set_value(1)
+    app.button(key="run_comparison").click().run()
+    assert not app.exception
+    assert any("rolling_window" in item.value for item in app.error)
+    assert "backtests" not in app.session_state
+    assert "report_bytes" not in app.session_state
+    assert "evidence" not in app.session_state or app.session_state.evidence is None
+    pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, original)
+    assert "result" in app.session_state
+
+
+def test_report_is_prepared_explicitly_and_new_comparison_invalidates_it(monkeypatch):
+    from efficient_frontier import presentation
+
+    calls = []
+    original = presentation.report_zip
+
+    def export(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(presentation, "report_zip", export)
+    app = demo_app()
+    assert calls == [] and not app.get("download_button")
+    app.button(key="prepare_report").click().run()
+    assert not app.exception and calls == [1]
+    assert len(app.get("download_button")) == 1
+    with zipfile.ZipFile(BytesIO(app.session_state.report_bytes)) as archive:
+        assert "latest_profile_weights.csv" in archive.namelist()
+        assert "backtest_metrics.csv" not in archive.namelist()
+        exported = pd.read_csv(archive.open("latest_profile_weights.csv"), index_col=0)
+        expected = pd.DataFrame({name: value.weights for name, value in app.session_state.latest_profiles.portfolios.items()}).rename_axis("ticker")
+        pd.testing.assert_frame_equal(exported, expected)
+    app.segmented_control(key="risk_profile").set_value("Low").run()
+    app.button(key="prepare_report").click().run()
+    assert calls == [1]
+    run_comparison(app)
+    assert "report_bytes" not in app.session_state
+    assert not app.get("download_button")
+    app.button(key="prepare_report").click().run()
+    assert calls == [1, 1]
+    with zipfile.ZipFile(BytesIO(app.session_state.report_bytes)) as archive:
+        assert len(pd.read_csv(archive.open("backtest_metrics.csv"), index_col=0)) == 24
+
+
+@pytest.mark.parametrize("frequency,periods", [("Daily calendar prices", 365), ("Weekly", 52), ("Monthly", 12), ("Custom", 48.5)])
+def test_csv_frequency_scales_estimates_without_resampling(monkeypatch, market_prices, frequency, periods):
+    upload = BytesIO(market_prices.to_csv().encode())
+    upload.name = "portfolio.csv"
+    monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: upload if kwargs["key"] == "prices_upload" else None)
+    app = app_start()
+    app.selectbox(key="market").select("Upload CSV").run()
+    app.selectbox(key="frequency").select(frequency).run()
+    if frequency == "Custom":
+        app.number_input(key="periods_per_year").set_value(periods)
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    analysis, prices, metadata = app.session_state.result
+    assert analysis.periods_per_year == metadata["periods_per_year"] == periods
+    pd.testing.assert_frame_equal(prices, market_prices, check_freq=False)
+    np.testing.assert_allclose(analysis.mean_returns, analysis.train_returns.mean() * periods)
+    assert app.session_state.latest_profiles.settings["periods_per_year"] == periods
+    run_comparison(app)
+    assert not app.exception and not app.error
+    assert app.session_state.backtests.settings["periods_per_year"] == periods
+    assert app.session_state.evidence.settings["periods_per_year"] == periods
+
+
+def test_market_costs_charts_and_evidence_preserve_all_96_tests(monkeypatch, market_prices):
+    app = market_app(monkeypatch, market_prices)
+    assert not app.exception and not app.error
+    assert app.session_state.evidence.settings["delayed_entry"] is False
+    analysis = app.session_state.result[0]
+    assert app.session_state.evidence.settings["multiple_testing_tests"] == len(analysis.portfolios) * 4
+    research_view(app, "Efficient frontiers")
+    comparison = app.session_state.benchmarks
+    expected_points = {"Latest risk profiles": (comparison.latest_estimates, "worst_window_return"),
+                       "Efficient frontier": (comparison.training_estimates, "expected_return")}
+    names = {"S&P 500 (SPY)", "Nasdaq-100 (QQQ)"}
+    for figure in figures(app):
+        title = figure["layout"].get("title", {}).get("text")
+        for trace in figure["data"]:
+            name = html.unescape(trace.get("name", ""))
+            if name in names and title in expected_points:
+                estimates, objective = expected_points[title]
+                np.testing.assert_allclose(chart_values(trace["y"]), [estimates.loc[name, objective]])
+    app.segmented_control(key="view").set_value("Compare").run()
+    app.number_input(key="cost_bps").set_value(35.)
+    app.button(key="run_comparison").click().run()
+    assert not app.exception and not app.error
+    comparison, evidence, study = app.session_state.benchmarks, app.session_state.evidence, app.session_state.backtests
+    assert len(study.metrics) == 24 and len(evidence.summary) == 48
+    assert evidence.settings["multiple_testing_tests"] == 96
+    assert evidence.settings["delayed_entry"] is True
     pd.testing.assert_index_equal(comparison.backtest_equity.index, study.equity.index)
-    assert comparison.settings["backtest_cost_bps"] == 35
-    assert comparison.settings["holdout_cost_bps"] == 0
     np.testing.assert_allclose(comparison.backtest_equity.iloc[1], 1 / 1.0035)
     np.testing.assert_allclose(comparison.backtest_metrics.total_cost, 1 - 1 / 1.0035)
-    assert metadata["benchmark_source"] == (
-        "SPY and QQQ columns in the input prices" if reuse_columns else "Yahoo Finance · exact input dates"
-    )
-    assert evidence.settings["delayed_entry"] is True
-    assert evidence.settings["multiple_testing_tests"] == 96
-    assert len(evidence.summary) == 48
-    assert app.selectbox(key="evidence_strategy").value == "Expanding window · Medium"
-    assert study.metrics.total_return.idxmax() != "Expanding window · Medium"
-
-    figures = {figure["layout"].get("title", {}).get("text", ""): figure
-               for figure in (json.loads(item.proto.spec) for item in app.get("plotly_chart"))}
-    benchmark_names = {"S&P 500 (SPY)", "Nasdaq-100 (QQQ)"}
-    for title in ("Latest risk profiles", "Efficient frontier", "Holdout performance", "Backtest performance", "Backtest drawdowns"):
-        names = [html.unescape(trace["name"]) for trace in figures[title]["data"]]
-        assert sum(name in benchmark_names for name in names) == 2
-    for title, estimates, objective in (
-        ("Latest risk profiles", comparison.latest_estimates, "worst_window_return"),
-        ("Efficient frontier", comparison.training_estimates, "expected_return"),
-    ):
-        for trace in figures[title]["data"]:
-            name = html.unescape(trace["name"])
-            if name in benchmark_names:
-                np.testing.assert_allclose(chart_values(trace["x"]), [estimates.loc[name, "volatility"]])
-                np.testing.assert_allclose(chart_values(trace["y"]), [estimates.loc[name, objective]])
-    for title, equity in (("Holdout performance", comparison.holdout_equity),
-                          ("Backtest performance", comparison.backtest_equity),
-                          ("Backtest drawdowns", comparison.backtest_equity)):
-        for trace in figures[title]["data"]:
-            name = html.unescape(trace["name"])
-            if name in benchmark_names:
-                np.testing.assert_array_equal(pd.to_datetime(trace["x"]), equity.index)
-                expected = equity[name] / equity[name].cummax() - 1 if title.endswith("drawdowns") else equity[name] * 10_000
-                np.testing.assert_allclose(chart_values(trace["y"]), expected)
-
-    original_evidence = evidence.summary.copy()
-    app.multiselect(key="chart_strategies").set_value(["Rolling window · Low"]).run()
-    app.selectbox(key="evidence_strategy").select("Buy and hold · Extreme").run()
+    assert app.selectbox(key="comparison_method").value == "Expanding window"
+    assert {html.unescape(trace["name"]) for trace in figures(app)[0]["data"]} == names | {"Expanding window · Medium"}
+    original = evidence.summary.copy()
+    app.selectbox(key="comparison_method").select("Buy and hold").run()
+    app.segmented_control(key="risk_profile").set_value("Extreme").run()
+    app.segmented_control(key="comparison_chart").set_value("Relative to markets").run()
     assert not app.exception
-    pd.testing.assert_frame_equal(app.session_state.evidence.summary, original_evidence)
+    assert len(figures(app)[0]["data"]) == 2
+    pd.testing.assert_frame_equal(app.session_state.evidence.summary, original)
+    research_view(app, "All backtests")
+    app.multiselect(key="chart_strategies").set_value(["Rolling window · Low"]).run()
+    assert {html.unescape(trace["name"]) for trace in figures(app)[0]["data"]} == names | {"Rolling window · Low"}
+    app.multiselect(key="chart_strategies").set_value([]).run()
+    assert not app.exception
+    pd.testing.assert_frame_equal(app.session_state.backtests.metrics, study.metrics)
+    pd.testing.assert_frame_equal(app.session_state.evidence.summary, original)
     assert app.session_state.evidence.settings["multiple_testing_tests"] == 96
-    assert len(app.session_state.backtests.metrics) == 24
-    for item in app.get("plotly_chart"):
-        figure = json.loads(item.proto.spec)
-        if figure["layout"].get("title", {}).get("text", "").startswith("Backtest"):
-            assert {html.unescape(trace["name"]) for trace in figure["data"]} == benchmark_names | {"Rolling window · Low"}
-    assert len(app.get("download_button")) == 2
 
 
-def test_market_disable_currency_and_download_failure_remove_stale_comparisons(monkeypatch, market_prices):
-    import streamlit as st
+def test_benchmark_disable_currency_and_download_failure_clear_old_evidence(monkeypatch, market_prices):
     from efficient_frontier import data
 
     prices = market_prices.set_axis(["FUND_X", "FUND_Y", "FUND_Z"], axis=1)
     calls, available = [], [True]
-    monkeypatch.setattr(data, "download_prices", lambda *args: prices)
 
     def download(dates):
         calls.append(dates)
         if not available[0]:
             raise ValueError("Missing benchmark prices for one requested date.")
-        return market_prices.loc[:, ["SPY", "QQQ"]]
+        return market_prices[["SPY", "QQQ"]]
 
     monkeypatch.setattr(data, "download_benchmarks", download)
-    app = AppTest.from_file(str(APP), default_timeout=30).run()
-    app.text_area[0].set_value(",".join(prices.columns))
-    app.button[0].click().run()
-    assert not app.exception
+    app = market_app(monkeypatch, prices)
     assert app.session_state.benchmarks is not None
-    assert app.session_state.evidence is not None
     assert len(calls) == 1
     app.checkbox(key="compare_market").set_value(False)
-    app.button[0].click().run()
-    assert not app.exception
-    assert app.session_state.benchmarks is None
-    assert app.session_state.evidence is None
-    assert "disabled" in app.session_state.result[2]["benchmarks_note"]
+    app.button(key="build").click().run()
+    assert app.session_state.benchmarks is None and app.session_state.evidence is None
     assert len(calls) == 1
-    assert len(app.get("download_button")) == 2
-
     app.checkbox(key="compare_market").set_value(True)
-    app.button[0].click().run()
-    assert app.session_state.benchmarks is not None
     app.selectbox(key="price_currency").select("Other currency")
-    app.button[0].click().run()
-    assert not app.exception
-    assert app.session_state.benchmarks is None
-    assert app.session_state.evidence is None
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert app.session_state.benchmarks is None and app.session_state.evidence is None
+    assert "USD" in app.session_state.result[2]["benchmarks_note"]
     assert len(calls) == 1
-    assert "require all input prices in USD" in app.session_state.result[2]["benchmarks_note"]
-    assert len(app.get("download_button")) == 2
-
     app.selectbox(key="price_currency").select("USD")
-    app.button[0].click().run()
+    app.button(key="build").click().run()
     assert app.session_state.benchmarks is not None
     available[0] = False
     st.cache_data.clear()
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    assert len(calls) == 2
-    assert app.session_state.benchmarks is None
-    assert app.session_state.evidence is None
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert app.session_state.benchmarks is None and app.session_state.evidence is None
     assert "Missing benchmark prices" in app.session_state.result[2]["benchmarks_note"]
+    assert len(calls) == 2
     pd.testing.assert_frame_equal(app.session_state.result[1], prices)
-    assert len(app.get("download_button")) == 2
-    names = [html.unescape(trace["name"]) for item in app.get("plotly_chart")
-             for trace in json.loads(item.proto.spec)["data"] if "name" in trace]
-    assert "S&P 500 (SPY)" not in names
-    assert "Nasdaq-100 (QQQ)" not in names
 
 
-def test_market_evidence_switches_to_cost_free_original_holdout(monkeypatch, market_prices):
-    from efficient_frontier import data
+def test_inference_failure_keeps_valid_benchmark_paths(monkeypatch, market_prices):
+    from efficient_frontier import evidence
 
-    monkeypatch.setattr(data, "download_prices", lambda *args: market_prices)
-    app = AppTest.from_file(str(APP), default_timeout=30).run()
-    app.text_area[0].set_value(",".join(market_prices.columns))
-    app.number_input(key="cost_bps").set_value(50.)
-    app.button[0].click().run()
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("Fixture inference unavailable.")
+
+    monkeypatch.setattr(evidence, "analyze_evidence", unavailable)
+    app = market_app(monkeypatch, market_prices)
+    assert not app.exception and not app.error
+    assert app.session_state.benchmarks is not None
+    assert app.session_state.evidence is None
+    assert "Fixture inference unavailable" in app.session_state.result[2]["evidence_note"]
+    run_comparison(app)
+    assert not app.exception and not app.error
+    assert len(app.session_state.backtests.metrics) == 24
+    assert app.session_state.benchmarks.backtest_equity is not None
+    assert app.session_state.evidence is None
+
+
+def test_benchmark_retry_removes_stale_failure_note_from_results_and_export(monkeypatch, market_prices):
+    from efficient_frontier import benchmarks
+
+    original = benchmarks.compare_benchmarks
+    attempts = []
+
+    def compare(benchmark_prices, prices, analysis, study=None, latest_profiles=None, **kwargs):
+        if study is not None:
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("Fixture comparison failure.")
+        return original(benchmark_prices, prices, analysis, study, latest_profiles, **kwargs)
+
+    monkeypatch.setattr(benchmarks, "compare_benchmarks", compare)
+    app = market_app(monkeypatch, market_prices)
+    assert app.session_state.benchmarks is not None
+    run_comparison(app)
+    assert not app.exception and not app.error
+    assert len(app.session_state.backtests.metrics) == 24
+    assert "Fixture comparison failure" in app.session_state.result[2]["benchmarks_note"]
+    assert "benchmarks" not in app.session_state or app.session_state.benchmarks is None
+    assert "evidence" not in app.session_state or app.session_state.evidence is None
+
+    app.button(key="run_comparison").click().run()
+    assert not app.exception and not app.error
+    assert attempts == [1, 1]
+    assert app.session_state.benchmarks.backtest_equity is not None
+    assert app.session_state.evidence.settings["multiple_testing_tests"] == 96
+    assert "benchmarks_note" not in app.session_state.result[2]
+    app.button(key="prepare_report").click().run()
     assert not app.exception
-    assert app.session_state.evidence.settings["delayed_entry"] is True
-    app.checkbox(key="include_backtests").set_value(False)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    analysis = app.session_state.result[0]
-    comparison, evidence = app.session_state.benchmarks, app.session_state.evidence
-    assert app.session_state.backtests is None
-    assert comparison.backtest_equity is None
-    assert comparison.backtest_metrics is None
-    assert comparison.settings["holdout_cost_bps"] == 0
-    assert evidence.settings["delayed_entry"] is False
-    assert evidence.settings["inference_observations"] == len(analysis.test_returns)
-    assert evidence.settings["multiple_testing_tests"] == len(analysis.portfolios) * 4
-    assert app.selectbox(key="evidence_strategy").value == "Minimum volatility"
-    expected = market_prices.loc[analysis.equity.index, ["SPY", "QQQ"]]
-    expected = expected.div(expected.iloc[0]).rename(columns={"SPY": "S&P 500 (SPY)", "QQQ": "Nasdaq-100 (QQQ)"})
-    pd.testing.assert_frame_equal(comparison.holdout_equity, expected)
-    assert any("no trading costs for either portfolio or benchmark" in item.value for item in app.caption)
+    with zipfile.ZipFile(BytesIO(app.session_state.report_bytes)) as archive:
+        assert "benchmarks_note" not in json.loads(archive.read("metadata.json"))
+        assert "Fixture comparison failure" not in archive.read("report.html").decode()
 
 
-def test_csv_benchmarks_use_uploaded_file_or_explicit_download_only(monkeypatch, market_prices):
-    import streamlit as st
+def test_csv_benchmark_upload_wins_and_download_requires_explicit_choice(monkeypatch, market_prices):
     from efficient_frontier import data
 
     prices = market_prices.set_axis(["FUND_X", "FUND_Y", "FUND_Z"], axis=1)
-    benchmarks = market_prices.loc[:, ["SPY", "QQQ"]]
-    assets_file = BytesIO(prices.to_csv().encode())
-    assets_file.name = "portfolio.csv"
-    market_file = BytesIO(benchmarks.to_csv().encode())
-    market_file.name = "benchmarks.csv"
-    uploads = {"Adjusted prices": assets_file, "Benchmark adjusted prices (optional)": None}
-    monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: uploads[label])
+    upload = BytesIO(prices.to_csv().encode())
+    upload.name = "portfolio.csv"
+    benchmark_upload = BytesIO(market_prices[["SPY", "QQQ"]].to_csv().encode())
+    benchmark_upload.name = "benchmarks.csv"
+    uploads = {"prices_upload": upload, "benchmark_upload": None}
+    monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: uploads[kwargs["key"]])
     calls = []
 
     def download(dates):
         calls.append(dates)
-        return benchmarks
+        return market_prices[["SPY", "QQQ"]]
 
     monkeypatch.setattr(data, "download_benchmarks", download)
-    app = AppTest.from_file(str(APP), default_timeout=30).run()
-    app.selectbox(key="source").select("Upload CSV").run()
-    app.checkbox(key="include_backtests").set_value(False)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
-    assert calls == []
-    assert app.session_state.benchmarks is None
-    assert app.session_state.evidence is None
-    assert "benchmark CSV" in app.session_state.result[2]["benchmarks_note"]
-
-    uploads["Benchmark adjusted prices (optional)"] = market_file
+    app = app_start()
+    app.selectbox(key="market").select("Upload CSV").run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert calls == [] and app.session_state.benchmarks is None
+    uploads["benchmark_upload"] = benchmark_upload
     app.checkbox(key="download_benchmarks").set_value(True)
-    app.button[0].click().run()
-    assert not app.exception
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
     assert calls == []
     assert app.session_state.result[2]["benchmark_source"] == "CSV: benchmarks.csv"
-    pd.testing.assert_frame_equal(app.session_state.benchmarks.prices, benchmarks, check_freq=False)
-    assert list(app.session_state.result[0].mean_returns.index) == list(prices.columns)
-    assert app.session_state.evidence is not None
-
-    uploads["Benchmark adjusted prices (optional)"] = None
+    uploads["benchmark_upload"] = None
     app.checkbox(key="download_benchmarks").set_value(False)
-    app.button[0].click().run()
-    assert not app.exception
+    app.button(key="build").click().run()
+    assert app.session_state.benchmarks is None and app.session_state.evidence is None
     assert calls == []
-    assert app.session_state.benchmarks is None
-    assert app.session_state.evidence is None
     app.checkbox(key="download_benchmarks").set_value(True)
-    app.button[0].click().run()
-    assert not app.exception
-    assert not app.error
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
     assert len(calls) == 1
     pd.testing.assert_index_equal(calls[0], prices.index)
-    assert app.session_state.result[2]["benchmark_source"] == "Yahoo Finance · exact input dates"
-    assert app.session_state.benchmarks is not None
-    assert app.session_state.evidence is not None
-    assert len(app.get("download_button")) == 2
+    assert list(app.session_state.result[0].mean_returns.index) == list(prices.columns)
+
+
+def test_research_risk_and_trade_tables_match_complete_results():
+    from efficient_frontier.risk import risk_contributions
+
+    app = run_comparison(demo_app())
+    study = app.session_state.backtests
+    research_view(app, "Risk breakdown")
+    app.selectbox(key="risk_portfolio").select("Equal weight").run()
+    result = app.session_state.result[0]
+    displayed = next(item.value for item in app.dataframe if "Share of portfolio variance" in item.value.columns)
+    expected = pd.DataFrame({"Allocation weight": result.portfolios["Equal weight"].weights,
+                             "Share of portfolio variance": risk_contributions(result)["Equal weight"]}).sort_values("Allocation weight", ascending=False)
+    pd.testing.assert_frame_equal(displayed, expected)
+    research_view(app, "All backtests")
+    selected = "Rolling window · Maximum Sharpe"
+    app.selectbox(key="holding_strategy").select(selected).run()
+    assert not app.exception
+    assert any(item.value.equals(study.holdings[selected]) for item in app.dataframe)
+    assert any(item.value.equals(study.allocations[selected]) for item in app.dataframe)
+    assert any(item.value.equals(study.trades[selected]) for item in app.dataframe)
+    assert any(item.value.equals(study.metrics) for item in app.dataframe)
+
+
+def test_research_holdout_ratios_are_not_formatted_as_percentages():
+    from streamlit.dataframe_util import convert_arrow_bytes_to_pandas_df
+
+    app = research_view(demo_app(), "Efficient frontiers")
+    table = next(item for item in app.dataframe if "sortino" in item.value.columns)
+    display = convert_arrow_bytes_to_pandas_df(table.proto.arrow_data.styler.display_values)
+    for column in ("sharpe", "sortino", "calmar"):
+        assert not display[column].str.contains("%", regex=False).any()
+    assert display.total_return.str.contains("%", regex=False).all()
+
+
+def test_large_universe_chart_limit_does_not_change_holdings(monkeypatch):
+    from efficient_frontier import data
+
+    rng = np.random.default_rng(44)
+    prices = pd.DataFrame(100 * np.exp(np.cumsum(rng.normal(.0003, .01, (150, 24)), axis=0)),
+                          index=pd.bdate_range("2024-01-01", periods=150, name="Date"), columns=[f"DEMO_{i}" for i in range(24)])
+    monkeypatch.setattr(data, "demo_prices", lambda: prices)
+    app = demo_app()
+    assert not app.exception and not app.error
+    holdings = next(item.value for item in app.dataframe if "Weight" in item.value.columns)
+    assert len(holdings) == 24
+    research_view(app, "Data & coverage")
+    assert len(app.multiselect(key="correlation_assets").value) == 15
+    app.multiselect(key="correlation_assets").set_value([]).run()
+    assert not app.exception
+    assert len(app.session_state.result[0].mean_returns) == 24
+    assert all(len(portfolio.weights) == 24 for portfolio in app.session_state.latest_profiles.portfolios.values())
+
+
+def test_short_history_preserves_original_research_and_12_method_paths(monkeypatch):
+    from efficient_frontier import data
+
+    prices = data.demo_prices().iloc[:5, :2]
+    monkeypatch.setattr(data, "demo_prices", lambda: prices)
+    app = demo_app()
+    assert not app.exception and not app.error
+    assert app.session_state.latest_profiles is None
+    assert any("at least seven" in item.value for item in app.info)
+    run_comparison(app)
+    assert not app.exception and not app.error
+    assert len(app.session_state.backtests.metrics) == 12
+    assert app.session_state.backtests.settings["include_profiles"] is False
+    assert any("too short" in item.value for item in app.info)
+    research_view(app, "Efficient frontiers")
+    assert not app.exception
+    assert len(figures(app)) == 2
+
+
+def test_single_asset_and_missing_sharpe_do_not_break_profile_views(monkeypatch):
+    from efficient_frontier import data
+
+    prices = data.demo_prices().iloc[:, :1]
+    monkeypatch.setattr(data, "demo_prices", lambda: prices)
+    app = demo_app()
+    app.number_input(key="risk_free").set_value(100.)
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert "Maximum Sharpe" not in app.session_state.result[0].portfolios
+    for portfolio in app.session_state.latest_profiles.portfolios.values():
+        np.testing.assert_allclose(portfolio.weights, [1.])
+    research_view(app, "Methodology")
+    assert not app.exception
+    assert any("Maximum Sharpe omitted" in item.value for item in app.markdown)
+
+
+def test_missing_csv_clears_old_result_without_network(offline_app):
+    app = demo_app()
+    app.selectbox(key="market").select("Upload CSV").run()
+    assert app.session_state.result[2]["universe"] == "Demo"
+    app.button(key="build").click().run()
+    assert not app.exception
+    assert any("Choose an adjusted-price CSV" in item.value for item in app.error)
+    assert "result" not in app.session_state
+    assert offline_app == []
