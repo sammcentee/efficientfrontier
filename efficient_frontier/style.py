@@ -89,7 +89,7 @@ APP_ONLY_CSS = """
 .st-key-view [data-testid="stButtonGroup"] button[aria-checked="true"] p{color:var(--pl-ink);font-weight:600}
 .st-key-export button{min-height:32px;padding:0 14px}
 .st-key-export button p{font-size:13px}
-.st-key-keys{display:none!important}
+.st-key-keys,[data-testid="stLayoutWrapper"]:has(>.st-key-keys){display:none!important}
 
 /* 4 Hero */
 .st-key-hero{text-align:center;padding:72px 0 48px}
@@ -157,10 +157,23 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
 [id^="pl-"]{scroll-margin-top:72px}
 .pl-section[id^="pl-"]{scroll-margin-top:calc(72px - var(--pl-gap))}
 
-/* 12 Reduced motion */
+/* 12 Spacing between story blocks and in single-purpose tiles */
+.st-key-hero .pl-display{margin-bottom:16px}
+.pl-title+.pl-sub{margin-top:6px}
+.pl-title+.pl-stat{margin-top:16px}
+.pl-stat+.pl-sub{margin-top:10px}
+.pl-sub+.pl-forest,.pl-sub+.pl-wtable{margin-top:24px}
+.stApp .pl-settle{margin-top:24px}
+.st-key-tile_stats{padding-top:12px!important;padding-bottom:12px!important}
+.st-key-tile_stats [data-testid="stExpander"] details{border-top:0}
+[data-testid="stDialog"] .st-key-build button{min-height:40px;padding:0 20px}
+[data-testid="stDialog"] .st-key-build button p{font-size:15px}
+.st-key-r_lead [data-testid="stCaptionContainer"]{font-size:17px;line-height:1.47;color:var(--pl-ink-2)}
+
+/* 13 Reduced motion */
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
-/* 13 Mobile */
+/* 14 Mobile */
 @media (max-width:640px){
  [data-testid="stMainBlockContainer"]{padding:0 16px 48px}
  .st-key-hero{padding:36px 0 32px}
@@ -171,6 +184,7 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
  .st-key-export button{width:36px;min-width:36px;height:36px;min-height:36px;padding:0;justify-content:center}
  .st-key-export button kbd{display:none}
  .st-key-risk_profile{max-width:none}
+ .st-key-comparison_method,.st-key-comparison_method [data-testid="stSelectbox"]{width:100%!important;flex:1 1 100%!important}
  .st-key-risk_profile button[data-variant="segmented_control"] p{font-size:16px}
  [data-testid="stDialog"] [role="dialog"]{border-radius:24px 24px 0 0}
 }
