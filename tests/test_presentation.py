@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, report_html, report_zip, weights_frame
+from efficient_frontier.data import load_csv
 
 
 @pytest.fixture
@@ -23,8 +24,12 @@ def report_analysis():
         frontier=pd.DataFrame({"expected_return": [0.1, 0.15], "volatility": [0.2, 0.3], "sharpe": [0.3, 0.4]}),
         frontier_weights=pd.DataFrame({"AAA": [0.6, 0.7], "BBB": [0.4, 0.3]}),
         train_returns=returns.iloc[:4], test_returns=returns.iloc[4:],
+        mean_returns=pd.Series({"AAA": 0.1, "BBB": 0.05}),
+        covariance=pd.DataFrame([[0.04, 0.01], [0.01, 0.09]], index=["AAA", "BBB"], columns=["AAA", "BBB"]),
+        periods_per_year=252,
         equity=pd.DataFrame({"Minimum volatility": [1.0, 1.008, 1.016064]}, index=dates[3:]),
-        holdout_metrics=pd.DataFrame({"total_return": [0.016064], "cagr": [0.8], "volatility": [0.01], "sharpe": [0.3], "max_drawdown": [0.0]}, index=["Minimum volatility"]),
+        holdout_metrics=pd.DataFrame({"total_return": [0.016064], "cagr": [0.8], "volatility": [0.01], "sharpe": [0.3],
+                                     "sortino": [1.25], "calmar": [2.5], "max_drawdown": [0.0]}, index=["Minimum volatility"]),
         warnings=['Review <script>alert("warning")</script>'],
     )
 
@@ -45,12 +50,13 @@ def test_zip_contains_reproducible_results_and_assumptions(report_analysis):
     prices = pd.DataFrame({"AAA": [100.0, 101.0], "BBB": [100.0, 100.5]}, index=pd.bdate_range("2024-01-01", periods=2))
     archive = report_zip(report_analysis, prices, {"source": "Synthetic demo", "max_weight": 0.7})
     with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
-        assert set(bundle.namelist()) == {"report.html", "weights.csv", "frontier.csv", "frontier_weights.csv", "holdout_metrics.csv", "holdout_curve.csv", "prices.csv", "metadata.json", "THIRD_PARTY_NOTICES.txt"}
+        assert set(bundle.namelist()) == {"report.html", "weights.csv", "frontier.csv", "frontier_weights.csv", "holdout_metrics.csv", "holdout_curve.csv", "prices.csv", "metadata.json", "THIRD_PARTY_NOTICES.txt", "risk_summary.csv", "risk_contributions.csv"}
         metadata = json.loads(bundle.read("metadata.json"))
         assert metadata["training_observations"] == 4
         assert metadata["holdout_observations"] == 2
         assert metadata["assets"] == ["AAA", "BBB"]
         assert metadata["annualization_days"] == 252
+        assert metadata["periods_per_year"] == 252
         recovered = pd.read_csv(bundle.open("weights.csv"), index_col=0)
         pd.testing.assert_frame_equal(recovered, weights_frame(report_analysis))
         equity = pd.read_csv(bundle.open("holdout_curve.csv"), index_col=0)
@@ -78,6 +84,10 @@ def test_charts_preserve_training_estimates_and_holdout_baseline(report_analysis
     assert len(frontier.data) == 2  # Maximum Sharpe can be absent.
     holdout = holdout_chart(report_analysis)
     np.testing.assert_allclose(holdout.data[0].y, [10_000, 10_080, 10_160.64])
+    for chart in (frontier, holdout):
+        assert len(chart.layout.title.text) <= 22
+        assert chart.layout.title.font.size <= 20
+        assert chart.layout.legend.maxheight <= chart.layout.margin.b
 
 
 def test_csv_labels_cannot_be_spreadsheet_formulas_and_numbers_are_unchanged():
@@ -116,10 +126,57 @@ def test_report_zip_escapes_formula_asset_labels(report_analysis):
     label = "=1+1"
     report_analysis.portfolios["Minimum volatility"].weights.index = [label, "BBB"]
     report_analysis.frontier_weights.columns = [label, "BBB"]
+    report_analysis.mean_returns.index = [label, "BBB"]
+    report_analysis.covariance.index = report_analysis.covariance.columns = [label, "BBB"]
     prices = pd.DataFrame({label: [100.0, 101.0], "BBB": [100.0, 99.0]})
     with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, prices, {"source": "Synthetic demo"}))) as bundle:
         weights = list(csv.reader(io.StringIO(bundle.read("weights.csv").decode())))
         assert weights[1][0] == "'=1+1"
+        contributions = list(csv.reader(io.StringIO(bundle.read("risk_contributions.csv").decode())))
+        assert contributions[1][0] == "'=1+1"
         for name in ("prices.csv", "frontier_weights.csv"):
             header = next(csv.reader(io.StringIO(bundle.read(name).decode())))
             assert header[1:] == ["'=1+1", "BBB"]
+
+
+def test_price_export_has_date_header_and_can_be_uploaded(report_analysis):
+    prices = pd.DataFrame({"AAA": np.arange(6) + 100.0, "BBB": np.arange(6) + 200.0},
+                          index=pd.bdate_range("2024-01-01", periods=6))
+    with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, prices, {}))) as bundle:
+        recovered = load_csv(io.BytesIO(bundle.read("prices.csv")))
+    pd.testing.assert_frame_equal(recovered, prices.rename_axis("Date"), check_freq=False)
+    assert prices.index.name is None
+
+
+def test_report_uses_configured_annualization_and_preserves_risk_numbers(report_analysis):
+    report_analysis.periods_per_year = 12.0
+    with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, pd.DataFrame(), {"annualization_days": 252}))) as bundle:
+        metadata = json.loads(bundle.read("metadata.json"))
+        document = bundle.read("report.html").decode()
+        assert metadata["periods_per_year"] == metadata["annualization_days"] == 12
+        assert "12 observations per year" in document
+        assert "252 trading days" not in document
+        assert "<th>Sortino</th>" in document and "<td>1.250</td>" in document
+        assert "<th>Calmar</th>" in document and "<td>2.500</td>" in document
+        summary = pd.read_csv(bundle.open("risk_summary.csv"), index_col=0)
+        assert summary.loc["Minimum volatility", "max_weight"] == pytest.approx(0.6)
+        assert summary.loc["Minimum volatility", "effective_holdings"] == pytest.approx(1 / 0.52)
+        assert summary.loc["Minimum volatility", "diversification_ratio"] == pytest.approx(0.24 / np.sqrt(0.0336))
+        contributions = pd.read_csv(bundle.open("risk_contributions.csv"), index_col=0)
+        np.testing.assert_allclose(contributions.iloc[:, 0], [0.5, 0.5])
+        assert "Share of portfolio variance" in document
+        assert "Negative shares" in document and "portfolio variance is zero" in document
+
+
+def test_risk_tables_escape_labels_and_display_undefined_values(report_analysis):
+    label = '<img src=x onerror="risk()">'
+    report_analysis.portfolios["Minimum volatility"].weights.index = [label, "BBB"]
+    report_analysis.mean_returns.index = [label, "BBB"]
+    report_analysis.covariance.index = report_analysis.covariance.columns = [label, "BBB"]
+    report_analysis.covariance.loc[:, :] = 0.0
+    document = report_html(report_analysis, {})
+    risk_section = document.split("<h2>Concentration and risk</h2>")[1].split("<h2>Realized holdout results</h2>")[0]
+    assert label not in risk_section
+    assert "&lt;img src=x onerror=" in risk_section
+    assert risk_section.count("<td>—</td>") == 3
+    assert "<td>60.00%</td>" in risk_section

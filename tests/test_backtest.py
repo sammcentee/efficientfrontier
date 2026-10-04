@@ -83,11 +83,12 @@ def test_full_switch_charges_both_sell_and_buy_legs(monkeypatch):
     assert switch.cost == pytest.approx(0.01 * (switch.nav_before + switch.nav_after))
 
 
-def test_future_changes_do_not_affect_prior_equity_or_targets():
+@pytest.mark.parametrize("periods_per_year", [12, 252, 365])
+def test_future_changes_do_not_affect_prior_equity_or_targets(periods_per_year):
     prices = history()
-    first = run_backtests(prices, train_fraction=0.5, rebalance_every=1)
+    first = run_backtests(prices, train_fraction=0.5, rebalance_every=1, periods_per_year=periods_per_year)
     prices.iloc[5:, 0] *= 1.4
-    second = run_backtests(prices, train_fraction=0.5, rebalance_every=1)
+    second = run_backtests(prices, train_fraction=0.5, rebalance_every=1, periods_per_year=periods_per_year)
     pd.testing.assert_frame_equal(first.equity.iloc[:2], second.equity.iloc[:2])
     for key in first.allocations:
         # Even the close-5 trade cannot observe the changed close-5 price.
@@ -97,7 +98,8 @@ def test_future_changes_do_not_affect_prior_equity_or_targets():
         )
 
 
-def test_training_windows_end_before_execution_and_rolling_is_bounded(monkeypatch):
+@pytest.mark.parametrize("periods_per_year", [12, 52, 252])
+def test_training_windows_end_before_execution_and_rolling_is_bounded(monkeypatch, periods_per_year):
     calls = []
 
     def recording_optimizer(mean, covariance, *args, **kwargs):
@@ -109,15 +111,16 @@ def test_training_windows_end_before_execution_and_rolling_is_bounded(monkeypatc
 
     monkeypatch.setattr(backtest, "optimize", recording_optimizer)
     prices = history()
-    study = run_backtests(prices, train_fraction=0.5, rebalance_every=1, rolling_window=2)
+    study = run_backtests(prices, train_fraction=0.5, rebalance_every=1, rolling_window=2,
+                          periods_per_year=periods_per_year)
     returns = prices.pct_change().iloc[1:]
     # Shared initial fit plus expanding windows; rolling never includes execution day's return.
     expected_windows = [(0, 3), (0, 4), (0, 5), (1, 3), (2, 4), (3, 5)]
     assert len(calls) == len(expected_windows)
     for (mean, covariance), (start, end) in zip(calls, expected_windows):
         sample = returns.iloc[start:end]
-        pd.testing.assert_series_equal(mean, sample.mean() * 252)
-        expected_covariance = sample.cov() * 252
+        pd.testing.assert_series_equal(mean, sample.mean() * periods_per_year)
+        expected_covariance = sample.cov() * periods_per_year
         expected_covariance.iloc[0, 1] *= 0.9
         expected_covariance.iloc[1, 0] *= 0.9
         pd.testing.assert_frame_equal(covariance, expected_covariance)
@@ -195,3 +198,59 @@ def test_invalid_settings(kwargs, match):
 def test_invalid_prices(change, match):
     with pytest.raises(ValueError, match=match):
         run_backtests(change(history()))
+
+
+@pytest.mark.parametrize("frequency,periods_per_year", [("MS", 12), ("W", 52)])
+def test_periodic_backtest_metrics_use_selected_annualization(frequency, periods_per_year):
+    prices = history()[["A"]]
+    prices.index = pd.date_range("2020-01-01", periods=len(prices), freq=frequency)
+    prices.iloc[5:, 0] = [90, 108, 108]
+    study = run_backtests(prices, train_fraction=0.5, risk_free_rate=0.12, cost_bps=0,
+                          periods_per_year=periods_per_year)
+    annual_excess = 0.025 * periods_per_year - 0.12
+    downside = np.sqrt(((0.1 + 0.12 / periods_per_year) ** 2
+                        + 2 * (0.12 / periods_per_year) ** 2) * periods_per_year / 4)
+    for _, row in study.metrics.iterrows():
+        assert row.total_return == pytest.approx(0.08)
+        assert row.cagr == pytest.approx(1.08 ** (periods_per_year / 4) - 1)
+        assert row.volatility == pytest.approx(np.sqrt(0.0475 / 3 * periods_per_year))
+        assert row.sortino == pytest.approx(annual_excess / downside)
+        assert row.calmar == pytest.approx(row.cagr / 0.1)
+    assert study.settings["periods_per_year"] == periods_per_year
+    assert study.settings["trading_days_per_year"] == periods_per_year
+
+
+def test_backtest_default_periods_match_explicit_trading_year():
+    implicit = run_backtests(history(), train_fraction=0.5)
+    explicit = run_backtests(history(), train_fraction=0.5, periods_per_year=252)
+    pd.testing.assert_frame_equal(implicit.equity, explicit.equity)
+    pd.testing.assert_frame_equal(implicit.metrics, explicit.metrics)
+    assert implicit.settings == explicit.settings
+
+
+@pytest.mark.parametrize("periods_per_year", [0, -1, np.nan, np.inf, True, np.bool_(True), "12", None, 12j])
+def test_backtest_rejects_invalid_annualization(periods_per_year):
+    with pytest.raises(ValueError, match="periods_per_year"):
+        run_backtests(history(), periods_per_year=periods_per_year)
+
+
+@pytest.mark.parametrize("kind", ["boolean", "complex", "object_boolean", "object_complex"])
+def test_backtest_rejects_boolean_and_complex_prices(kind):
+    prices = history()
+    if kind == "boolean":
+        prices = prices > 0
+    elif kind == "complex":
+        prices = prices.astype(complex) + 1j
+    else:
+        prices = prices.astype(object)
+        prices.iloc[0, 0] = True if kind == "object_boolean" else 100 + 1j
+    with pytest.raises(ValueError, match="Boolean or complex"):
+        run_backtests(prices)
+
+
+def test_backtest_ratios_are_undefined_for_flat_zero_cost_equity():
+    prices = history().copy()
+    prices.iloc[4:] = 100
+    study = run_backtests(prices, train_fraction=0.5, risk_free_rate=0, cost_bps=0, periods_per_year=12)
+    for column in ("sharpe", "sortino", "calmar"):
+        assert study.metrics[column].isna().all()

@@ -53,13 +53,13 @@ def test_validation_rejects_duplicate_days_after_normalization(prices):
 
 
 @pytest.mark.parametrize("kind, message", [
-    ("short", "100"), ("no_assets", "at least one asset"),
+    ("short", "5"), ("no_assets", "at least one asset"),
     ("duplicate_asset", "unique"), ("numeric_index", "dates"),
     ("missing_date", "valid date"), ("invalid_date", "valid date"),
 ])
 def test_validation_rejects_invalid_shape_and_dates(prices, kind, message):
     if kind == "short":
-        prices = prices.iloc[:99]
+        prices = prices.iloc[:4]
     elif kind == "no_assets":
         prices = prices.iloc[:, :0]
     elif kind == "duplicate_asset":
@@ -85,6 +85,13 @@ def test_csv_accepts_filelike_objects_and_paths(prices, source_type, tmp_path):
         source = tmp_path / "prices.csv"
         source.write_text(content)
     pd.testing.assert_frame_equal(load_csv(source), prices, check_freq=False)
+
+
+@pytest.mark.parametrize("frequency", ["B", "W-FRI", "MS"])
+def test_csv_accepts_five_daily_weekly_or_monthly_observations(prices, frequency):
+    table = prices.iloc[:5].copy()
+    table.index = pd.date_range("2020-01-01", periods=5, freq=frequency, name="Date")
+    pd.testing.assert_frame_equal(load_csv(StringIO(table.to_csv())), table, check_freq=False)
 
 
 @pytest.mark.parametrize("asset_count", [1, 128])
@@ -134,6 +141,12 @@ def test_ticker_normalization():
     assert parse_tickers(" aapl, msft\nBRK.B\tAAPL,brk-b  ") == ["AAPL", "MSFT", "BRK-B"]
 
 
+def test_ticker_normalization_preserves_exchange_suffixes_and_explicit_share_classes():
+    assert parse_tickers(
+        "vod.l, BMW.DE iwda.as\n7203.T brk.b BF.B brk.a bf.a VOD.L brk-b bf-b"
+    ) == ["VOD.L", "BMW.DE", "IWDA.AS", "7203.T", "BRK-B", "BF-B", "BRK-A", "BF-A"]
+
+
 def test_ticker_normalization_preserves_a_large_universe_in_input_order():
     symbols = [f"TICKER{number:03d}" for number in reversed(range(128))]
     assert parse_tickers(", ".join(symbols).lower()) == symbols
@@ -161,6 +174,40 @@ def test_download_selects_adjusted_close_in_requested_order(monkeypatch, prices,
     assert calls[0][1]["actions"] is False
     assert calls[0][1]["multi_level_index"] is True
     assert calls[0][1]["keepna"] is True
+
+
+@pytest.mark.parametrize("ticker_level_first", [False, True])
+def test_download_preserves_exchange_suffixes_and_normalizes_share_classes(
+    monkeypatch, prices, ticker_level_first,
+):
+    symbols = ["VOD.L", "BMW.DE", "IWDA.AS", "7203.T", "BRK-B", "BF-B"]
+    expected = pd.concat([prices.iloc[:, 0]] * len(symbols), axis=1)
+    expected.columns = symbols
+    close = expected.rename(columns={"BRK-B": "BRK.B", "BF-B": "BF.B"}).iloc[:, ::-1]
+    close.columns = close.columns.str.lower()
+    raw = pd.concat({"Close": close}, axis=1)
+    if ticker_level_first:
+        raw = raw.swaplevel(axis=1)
+
+    def download(requested, **kwargs):
+        assert requested == symbols
+        return raw
+
+    monkeypatch.setattr("efficient_frontier.data.yf.download", download)
+    result = download_prices(
+        ["vod.l", "bmw.de", "iwda.as", "7203.t", "brk.b", "bf.b", "VOD.L"],
+        "2020-01-01", "2021-01-01",
+    )
+    pd.testing.assert_frame_equal(result, expected, check_freq=False)
+
+
+def test_download_rejects_duplicate_columns_after_share_class_normalization(monkeypatch, prices):
+    close = prices.copy()
+    close.columns = ["BRK.B", "BRK-B"]
+    raw = pd.concat({"Close": close}, axis=1)
+    monkeypatch.setattr("efficient_frontier.data.yf.download", lambda *args, **kwargs: raw)
+    with pytest.raises(ValueError, match="duplicate asset columns"):
+        download_prices(["BRK.B"], "2020-01-01", "2021-01-01")
 
 
 @pytest.mark.parametrize("symbols", [[], ["", " "]])

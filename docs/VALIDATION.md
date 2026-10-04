@@ -1,10 +1,42 @@
-# What has actually been tested
+# Validation record
 
-Checked on **3 October 2026 (UTC)** using Python 3.14, Streamlit 1.65 and Chromium on Linux/WSL. The README screenshot comes from the running app with synthetic data.
+## General portfolio upgrade: 4 October 2026
+
+**212 tests passed**. The suite contains **16 Streamlit AppTest cases**. Dependency checks passed. These checks used Python 3.14 and Streamlit 1.65 on Linux/WSL.
+
+- Monthly, weekly, calendar-day, and custom annualization reach the estimates, backtests, metrics, interface, and reports. The selected factor does not resample prices.
+- International Yahoo symbols retain exchange suffixes. Explicit share-class aliases still work. Provider responses remain mocked in automated tests.
+- CSV inputs accept five complete price rows. Both engines still require two returns in each period. Direct API calls reject boolean and complex prices.
+- Independent formulas verify Sortino, Calmar, concentration, and signed variance contributions. Tests cover undefined ratios and zero-risk portfolios.
+- Default allocations, frontier values, equity curves, and previous metric columns match the original code within `1e-12` on the complete synthetic demo.
+- Further comparisons confirmed unchanged backtest allocations, holdings, trades, and time boundaries. Fits exclude the return on the execution date.
+- App tests verify applied settings, pending changes, risk selection, and chart filters. Filters preserve all strategy results and exports.
+- CLI checks cover a monthly CSV report and an offline demo with all four backtest methods. Export checks cover the `Date` header and risk CSVs.
+
+The suite reports one pre-existing pandas warning during the invalid-date rejection test. That test passes.
+
+### Browser checks for this upgrade
+
+These checks used the T3 Code collaborative browser:
+
+- The app displayed the demo, portfolio risk view, holdout view, and selected backtest curves.
+- A synthetic monthly CSV with 36 rows and two assets produced 24 training returns and 11 holdout returns.
+- The downloaded monthly ZIP recorded 12 observations per year. Independent checks confirmed its CAGR, variance-share totals, and 12 strategy exports.
+- At 390 × 844, the frontier, holdout, and backtest titles fit within their charts. The page had no horizontal overflow.
+- The standalone report displayed all five charts, risk tables, and new ratios. It requested no external resources. Its narrow layout contained wide tables in scroll areas.
+- The report print button called `window.print()`. This check did not produce a new PDF.
+
+The preview host logged Electron startup errors when it opened the report tab. The charts still rendered. This was not a clean browser-console check.
+
+These viewport checks used a desktop browser. They do not establish physical-phone support or native Windows/macOS coverage.
+
+## Earlier baseline: 3 October 2026
+
+The earlier checks used Python 3.14, Streamlit 1.65, and Chromium on Linux/WSL. The sections below record that baseline.
 
 ## Automated checks
 
-**135 tests passed**, including **10 Streamlit AppTest cases**. Dependency checks also passed.
+At that time, **135 tests passed**, including **10 Streamlit AppTest cases**. Dependency checks also passed.
 
 - Portfolio controls change the calculated weights, training split and selected frontier allocation. Single-asset and 64-asset inputs are covered.
 - Backtest controls change trading intervals, estimation windows and fees; the holdings selector shows the corresponding strategy's records.

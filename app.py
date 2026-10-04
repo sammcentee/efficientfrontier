@@ -9,9 +9,10 @@ import streamlit as st
 
 from efficient_frontier.core import analyze
 from efficient_frontier.backtest import run_backtests
-from efficient_frontier.backtest_report import backtest_chart, findings
+from efficient_frontier.backtest_report import HOLDINGS, METRICS, backtest_chart, findings
 from efficient_frontier.data import demo_prices, download_prices, load_csv, original_tickers, parse_tickers
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, report_zip, weights_frame
+from efficient_frontier.risk import risk_contributions, risk_summary
 
 
 st.set_page_config(page_title="Efficient Frontier · Portfolio Lab", page_icon="◈", layout="wide")
@@ -55,6 +56,17 @@ with st.sidebar:
         universe = st.radio("Universe", ["Custom tickers", "Original 60 holdings"])
     use_cap = st.toggle("Limit weight per asset", value=False, key="use_cap",
                         help="Optional concentration limit. There is no limit on the number of tickers or holdings.")
+    with st.expander("Observation frequency"):
+        frequencies = {"Trading days (252)": 252, "Calendar days (365)": 365,
+                       "Weekly (52)": 52, "Monthly (12)": 12, "Custom": None}
+        frequency = st.selectbox("Annualization basis", list(frequencies), key="observation_frequency")
+        periods_per_year = frequencies[frequency]
+        if periods_per_year is None:
+            periods_per_year = st.number_input("Observations per year", min_value=1.0, value=252.0,
+                                               step=1.0, key="periods_per_year")
+        st.caption("This assumption applies to returns between supplied rows. It does not resample prices or convert currency.")
+        if source != "Upload CSV":
+            st.caption("Demo and Yahoo prices use daily observations. Weekly and monthly settings require data at those intervals.")
     with st.form("analysis_settings"):
         if source == "Yahoo Finance":
             if universe == "Original 60 holdings":
@@ -66,21 +78,22 @@ with st.sidebar:
             start = st.date_input("Start date", date(2020, 1, 1))
             end = st.date_input("End date (exclusive)", date.today())
         elif source == "Upload CSV":
-            uploaded = st.file_uploader("Adjusted daily prices", type=["csv"])
-            st.caption("Date in the first column; one asset per remaining column. Use a common currency and complete daily observations.")
+            uploaded = st.file_uploader("Adjusted prices", type=["csv"])
+            st.caption("Use dates in the first column and one asset per subsequent column. Supply complete observations at consistent intervals in a common currency.")
         else:
             st.caption("Six simulated assets. Repeatable data for exploring the app; no market performance claims.")
-        st.markdown("**Portfolio settings**")
-        cap = st.number_input("Maximum weight per asset (%)", min_value=0.0, max_value=100.0,
-                              value=40.0, step=1.0, format="%.4f", key="cap") if use_cap else 100.0
-        risk_free = st.number_input("Annual risk-free rate (%)", min_value=-10.0, max_value=100.0, value=2.0, step=0.25, key="risk_free")
-        train_pct = st.slider("Data used for training", 50, 90, 70, step=5, format="%d%%")
-        shrink = st.slider("Covariance shrinkage", 0, 100, 10, step=5, format="%d%%", help="Blend the training covariance toward its diagonal. 0% uses the sample covariance; 100% removes estimated correlations.")
-        with st.expander("Backtest comparison", expanded=True):
+        with st.expander("Portfolio settings", expanded=True):
+            cap = st.number_input("Maximum weight per asset (%)", min_value=0.0, max_value=100.0,
+                                  value=40.0, step=1.0, format="%.4f", key="cap") if use_cap else 100.0
+            risk_free = st.number_input("Annual risk-free rate (%)", min_value=-10.0, max_value=100.0, value=2.0, step=0.25, key="risk_free")
+            train_pct = st.slider("Data used for training", 50, 90, 70, step=5, format="%d%%")
+            shrink = st.slider("Covariance shrinkage", 0, 100, 10, step=5, format="%d%%", help="Blend the training covariance toward its diagonal. 0% uses the sample covariance; 100% removes estimated correlations.")
+        with st.expander("Backtest comparison"):
             include_backtests = st.checkbox("Compare four backtesting methods", value=True, key="include_backtests")
             rebalance_every = st.number_input("Sessions between trades", min_value=1, value=21, step=1)
             rolling_window = st.number_input("Rolling estimation sessions (0 = initial training length)", min_value=0, value=0, step=21)
             cost_bps = st.number_input("Trading cost (basis points per bought or sold unit)", min_value=0., max_value=9999., value=10., step=1., key="cost_bps")
+            st.caption("Each session is one supplied observation. The schedule does not count calendar months.")
             st.caption("Targets use the previous close's data and trade at the next close. Repeated fits take longer for large universes.")
         submitted = st.form_submit_button("Build frontier", type="primary", width="stretch")
     st.caption("No ticker-count limit · Long-only · Fully invested")
@@ -92,7 +105,7 @@ st.title("Find the balance.")
 st.markdown("Explore the trade-off between risk and return, then test your allocations on the data held aside.")
 
 settings = dict(train_fraction=train_pct / 100, risk_free_rate=risk_free / 100,
-                max_weight=cap / 100, shrinkage=shrink / 100)
+                max_weight=cap / 100, shrinkage=shrink / 100, periods_per_year=periods_per_year)
 if submitted or ("result" not in st.session_state and source == "Demo · synthetic"):
     st.session_state.pop("result", None)
     st.session_state.pop("backtests", None)
@@ -106,12 +119,12 @@ if submitted or ("result" not in st.session_state and source == "Demo · synthet
                 prices = fetch_prices(tickers, start.isoformat(), end.isoformat())
             else:
                 if uploaded is None:
-                    raise ValueError("Choose a CSV of adjusted daily prices before building the frontier.")
+                    raise ValueError("Choose a CSV of adjusted prices before building the frontier.")
                 prices = load_csv(BytesIO(uploaded.getvalue()))
             result = calculate(prices, settings)
             study = compare_backtests(prices, settings, dict(rebalance_every=rebalance_every,
                                       rolling_window=rolling_window or None, cost_bps=cost_bps)) if include_backtests else None
-            metadata = {"source": source, **settings}
+            metadata = {"source": source, "use_cap": use_cap, **settings}
             if source == "Yahoo Finance":
                 metadata.update(requested_start=start.isoformat(), requested_end_exclusive=end.isoformat(), universe=universe)
             st.session_state.result = (result, prices, metadata)
@@ -128,18 +141,28 @@ study = st.session_state.get("backtests")
 if "synthetic" in metadata["source"]:
     st.info("DEMO DATA · These prices are synthetic. Use Yahoo Finance or upload your own adjusted prices to research real assets.")
 else:
-    st.caption(f"{metadata['source']} · {prices.index[0]:%d %b %Y} to {prices.index[-1]:%d %b %Y} · adjusted daily prices")
+    st.caption(f"{metadata['source']} · {prices.index[0]:%d %b %Y} to {prices.index[-1]:%d %b %Y} · adjusted prices")
+if (use_cap != metadata["use_cap"] or periods_per_year != metadata["periods_per_year"]
+        or (source == "Yahoo Finance" and universe != metadata["universe"])):
+    st.info("The sidebar has changes. Select Build frontier to apply them. Results below use the last completed run.")
+applied_cap = "No position limit" if metadata["max_weight"] == 1 else f"Position limit {metadata['max_weight']:.2%}"
+st.caption(f"Applied settings · {metadata.get('universe', metadata['source'])} · "
+           f"{metadata['periods_per_year']:g} observations/year · Training {metadata['train_fraction']:.0%} · "
+           f"Risk-free rate {metadata['risk_free_rate']:.2%} · Shrinkage {metadata['shrinkage']:.0%} · {applied_cap}")
+if study is not None:
+    st.caption(f"Applied backtest settings · Trade every {study.settings['rebalance_every']} observations · "
+               f"Rolling window {study.settings['rolling_window']} returns · Costs {study.settings['cost_bps']:g} basis points")
 for warning in result.warnings:
     st.warning(warning)
 
 cols = st.columns(4)
 cols[0].metric("Assets", str(len(prices.columns)))
-cols[1].metric("Training sessions", f"{len(result.train_returns):,}")
-cols[2].metric("Holdout sessions", f"{len(result.test_returns):,}")
+cols[1].metric("Training observations", f"{len(result.train_returns):,}")
+cols[2].metric("Holdout observations", f"{len(result.test_returns):,}")
 cols[3].metric("Position weight limit", "None" if metadata["max_weight"] == 1 else f"{metadata['max_weight'] * 100:g}%")
 st.caption(f"Train: {result.train_returns.index[0]:%d %b %Y} – {result.train_returns.index[-1]:%d %b %Y}  ·  Holdout: {result.test_returns.index[0]:%d %b %Y} – {result.test_returns.index[-1]:%d %b %Y}")
 
-frontier_tab, backtest_tab, holdout_tab, data_tab = st.tabs(["Efficient frontier", "Backtests & holdings", "Original holdout", "Data & methodology"])
+frontier_tab, risk_tab, backtest_tab, holdout_tab, data_tab = st.tabs(["Efficient frontier", "Portfolio risk", "Backtests & holdings", "Original holdout", "Data & methodology"])
 with frontier_tab:
     st.plotly_chart(frontier_chart(result), width="stretch", theme=None)
     st.caption("The curve shows minimum estimated volatility at each target return, using every supplied ticker. A position limit applies only if enabled. All estimates use the training period only.")
@@ -162,12 +185,41 @@ with frontier_tab:
         frontier_weights = result.frontier_weights.iloc[point].sort_values(ascending=False)
         st.dataframe(frontier_weights.rename("Weight").to_frame().style.format("{:.2%}"), width="stretch")
 
+with risk_tab:
+    st.subheader("Allocation and portfolio risk")
+    diagnostics = risk_summary(result)
+    st.dataframe(diagnostics.style.format({"max_weight": "{:.2%}", "effective_holdings": "{:.2f}",
+                                          "diversification_ratio": "{:.2f}"}, na_rep="—"),
+                 column_config={"max_weight": "Largest weight", "effective_holdings": "Effective holdings",
+                                "diversification_ratio": "Diversification ratio"}, width="stretch")
+    st.caption("Effective holdings equals 1 / sum of squared weights. Equal weights give the asset count. Greater concentration reduces this value.")
+    st.caption("The diversification ratio compares weighted asset volatility with portfolio volatility. Both use the training covariance.")
+    risk_portfolio = st.selectbox("Inspect portfolio risk for", list(result.portfolios), key="risk_portfolio")
+    risk_weights = result.portfolios[risk_portfolio].weights
+    contribution = risk_contributions(result)[risk_portfolio]
+    risk_frame = pd.DataFrame({"Allocation weight": risk_weights, "Share of portfolio variance": contribution})
+    risk_frame = risk_frame.sort_values("Allocation weight", ascending=False)
+    chart_rows = risk_frame.head(20).rename_axis("Asset").reset_index()
+    fig = px.bar(chart_rows, y="Asset", x=["Allocation weight", "Share of portfolio variance"],
+                 orientation="h", barmode="group", color_discrete_sequence=["#40d4be", "#ffcb77"])
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#111c2e", plot_bgcolor="#111c2e",
+                      height=max(380, 100 + 30 * len(chart_rows)),
+                      margin=dict(l=10, r=20, t=20, b=100), legend=dict(title=None, orientation="h", y=-0.2))
+    fig.update_xaxes(title="Weight / share of variance", tickformat=".0%")
+    fig.update_yaxes(title=None, autorange="reversed")
+    st.plotly_chart(fig, width="stretch", theme=None)
+    if len(risk_frame) > 20:
+        st.caption("The chart shows the 20 largest allocations. The table includes every asset.")
+    st.dataframe(risk_frame.style.format("{:.2%}", na_rep="—"), width="stretch")
+    st.caption("Risk shares use the training covariance and can be negative when assets offset risk. Zero portfolio variance gives undefined risk shares.")
+
 with holdout_tab:
     st.subheader("What happened after training?")
     st.markdown("Allocate once at the end of training, then hold through the later period without trading between assets. Adjusted-price growth reflects the data provider's treatment of distributions; weights drift. The equal-weight portfolio follows the same rule.")
     st.plotly_chart(holdout_chart(result), width="stretch", theme=None)
-    metrics = result.holdout_metrics.rename(columns={"total_return": "Total return", "cagr": "Annualized growth", "volatility": "Annual volatility", "sharpe": "Sharpe ratio", "max_drawdown": "Max drawdown"})
-    st.dataframe(metrics.style.format({col: "{:.2f}" if col == "Sharpe ratio" else "{:.2%}" for col in metrics.columns}), width="stretch")
+    metrics = result.holdout_metrics.rename(columns={"total_return": "Total return", "cagr": "Annualized growth", "volatility": "Annual volatility", "sharpe": "Sharpe ratio", "sortino": "Sortino ratio", "calmar": "Calmar ratio", "max_drawdown": "Max drawdown"})
+    st.dataframe(metrics.style.format({col: "{:.2f}" if col.endswith("ratio") else "{:.2%}" for col in metrics.columns}, na_rep="—"), width="stretch")
+    st.caption("Sortino compares excess returns with downside deviation. Calmar divides annualized growth by maximum drawdown. A zero denominator gives an undefined ratio.")
     st.caption("The starting weight cap applies at allocation; later weights can exceed it as prices move. Annualized growth compounds realized returns, while frontier returns are arithmetic estimates. Repeatedly tuning settings against this holdout makes it less independent.")
 
 with backtest_tab:
@@ -178,13 +230,24 @@ with backtest_tab:
         st.caption("All methods share evaluation dates and costs. Buy and hold lets weights drift; fixed rebalancing restores the initial targets; expanding and rolling windows estimate new targets. Trades execute one session after the last estimation close. These are retrospective comparisons, not forecasts.")
         for item in findings(study):
             st.write(item)
-        st.plotly_chart(backtest_chart(study), width="stretch", theme=None)
-        st.plotly_chart(backtest_chart(study, drawdown=True), width="stretch", theme=None)
-        formats = {column: ("{:.0f}" if column.endswith("count") else "{:.2f}" if column in ("sharpe", "total_turnover") else "{:.2%}") for column in study.metrics.columns}
-        st.dataframe(study.metrics.style.format(formats), width="stretch")
+        default_strategies = [name for name in study.equity.columns
+                              if name in ("Fixed rebalance · Maximum Sharpe", "Expanding window · Maximum Sharpe",
+                                          "Rolling window · Maximum Sharpe", "Fixed rebalance · Equal weight")]
+        chart_strategies = st.multiselect("Strategies shown in charts", list(study.equity.columns),
+                                          default=default_strategies, key="chart_strategies")
+        st.caption("This selection controls both charts. Tables and downloads include every strategy.")
+        if chart_strategies:
+            st.plotly_chart(backtest_chart(study, strategies=chart_strategies), width="stretch", theme=None)
+            st.plotly_chart(backtest_chart(study, drawdown=True, strategies=chart_strategies), width="stretch", theme=None)
+        else:
+            st.info("Select at least one strategy to show its performance and drawdown.")
+        formats = {column: ("{:.0f}" if column.endswith("count") else "{:.2f}" if column in ("sharpe", "sortino", "calmar", "total_turnover") else "{:.2%}") for column in study.metrics.columns}
+        st.dataframe(study.metrics.style.format(formats, na_rep="—"),
+                     column_config={column: label for column, (label, _) in METRICS.items()}, width="stretch")
         selected = st.selectbox("Inspect holdings for", list(study.equity.columns), key="holding_strategy")
         holdings = study.holdings[selected].sort_values("pnl_contribution", ascending=False)
-        st.dataframe(holdings.style.format("{:.2%}"), width="stretch")
+        st.dataframe(holdings.style.format("{:.2%}"),
+                     column_config={column: label for column, (label, _) in HOLDINGS.items()}, width="stretch")
         st.caption("Contributions are profit/loss as a fraction of initial capital, before separately charged fees. Their sum minus fees equals the strategy's net total return. Selection frequency counts target allocations; average weight includes drift and the initial cash session.")
         st.subheader("Target allocations through time")
         st.dataframe(study.allocations[selected].style.format("{:.2%}"), width="stretch")
@@ -199,7 +262,8 @@ with data_tab:
         st.subheader("Training correlations")
         chart_assets = list(prices.columns)
         if len(chart_assets) > 30:
-            chart_assets = st.multiselect("Assets shown in the correlation chart", chart_assets, default=chart_assets[:20])
+            chart_assets = st.multiselect("Assets shown in the correlation chart", chart_assets,
+                                         default=chart_assets[:20], key="correlation_assets")
             st.caption("This selection controls the chart. All supplied assets remain in the portfolio analysis.")
         if chart_assets:
             fig = px.imshow(result.train_returns[chart_assets].corr(), zmin=-1, zmax=1,
@@ -209,15 +273,15 @@ with data_tab:
     with right:
         st.subheader("How it works")
         st.markdown(f"""
-- Daily simple returns from adjusted closing prices; no forward-filling or silent asset removal.
+- Simple returns between supplied price observations. No forward-fill or silent asset removal.
 - The earliest **{metadata['train_fraction']:.0%}** of return observations estimates the portfolio. The remaining observations are held aside.
-- Annual return = mean daily return × 252. Annual covariance = daily covariance × 252.
+- Annual return = mean return × **{metadata['periods_per_year']:g}**. Annual covariance = covariance per observation × **{metadata['periods_per_year']:g}**.
 - Covariance blends **{metadata['shrinkage']:.0%}** toward its diagonal to temper estimated correlations.
 - Convex optimization finds minimum-volatility portfolios and, when positive excess return is feasible, maximum Sharpe.
 - Sharpe uses the **{metadata['risk_free_rate']:.2%}** annual risk-free assumption; cash is not an investable asset in this model.
 - All weights are nonnegative and sum to 100%. A starting position limit is optional; there is no minimum or maximum number of holdings.
 """)
-        st.caption("Use daily observations in a common currency. The app cannot verify whether a CSV is adjusted, daily, or in a common currency. A fixed ticker list can introduce survivorship bias. Historical averages are sensitive to the chosen period.")
+        st.caption("Use observations at consistent intervals in a common currency. The annualization assumption does not resample prices or convert currency. The app cannot verify CSV frequency, adjustments, or currency. A fixed ticker list can introduce survivorship bias.")
     st.subheader("Price observations")
     st.dataframe(prices, width="stretch", height=260)
     st.download_button("Download prices CSV", csv_text(prices, index_label="Date"), "prices.csv", "text/csv")
@@ -225,4 +289,4 @@ with data_tab:
 st.divider()
 st.download_button("Download research report + CSVs", export_report(result, prices, metadata, study),
                    "efficient-frontier-report.zip", "application/zip", type="primary")
-st.caption("Includes an offline HTML report with Print / save PDF, exact inputs and results. Enabled backtests add findings.md, daily curves, holding contributions, target allocations and trading costs.")
+st.caption("Includes an offline HTML report with Print / save PDF, exact inputs and results. Enabled backtests add findings.md, performance curves, holding contributions, target allocations and trading costs.")

@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 from streamlit.testing.v1 import AppTest
 
 
@@ -68,8 +70,8 @@ def test_large_universe_chart_selection_keeps_all_assets_in_analysis(monkeypatch
     assert not app.exception
     assert not app.error
     assert app.metric[0].value == "64"
-    assert len(app.multiselect[0].value) == 20
-    app.multiselect[0].set_value([]).run()
+    assert len(app.multiselect(key="correlation_assets").value) == 20
+    app.multiselect(key="correlation_assets").set_value([]).run()
     assert not app.exception
     assert len(app.session_state.result[0].portfolios["Minimum volatility"].weights) == 64
 
@@ -194,6 +196,8 @@ def test_yahoo_inputs_reach_downloader_and_failure_clears_previous_results(monke
     assert not any("DEMO DATA" in item.value for item in app.info)
 
     app.radio[0].set_value("Original 60 holdings").run()
+    assert any("sidebar has changes" in item.value for item in app.info)
+    assert any("Applied settings · Custom tickers" in item.value for item in app.caption)
     app.button[0].click().run()
     assert not app.exception
     assert not app.error
@@ -208,3 +212,89 @@ def test_yahoo_inputs_reach_downloader_and_failure_clears_previous_results(monke
     assert "backtests" not in app.session_state
     assert not app.metric
     assert not app.get("download_button")
+
+
+@pytest.mark.parametrize("preset,periods", [("Calendar days (365)", 365), ("Weekly (52)", 52), ("Monthly (12)", 12)])
+def test_frequency_changes_annualization_without_resampling_prices(preset, periods):
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    original_prices = app.session_state.result[1].copy()
+    app.selectbox(key="observation_frequency").select(preset).run()
+    assert not app.exception
+    assert app.session_state.result[2]["periods_per_year"] == 252
+    assert any("sidebar has changes" in item.value for item in app.info)
+    assert any("252 observations/year" in item.value for item in app.caption)
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    analysis, prices, metadata = app.session_state.result
+    assert analysis.periods_per_year == periods
+    assert metadata["periods_per_year"] == periods
+    assert app.session_state.backtests.settings["periods_per_year"] == periods
+    pd.testing.assert_frame_equal(prices, original_prices)
+    np.testing.assert_allclose(analysis.mean_returns, analysis.train_returns.mean() * periods)
+    assert any(f"{periods} observations/year" in item.value for item in app.caption)
+    assert any("does not resample prices or convert currency" in item.value for item in app.caption)
+    assert not any("sidebar has changes" in item.value for item in app.info)
+
+
+def test_custom_frequency_and_cap_changes_keep_applied_settings_clear():
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app.selectbox(key="observation_frequency").select("Custom").run()
+    app.number_input(key="periods_per_year").set_value(48.5).run()
+    app.toggle(key="use_cap").set_value(True).run()
+    assert any("sidebar has changes" in item.value for item in app.info)
+    assert app.session_state.result[2]["max_weight"] == 1
+    app.number_input(key="cap").set_value(30.)
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    analysis, _, metadata = app.session_state.result
+    assert analysis.periods_per_year == 48.5
+    assert metadata["periods_per_year"] == 48.5
+    assert metadata["use_cap"] is True
+    assert metadata["max_weight"] == .3
+    assert app.session_state.backtests.settings["periods_per_year"] == 48.5
+    assert any("48.5 observations/year" in item.value and "Position limit 30.00%" in item.value
+               for item in app.caption)
+    assert not any("sidebar has changes" in item.value for item in app.info)
+
+
+def test_risk_selector_displays_matching_weights_and_variance_contributions():
+    from efficient_frontier.risk import risk_contributions, risk_summary
+
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app.selectbox(key="risk_portfolio").select("Equal weight").run()
+    assert not app.exception
+    analysis = app.session_state.result[0]
+    summary = next(item.value for item in app.dataframe if "effective_holdings" in item.value.columns)
+    pd.testing.assert_frame_equal(summary, risk_summary(analysis))
+    assert summary.loc["Equal weight", "effective_holdings"] == pytest.approx(len(analysis.mean_returns))
+    displayed = next(item.value for item in app.dataframe if "Share of portfolio variance" in item.value.columns)
+    expected = pd.DataFrame({"Allocation weight": analysis.portfolios["Equal weight"].weights,
+                             "Share of portfolio variance": risk_contributions(analysis)["Equal weight"]})
+    pd.testing.assert_frame_equal(displayed, expected.sort_values("Allocation weight", ascending=False))
+    assert displayed["Share of portfolio variance"].sum() == pytest.approx(1.)
+    holdout = next(item.value for item in app.dataframe if "Sortino ratio" in item.value.columns)
+    np.testing.assert_allclose(holdout["Sortino ratio"], analysis.holdout_metrics.sortino, equal_nan=True)
+    np.testing.assert_allclose(holdout["Calmar ratio"], analysis.holdout_metrics.calmar, equal_nan=True)
+
+
+def test_backtest_chart_selection_preserves_all_results():
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    assert len(app.multiselect(key="chart_strategies").value) == 4
+    original_metrics = app.session_state.backtests.metrics.copy()
+    selected = "Rolling window · Maximum Sharpe"
+    app.multiselect(key="chart_strategies").set_value([selected]).run()
+    assert not app.exception
+    figures = [json.loads(item.proto.spec) for item in app.get("plotly_chart")]
+    backtests = [figure for figure in figures if figure["layout"].get("title", {}).get("text", "").startswith("Backtest")]
+    assert len(backtests) == 2
+    assert all([trace["name"] for trace in figure["data"]] == [selected] for figure in backtests)
+    displayed = next(item.value for item in app.dataframe if "total_turnover" in item.value.columns)
+    pd.testing.assert_frame_equal(displayed, original_metrics)
+    assert len(app.get("download_button")) == 2
+    app.multiselect(key="chart_strategies").set_value([]).run()
+    assert not app.exception
+    assert any("Select at least one strategy" in item.value for item in app.info)
+    pd.testing.assert_frame_equal(app.session_state.backtests.metrics, original_metrics)
+    assert len(app.get("download_button")) == 2

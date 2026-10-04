@@ -15,6 +15,7 @@ def study():
     metrics = pd.DataFrame({
         "total_return": np.arange(2, 14) / 100,
         "cagr": [0.15] * 12, "volatility": [0.1] * 12, "sharpe": [1.3] * 12,
+        "sortino": [1.75] * 12, "calmar": [1.5] * 12,
         "max_drawdown": [-0.1] * 12, "total_turnover": [2.75] * 12,
         "total_cost": [0.02] * 12, "rebalance_count": [3] * 12, "fallback_count": [0] * 12,
     }, index=names)
@@ -95,6 +96,26 @@ def test_charts_preserve_all_paths_and_initial_drawdown(study):
     assert comparison.data[3].line.dash == "dash"
     assert comparison.data[6].line.dash == "dot"
     assert comparison.data[9].line.dash == "dashdot"
+    assert len(comparison.layout.title.text) <= 22
+    assert comparison.layout.legend.maxheight <= comparison.layout.margin.b
+
+
+def test_chart_filter_preserves_full_study_and_requested_order(study):
+    original = study.equity.copy()
+    selected = [study.equity.columns[-1], study.equity.columns[0]]
+    chart = backtest_chart(study, strategies=selected)
+    assert [trace.name for trace in chart.data] == selected
+    np.testing.assert_allclose(chart.data[0].y, original[selected[0]] * 10_000)
+    drawdown = backtest_chart(study, drawdown=True, strategies=selected)
+    np.testing.assert_allclose(drawdown.data[0].y, original[selected[0]] / original[selected[0]].cummax() - 1)
+    assert len(backtest_chart(study, strategies=[]).data) == 0
+    pd.testing.assert_frame_equal(study.equity, original)
+    assert len(backtest_chart(study).data) == len(original.columns)
+
+
+def test_chart_filter_rejects_unknown_strategy(study):
+    with pytest.raises(ValueError, match="Unknown backtest strategies: Missing portfolio"):
+        backtest_chart(study, strategies=["Missing portfolio"])
 
 
 def test_html_escapes_asset_names_settings_and_warnings_without_bundle(study):
@@ -114,6 +135,17 @@ def test_html_escapes_asset_names_settings_and_warnings_without_bundle(study):
         assert strategy in document
     assert document.count("<td>3</td>") == 12  # Allocation event counts are not percentages.
     assert "Allocation events (incl. entry)" in document
+    assert document.count("<td>1.75</td>") == 12
+    assert document.count("<td>1.50</td>") == 12
+
+
+@pytest.mark.parametrize("periods", [12.0, 52, 365])
+def test_backtest_reports_use_configured_annualization(study, periods):
+    study.settings["periods_per_year"] = periods
+    for document in (backtest_html(study), findings_markdown(study, "Synthetic demo")):
+        assert f"{periods:g} observations per year" in document
+        assert "252 observations per year" not in document
+        assert "Sortino" in document and "Calmar" in document
 
 
 def test_markdown_has_all_strategies_dates_source_settings_and_limits(study):
