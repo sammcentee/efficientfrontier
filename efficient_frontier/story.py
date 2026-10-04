@@ -68,6 +68,7 @@ The model prefers a stronger worst stretch. At each target, it picks the mix wit
 **Low** is the mix with the least modelled volatility. **Medium** aims halfway between Low and Highest on the worst-stretch return.
 **Highest** aims for the strongest worst-stretch return, with the least variance among equal solutions.
 The levels are relative to the selected assets. They are not absolute limits or guarantees. Exports call Highest "Extreme".
+Volatility measures how much past returns moved. It does not measure every form of risk.
 
 ### Covariance shrinkage
 Covariance describes how returns move together. The estimates can be noisy.
@@ -102,8 +103,10 @@ HELD = 0.0005
 INFO_SVG = ('<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'
             '<circle cx="9" cy="9" r="7.25"/><path d="M9 8v5" stroke-linecap="round"/>'
             '<circle cx="9" cy="5.5" r=".9" fill="currentColor" stroke="none"/></svg>')
-_SECURITY_TYPE = re.compile(r"\s+(Class [A-Z]\s+)?(Common Stock|Common Shares|Capital Stock|Ordinary Shares(\s*\([^)]*\))?"
-                            r"|American Depositary Shares|New York Registry Shares)\s*$")
+_JURISDICTION = re.compile(r"\s*\([A-Z]{2}\)\s*$")
+_SECURITY_TYPE = re.compile(r"\s+((Class [A-Z]\s+)?(Common Stock|Common Shares|Capital Stock|Ordinary Shares(\s*\([^)]*\))?"
+                            r"|American Depositary Shares|New York Registry Shares|Subordinate Voting Shares)(\s+Class [A-Z])?"
+                            r"|Series [A-Z])\s*$")
 _LEGAL_SUFFIX = re.compile(r"(\s*,|\s+(Inc\.|Inc|Incorporated|Corporation|Corp\.|Corp|plc|PLC|N\.V\.|Ltd\.|Limited|S\.A\.|AG|SE))\s*$")
 
 
@@ -137,6 +140,11 @@ def _noun(universe: str) -> str:
     return NOUN.get(universe, ("assets", "asset"))[1]
 
 
+def these_assets(count: int, universe: str) -> str:
+    """Return "these 92 stocks", or "this one asset" when there is only one."""
+    return f"this one {_noun(universe)}" if count == 1 else f"these {count} {_noun(universe)}s"
+
+
 def _nb(text: str) -> str:
     """Escape text and keep each hyphenated word on one line."""
     return re.sub(r"\S+-\S+", lambda match: f'<span class="pl-nb">{match.group(0)}</span>', html.escape(text))
@@ -152,7 +160,7 @@ def _matched(benchmarks: Any):
 
 def short_company_name(name) -> str:
     """Drop the security type and legal suffixes for display. Exported files keep the raw names."""
-    text = _SECURITY_TYPE.sub("", str(name).strip())
+    text = _SECURITY_TYPE.sub("", _JURISDICTION.sub("", str(name).strip()))
     while True:
         shorter = _LEGAL_SUFFIX.sub("", text)
         if shorter == text or not shorter.strip():
@@ -307,9 +315,10 @@ def why_text(latest: Any, profile: str, universe: str) -> list[str]:
     """The three paragraphs of "Why these stocks?"."""
     noun = f"{_noun(universe)}s"
     years = round(float(latest.windows["years"].sum()), 1)
+    count = len(latest.portfolios[profile].weights)
+    mixes = f"The model tries weighted mixes of all {count} {noun}." if count > 1 else f"The model has one {_noun(universe)} to hold."
     return [
-        f"The model tries weighted mixes of all {len(latest.portfolios[profile].weights)} {noun}. It splits the {years:g} years "
-        "into three equal stretches. It prefers mixes with a stronger worst stretch. At each risk level, it picks the least volatile mix.",
+        f"{mixes} It splits the {years:g} years into three equal stretches. It prefers mixes with a stronger worst stretch. At each risk level, it picks the least volatile mix.",
         f"In each of the three stretches, this mix would have averaged at least {_pct(latest.summary.loc[profile, 'worst_window_return'])} "
         "a year. That is the number the model maximised, measured on the same prices that it learned from. It is not a forecast. "
         "The next section tests the rule on prices that it had not seen.",
@@ -395,8 +404,12 @@ def result_tile_html(study: Any, selected: str, benchmarks: Any, evidence: Any, 
     if matched is not None:
         markets = " and the ".join(f"{_e(label)} grew {_pct(cagr)}" for _, label, _, _, cagr in columns[1:])
         verdict = f"It grew {_pct(metrics['cagr'])} a year. <span>The {markets}.</span>"
+        clarity = f'<p class="pl-clarity">{clarity_text(evidence, selected)}</p>'
     else:
-        verdict = f"It grew {_pct(metrics['cagr'])} a year, {_pct(metrics['total_return'], plus=True)} in total."
+        # The section answer already gives the yearly growth. Without markets there is no gap to judge.
+        total = metrics["total_return"]
+        verdict = f"In total, it {'gained' if total >= 0 else 'lost'} {_pct(abs(total))}."
+        clarity = ""
     months = months_tested(study)
     nasdaq = metadata.get("universe") == "Nasdaq-100"
     if nasdaq:
@@ -409,8 +422,7 @@ def result_tile_html(study: Any, selected: str, benchmarks: Any, evidence: Any, 
     held_back = (f"Only the last {months} months ({_date(study.settings['test_start'])} to {_date(study.settings['test_end'])}) "
                  "were held back for this test.")
     return (f'<span class="pl-kicker">10,000 on {_date(equity.index[0])} became, by {_date(equity.index[-1])}</span>'
-            f'<div class="pl-bignums">{numbers}</div><p class="pl-verdict">{verdict}</p>'
-            f'<p class="pl-clarity">{clarity_text(evidence, selected)}</p>'
+            f'<div class="pl-bignums">{numbers}</div><p class="pl-verdict">{verdict}</p>{clarity}'
             f'<p class="pl-mustread">{INFO_SVG}<span><b>{bold}</b> {held_back} {why}</span></p>')
 
 
@@ -553,8 +565,8 @@ def interval_html(evidence: Any, strategy: str) -> str:
     count = round((high - low) / step) + 1
     ticks = "".join(f'<span style="left:{position(low + i * step):.2f}%">{_tick(low + i * step)}</span>' for i in range(count))
     return ('<div class="pl-forest"><div class="f-sides"><div></div><div class="mid">'
-            f'<span class="l" style="right:calc(100% - {zero:.2f}% + 8px)">← Rule behind</span>'
-            f'<span class="r" style="left:calc({zero:.2f}% + 8px)">Rule ahead →</span></div></div>'
+            f'<span class="l" style="width:{zero:.2f}%">← Rule behind</span>'
+            '<span class="r">Rule ahead →</span></div></div>'
             + "".join(body) + f'<div class="f-axis"><div></div><div class="ticks">{ticks}</div></div></div>')
 
 
@@ -594,18 +606,19 @@ def stretch_table_html(evidence: Any, strategy: str) -> str:
 
 # ----------------------------------------------------------------------------- fine print and work card
 
-def fine_print_items(metadata: dict, prices: pd.DataFrame) -> list[str]:
-    """The four caveats as HTML paragraphs' content."""
+def fine_print_items(metadata: dict, prices: pd.DataFrame, coverage_place: str = "Research › Data") -> list[str]:
+    """The four caveats as HTML paragraphs' content. ``coverage_place`` says where the coverage table is."""
     universe = metadata.get("universe", "")
     count = len(prices.columns)
     items = [
         "<b>Research, not advice.</b> Every number comes from past prices. None of it is a forecast.",
-        f"<b>Relative risk.</b> Low, Medium and Highest compare mixes of these {count} {_noun(universe)}s only. "
+        f"<b>Relative risk.</b> Low, Medium and Highest compare mixes of {these_assets(count, universe)} only. "
         "They are not absolute risk ratings.",
     ]
     if universe == "Nasdaq-100":
         items.append(f"<b>Survivors only.</b> The list is today’s Nasdaq-100. {_e(metadata.get('universe_excluded', 0))} of "
-                     f"{_e(metadata.get('universe_requested', count))} stocks were left out for missing prices. See Research › Data.")
+                     f"{_e(metadata.get('universe_requested', count))} stocks were left out for missing prices. "
+                     f"See {_e(coverage_place)}.")
     else:
         items.append("<b>Fixed list.</b> The study keeps the same assets for the whole period. That can favour survivors.")
     source = str(metadata.get("source", ""))
@@ -703,6 +716,11 @@ def story_chart(study: Any, selected: str, mode: str, benchmarks: Any = None, ev
     if evidence is not None and selected in set(evidence.windows["strategy"]):
         windows = _windows(evidence, selected)
         add_test_windows(figure, windows.loc[windows["benchmark"] == windows["benchmark"].iloc[0]])
+        if drawdown:
+            # Room above the 0% line for the stretch labels. It is less than one tick step, so no tick shows above 0%.
+            low = float(pd.concat([pd.Series(trace.y, dtype=float) for trace in figure.data]).min())
+            if low < 0:
+                figure.update_yaxes(range=[low * 1.06, -low * 0.12])
     if not drawdown:
         add_end_labels(figure, "{:.2f}×" if relative else "{:,.0f}")
     return figure

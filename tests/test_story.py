@@ -50,6 +50,11 @@ def test_headline_html_keeps_hyphenated_phrases_together():
     ("ASML Holding N.V. New York Registry Shares", "ASML Holding"),
     ("AstraZeneca PLC American Depositary Shares", "AstraZeneca"),
     ("Ferrovial SE Ordinary Shares", "Ferrovial"),
+    ("Cisco Systems, Inc. Common Stock (DE)", "Cisco Systems"),
+    ("Copart, Inc. (DE)", "Copart"),
+    ("Strategy Inc Common Stock Class A", "Strategy"),
+    ("Shopify Inc. Class A Subordinate Voting Shares", "Shopify"),
+    ("Warner Bros. Discovery, Inc. Series A", "Warner Bros. Discovery"),
     ("Apple", "Apple"),
 ])
 def test_short_company_name_drops_security_type_and_legal_suffixes(raw, short):
@@ -145,7 +150,7 @@ def test_interval_html_escapes_labels_and_places_zero_on_a_padded_axis():
     assert "<img" not in html and "vs &lt;img src=x onerror=&quot;a()&quot;&gt;" in html
     # Range -54.6 to +2.5, padded 10%, on 20-point steps: -80 to +20, so zero sits at 80%.
     assert 'class="f-zero" style="left:80.00%"' in html
-    assert 'style="left:calc(80.00% + 8px)">Rule ahead →' in html
+    assert '<span class="l" style="width:80.00%">← Rule behind</span><span class="r">Rule ahead →</span>' in html
     assert "<b>−16.6</b> points<small>range −35.8 to +2.5</small>" in html
     assert [tick in html for tick in ("−80<", "−60<", "−40<", "−20<", ">0<", "+20<")] == [True] * 6
 
@@ -175,6 +180,22 @@ def test_list_shows_ten_rows_and_one_rest_row_beyond_twelve_holdings():
     assert '<i style="width:100.0%"></i>' in html
     small = list_html(weights([.5, .3, .2, .00001]))
     assert small.count('class="pl-row"') == 3 and "more holdings" not in small and "<b>A00</b></span>" in small
+
+
+def test_one_asset_reads_in_the_singular():
+    assert story.these_assets(92, "Nasdaq-100") == "these 92 stocks"
+    assert story.these_assets(1, "Demo") == "this one asset"
+    items = story.fine_print_items({"universe": "Demo", "source": "Demo · synthetic"}, pd.DataFrame(columns=["A"]))
+    assert "compare mixes of this one asset only" in items[1]
+
+
+def test_result_tile_without_markets_does_not_repeat_the_answer_or_claim_a_failed_test():
+    settings = {"test_start": "2025-04-03", "test_end": "2026-10-02", "initial_execution": "2025-04-03"}
+    study = SimpleNamespace(settings=settings, equity=pd.DataFrame({SELECTED: [1.0, 1.073]}, index=pd.to_datetime(["2025-04-02", "2026-10-02"])),
+                            metrics=pd.DataFrame({"cagr": [.061], "total_return": [.073]}, index=[SELECTED]))
+    html = story.result_tile_html(study, SELECTED, None, None, {"universe": "Demo"})
+    assert '<p class="pl-verdict">In total, it gained 7.3%.</p>' in html
+    assert "a year," not in html and "could not be estimated" not in html and "pl-clarity" not in html
 
 
 def test_story_module_has_no_streamlit_dependency():

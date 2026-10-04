@@ -173,9 +173,10 @@ def _latest_profiles_html(profiles: Any, benchmark_estimates=None, selected: str
     chart = latest_profile_chart(profiles, benchmark_estimates, selected=selected).to_html(
         full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG,
     )
+    as_of = pd.Timestamp(profiles.as_of)
     return (
         '<section id="latest-profiles">'
-        f'<h2>Latest model holdings as of {html.escape(str(profiles.as_of))}</h2>'
+        f'<h2>Latest model holdings as of {as_of.day} {as_of:%b %Y}</h2>'
         '<p class="source">These model weights use all supplied history through the last input date. '
         'The date above is the last price observation, not a live quote.</p>'
         '<p>Low, Medium, and Highest are relative risk levels within this frontier. They are not universal risk ratings. '
@@ -214,7 +215,8 @@ def _summary_html(analysis: Any, metadata: dict, prices, study, latest_profiles,
         parts.append(f"<h2>{story.headline_html(weights, profile, universe)}</h2>")
     else:
         parts.append("<h2>There is not enough history to set risk levels.</h2>")
-    items = story.fine_print_items(metadata, prices if prices is not None else analysis.train_returns)
+    items = story.fine_print_items(metadata, prices if prices is not None else analysis.train_returns,
+                                   coverage_place="Universe coverage in Data and assumptions")
     parts.append('<aside class="pl-read"><h3>Read this first</h3>' + "".join(f"<p>{item}</p>" for item in items) + "</aside>")
     if latest_profiles is not None:
         parts.append(f'<div class="tile">{story.stats_html(latest_profiles, profile, universe, names)}'

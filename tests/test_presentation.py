@@ -261,7 +261,7 @@ def test_latest_profiles_are_prominent_separate_and_escape_report_content(report
     document = report_html(report_analysis, {}, latest_profiles=latest_profiles)
     assert document.index('id="latest-profiles"') < document.index("<h2>Training estimates</h2>")
     profile_section = document.split('<section id="latest-profiles">')[1].split("</section>")[0]
-    assert "Latest model holdings as of 2024-10-01" in profile_section
+    assert "Latest model holdings as of 1 Oct 2024" in profile_section
     assert "last price observation, not a live quote" in profile_section
     assert "not universal risk ratings" in profile_section
     assert "in-sample estimates, not forecasts or holdout results" in profile_section

@@ -67,11 +67,16 @@ APP_ONLY_CSS = """
 [data-testid="stMainBlockContainer"]{max-width:1072px;padding:0 24px 64px}
 .stApp{font-family:var(--pl-font);letter-spacing:-.01em;-webkit-font-smoothing:antialiased}
 :focus-visible{outline:none;box-shadow:var(--pl-focus)!important;border-radius:8px}
+/* Keys 2 and 3 focus the answer heading from code. It is not a control, so it gets no ring. */
+.pl-answer:focus,.pl-answer:focus-visible{outline:none;box-shadow:none!important}
 
-/* 2 Stale content and work */
+/* 2 Stale content and work (the Cancel buttons render for every source; the progress slot is empty except for the Nasdaq-100) */
 [data-stale="true"]{opacity:.55!important;transition:opacity .25s var(--pl-ease) .4s}
-.stApp:has(.st-key-work_progress) [data-stale="true"],
+.stApp:has(.st-key-cancel_build) [data-stale="true"],
 .stApp:has(.st-key-study_work) [data-stale="true"]{opacity:.35!important;pointer-events:none}
+/* Stale blocks (expanders, popovers) carry no data-stale. During a build, nothing after the skeleton takes clicks. */
+.stApp:has(.st-key-cancel_build) [data-testid="stLayoutWrapper"]:has(>.st-key-tile_skeleton)~*{pointer-events:none}
+.st-key-tile_skeleton>:not(:first-child){display:none}
 
 /* 3 Nav bar */
 .st-key-localnav,[data-testid="stLayoutWrapper"]:has(>.st-key-localnav){position:sticky;top:0;z-index:990}
@@ -113,7 +118,7 @@ APP_ONLY_CSS = """
  padding:var(--pl-pad-tile)!important}
 [class*="st-key-tile_"] [data-testid="stElementToolbar"]{display:none}
 @supports (animation-timeline:view()){@media (prefers-reduced-motion:no-preference){
- [class*="st-key-tile_"]{animation:pl-rise linear both;animation-timeline:view();animation-range:entry 0% cover 22%}}}
+ [class*="st-key-tile_"]:not(.st-key-tile_holdings){animation:pl-rise linear both;animation-timeline:view();animation-range:entry 0% entry 160px}}}
 @keyframes pl-rise{from{opacity:0;transform:translateY(28px)}}
 
 /* 7 Expanders as disclosure rows (1.65: details > summary > span > [icon span, label div]) */
@@ -131,8 +136,8 @@ APP_ONLY_CSS = """
 button[data-testid="stBaseButton-primary"]{background:var(--pl-ink);border-color:var(--pl-ink)}
 button[data-testid="stBaseButton-primary"]:hover{background:#000;border-color:#000}
 button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
-.st-key-build button{min-height:48px;padding:0 28px}
-.st-key-build button p{font-size:17px;font-weight:500}
+.st-key-build button,.st-key-fix_setup button{min-height:48px;padding:0 28px}
+.st-key-build button p,.st-key-fix_setup button p{font-size:17px;font-weight:500}
 [data-testid="stAlertContainer"]{border-radius:16px}
 [data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
 [data-testid="stCaptionContainer"]{color:var(--pl-ink-3);opacity:1}
@@ -143,8 +148,7 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
 [data-testid="stDialog"] [role="dialog"]{background:var(--pl-tile);border-radius:24px 0 0 24px;box-shadow:0 30px 80px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.04)}
 [data-testid="stPopoverBody"]{border:0;border-radius:18px;width:min(380px,calc(100vw - 24px));max-height:min(78vh,720px);
  overflow-y:auto;box-shadow:0 30px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05)}
-[data-testid="stDialog"] [role="dialog"]:focus-visible{box-shadow:0 30px 80px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.04)!important}
-.st-key-market{width:100%}
+[data-testid="stDialog"] [role="dialog"]:focus-visible{box-shadow:0 30px 80px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.04)!important}.st-key-market{width:100%}
 .st-key-market [role="radiogroup"]{gap:0;border-radius:14px;box-shadow:inset 0 0 0 1px var(--pl-hair-soft)}
 .st-key-market [role="radiogroup"]>div{align-self:stretch;margin:0;padding:12px 16px;border-top:1px solid var(--pl-hair-soft)}
 .st-key-market [role="radiogroup"]>div:first-child{border-top:0}
@@ -187,6 +191,8 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
  .st-key-comparison_method,.st-key-comparison_method [data-testid="stSelectbox"]{width:100%!important;flex:1 1 100%!important}
  .st-key-risk_profile button[data-variant="segmented_control"] p{font-size:16px}
  [data-testid="stDialog"] [role="dialog"]{border-radius:24px 24px 0 0}
+ [data-testid="stExpander"] summary .stMarkdownColoredText{display:block;margin:2px 0 0;font-size:13px;line-height:18px}
+ .st-key-tile_r_classic .textpoint{display:none}
 }
 """
 
@@ -277,8 +283,10 @@ ul.pl-list{list-style:none;margin:0;padding:0}
 .pl-forest{margin:8px 0 0}
 .pl-forest .f-sides,.pl-forest .f-axis{display:grid;grid-template-columns:132px 1fr;gap:18px}
 .pl-forest .f-sides{margin-bottom:6px;font-size:12px;line-height:16px;color:var(--pl-ink-3)}
-.pl-forest .f-sides .mid{position:relative;height:16px}
-.pl-forest .f-sides .mid span{position:absolute;top:0;white-space:nowrap}
+.pl-forest .f-sides .mid{display:flex;align-items:flex-end}
+.pl-forest .f-sides .mid span{box-sizing:border-box;min-width:0;white-space:nowrap}
+.pl-forest .f-sides .mid .l{flex:none;display:flex;justify-content:flex-end;padding-right:8px;text-align:right}
+.pl-forest .f-sides .mid .r{flex:1;padding-left:8px}
 .pl-forest .f-row{display:grid;grid-template-columns:132px 1fr;grid-template-areas:"l p" "v p";align-items:center;gap:2px 18px;padding:14px 0}
 .pl-forest .f-label{grid-area:l;align-self:end;font:600 15px/20px var(--pl-font);color:var(--pl-ink)}
 .pl-forest .f-value{grid-area:v;align-self:start;font-size:14px;line-height:20px;color:var(--pl-ink-2);font-variant-numeric:tabular-nums}
@@ -297,7 +305,8 @@ ul.pl-list{list-style:none;margin:0;padding:0}
  font-variant-numeric:tabular-nums}
 
 /* Stretch table */
-.pl-wtable{width:100%;border-collapse:collapse;font-size:15px;line-height:20px;font-variant-numeric:tabular-nums}
+.pl-wtable{width:100%;table-layout:fixed;border-collapse:collapse;font-size:15px;line-height:20px;font-variant-numeric:tabular-nums}
+.pl-wtable th:first-child{width:30%}
 .pl-wtable th{padding:0 8px 10px 0;background:none;border:0;text-align:left;vertical-align:bottom;font:500 12px/16px var(--pl-font);color:var(--pl-ink-3)}
 .pl-wtable td{padding:12px 8px 12px 0;border:0;border-top:1px solid var(--pl-hair-soft);text-align:left;white-space:nowrap;color:var(--pl-ink)}
 .pl-wtable td small{display:block;font-size:13px;line-height:18px;color:var(--pl-ink-3)}
@@ -390,9 +399,14 @@ ol.pl-preview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24p
  .pl-forest .f-zero{top:-4px;bottom:-4px}
  .pl-forest .f-axis,.pl-forest .f-sides{grid-template-columns:1fr}
  .pl-forest .f-axis>div:not(.ticks),.pl-forest .f-sides>div:not(.mid){display:none}
+ .pl-forest .f-sides .mid span{white-space:normal}
+ .pl-forest .f-axis .ticks span:first-child{transform:none}
+ .pl-forest .f-axis .ticks span:last-child{transform:translateX(-100%)}
  .pl-wtable{font-size:13px}
  .pl-wtable th{font-size:11px}
  .pl-wtable td{white-space:normal}
+ .pl-wtable th:first-child{width:29%}
+ .pl-wtable .w-dot{margin-right:6px}
  .pl-fine{grid-template-columns:1fr}
  .pl-skel-row{grid-template-columns:minmax(0,1fr) 50px}
  .pl-skel-row .pl-skel:nth-child(2){display:none}

@@ -124,6 +124,11 @@ def chart_values(values):
     return np.asarray(values)
 
 
+def html_text(app):
+    """Every st.html fragment on the page, joined."""
+    return "\n".join(item.proto.body for item in app.get("html"))
+
+
 def test_nasdaq_is_default_and_no_network_or_work_starts_before_submit(nasdaq_data, offline_app):
     app = app_start()
     assert not app.exception
@@ -194,6 +199,7 @@ def test_demo_requires_submit_and_does_not_create_market_evidence(offline_app):
 
 def test_risk_choice_changes_display_without_refitting_or_dropping_holdings(monkeypatch):
     from efficient_frontier import profiles
+    from efficient_frontier.story import LEVEL
 
     calls = []
     original = profiles.build_profiles
@@ -212,6 +218,14 @@ def test_risk_choice_changes_display_without_refitting_or_dropping_holdings(monk
         expected = latest.portfolios[profile].weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
         pd.testing.assert_frame_equal(displayed, expected)
         assert len(displayed) == len(app.session_state.result[1].columns)
+        # The headline, stats and ledger show the selected level's own numbers.
+        portfolio, page = latest.portfolios[profile], html_text(app)
+        held = int((portfolio.weights >= .0005).sum())
+        assert f'<span class="pl-num">{portfolio.volatility:.1%}</span><span class="pl-lbl">Volatility</span>' in page
+        assert f'<span class="pl-num">{held}</span><span class="pl-lbl">Assets held</span>' in page
+        assert f'<span class="pl-nb">{LEVEL[profile]}-risk</span>' in page
+        selected_row = page.split('<tr class="on">')[1].split("</tr>")[0]
+        assert f"{latest.summary.loc[profile, 'volatility']:.1%}" in selected_row and f"<td>{held}</td>" in selected_row
     assert calls == [1]
     app.button(key="key_market").click().run()
     assert app.segmented_control(key="view").value == "Portfolio"
@@ -413,10 +427,15 @@ def test_market_test_runs_once_at_build_and_display_changes_keep_cached_results(
     assert len(calls) == 2
     app.selectbox(key="comparison_method").select("Rolling window").run()
     app.segmented_control(key="risk_profile").set_value("Extreme").run()
+    # The main chart and the result tile show the selected rule and level, not another strategy.
+    selected = study.equity["Rolling window · Extreme"]
+    np.testing.assert_allclose(chart_values(figures(app)[0]["data"][0]["y"]), selected * 10_000)
+    assert f'<span class="pl-num">{selected.iloc[-1] * 10_000:,.0f}</span>' in html_text(app)
     app.segmented_control(key="comparison_chart").set_value("Drawdown").run()
     assert not app.exception
     assert len(calls) == 2
     assert [trace["name"] for trace in figures(app)[0]["data"]] == ["Your rule"]
+    np.testing.assert_allclose(chart_values(figures(app)[0]["data"][0]["y"]), selected / selected.cummax() - 1)
     pd.testing.assert_frame_equal(app.session_state.backtests.metrics, study.metrics)
     run_comparison(app)
     assert len(calls) == 2
@@ -544,6 +563,34 @@ def test_market_costs_charts_and_evidence_preserve_all_96_tests(monkeypatch, mar
     pd.testing.assert_frame_equal(app.session_state.backtests.metrics, study.metrics)
     pd.testing.assert_frame_equal(app.session_state.evidence.summary, original)
     assert app.session_state.evidence.settings["multiple_testing_tests"] == 96
+
+
+def test_failed_market_test_in_a_build_keeps_the_holdout_market_results(monkeypatch, market_prices):
+    app = market_app(monkeypatch, market_prices)
+    app.number_input(key="rolling_window").set_value(len(app.session_state.result[0].train_returns) - 5)
+    run_comparison(app)
+    assert not app.exception and not app.error and app.session_state.study_error is None
+    # A shorter first fit makes the stored rolling window too long, so the market test fails inside the build.
+    open_setup(app).slider(key="train_pct").set_value(50).run()
+    app.button(key="build").click().run()
+    assert not app.exception
+    assert app.session_state.result[2]["train_fraction"] == .5
+    assert "rolling_window" in app.session_state.study_error
+    assert any("rolling_window" in item.value for item in app.error)
+    assert "backtests" not in app.session_state
+    assert app.session_state.benchmarks.backtest_equity is None
+    assert app.session_state.benchmarks.holdout_equity is not None
+    assert app.session_state.evidence.settings["delayed_entry"] is False
+    research_view(app, "Efficient frontiers")
+    names = {html.unescape(trace.get("name", "")) for figure in figures(app) for trace in figure["data"]}
+    assert {"S&P 500 (SPY)", "Nasdaq-100 (QQQ)"} <= names
+    assert any("Diamonds are SPY and QQQ" in item.value for item in app.caption)
+    app.segmented_control(key="view").set_value("Portfolio").run()
+    app.number_input(key="rolling_window").set_value(0)
+    run_comparison(app)
+    assert not app.exception and not app.error
+    assert app.session_state.study_error is None
+    assert app.session_state.evidence.settings["delayed_entry"] is True
 
 
 def test_benchmark_disable_currency_and_download_failure_clear_old_evidence(monkeypatch, market_prices):
@@ -709,6 +756,7 @@ def test_research_holdout_ratios_are_not_formatted_as_percentages():
     from streamlit.dataframe_util import convert_arrow_bytes_to_pandas_df
 
     app = research_view(demo_app(), "Efficient frontiers")
+    assert not any("Diamonds" in item.value or "SPY and QQQ markers" in item.value for item in app.caption)  # Demo has no markets.
     table = next(item for item in app.dataframe if "sortino" in item.value.columns)
     display = convert_arrow_bytes_to_pandas_df(table.proto.arrow_data.styler.display_values)
     for column in ("sharpe", "sortino", "calmar"):
@@ -729,6 +777,8 @@ def test_large_universe_chart_limit_does_not_change_holdings(monkeypatch):
     assert len(holdings) == 24
     research_view(app, "Data & coverage")
     assert len(app.multiselect(key="correlation_assets").value) == 15
+    heatmap = figures(app)[0]["layout"]
+    assert heatmap["xaxis"]["dtick"] == heatmap["yaxis"]["dtick"] == 1  # Every row and column is labelled.
     app.multiselect(key="correlation_assets").set_value([]).run()
     assert not app.exception
     assert len(app.session_state.result[0].mean_returns) == 24
@@ -766,9 +816,13 @@ def test_single_asset_and_missing_sharpe_do_not_break_profile_views(monkeypatch)
     assert "Maximum Sharpe" not in app.session_state.result[0].portfolios
     for portfolio in app.session_state.latest_profiles.portfolios.values():
         np.testing.assert_allclose(portfolio.weights, [1.])
+    page = html_text(app)
+    assert "Risk is relative to this one asset." in page and "compare mixes of this one asset only" in page
+    assert "1 assets" not in page and not any("1 assets" in item.value for item in app.caption)
     research_view(app, "Methodology")
     assert not app.exception
     assert any("Maximum Sharpe omitted" in item.value for item in app.markdown)
+    assert any("It does not measure every form of risk." in item.value for item in app.markdown)
 
 
 def test_missing_csv_clears_old_result_without_network(offline_app):
@@ -811,6 +865,22 @@ def test_drawer_cancel_discards_draft_and_reopen_seeds_applied_values():
     assert not app.warning and not app.exception
 
 
+def test_drawer_widgets_default_to_the_applied_setup_without_session_state_writes():
+    app = open_setup(demo_app())
+    app.number_input(key="risk_free").set_value(3.).run()
+    app.slider(key="train_pct").set_value(60).run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert "risk_free" not in app.session_state and "train_pct" not in app.session_state
+    # The drawer reads the applied setup as widget defaults. Nothing seeds widget keys, so a run that a second
+    # click interrupts cannot leave the browser with bare widget defaults.
+    open_setup(app)
+    assert app.number_input(key="risk_free").value == 3. and app.slider(key="train_pct").value == 60
+    assert app.radio(key="market").value == "Demo" and app.checkbox(key="compare_market").value is True
+    assert not any("differs from this result" in item.value for item in app.info)
+    assert not app.warning and not app.exception
+
+
 def test_keys_set_risk_view_and_jump():
     app = demo_app()
     app.button(key="key_highest").click().run()
@@ -846,15 +916,54 @@ def test_test_settings_rerun_is_atomic_on_failure():
     assert len(app.session_state.backtests.metrics) == 24
 
 
-def test_failed_build_shows_error_state_with_retry():
+def test_failed_build_shows_error_state_and_change_reopens_the_applied_setup():
     app = open_setup(demo_app())
     app.checkbox(key="use_cap").set_value(True).run()
     app.number_input(key="cap").set_value(5.)
     app.button(key="build").click().run()
     assert not app.exception
     assert any("infeasible" in item.value.lower() for item in app.error)
-    assert app.button(key="build").label == "Try again"
+    assert "These settings have no solution." in html_text(app)
+    assert "A 5% limit needs at least 20 assets." in html_text(app)
+    # A retry would fail the same way, so the primary action opens the drawer instead.
+    assert "build" not in {button.key for button in app.button}
+    assert app.button(key="fix_setup").label == "Change the study"
     assert "result" not in app.session_state
+    app.button(key="fix_setup").click().run()
+    assert app.session_state.setup_open is True
+    assert app.checkbox(key="use_cap").value is True and app.number_input(key="cap").value == 5.
+    app.number_input(key="cap").set_value(30.)
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert app.session_state.result[2]["max_weight"] == .3
+
+
+@pytest.mark.parametrize("failure,headline,action", [
+    (ValueError("Yahoo returned no prices for: ZZZQQX. Check these symbols and their available history, or upload a CSV."),
+     "Yahoo Finance had no prices for these symbols.", "fix_setup"),
+    (ValueError("Yahoo price download failed. Check your connection and ticker symbols, retry later, or upload an adjusted-price CSV."),
+     "We could not reach Yahoo Finance.", "build"),
+    (OSError("Network is unreachable"), "We could not reach Yahoo Finance.", "build"),
+])
+def test_build_error_names_its_cause_and_offers_a_useful_action(monkeypatch, failure, headline, action):
+    from efficient_frontier import data
+
+    def download(*args):
+        raise failure
+
+    monkeypatch.setattr(data, "download_prices", download)
+    app = open_setup(app_start())
+    app.radio(key="market").set_value("My tickers").run()
+    app.text_area(key="ticker_text").set_value("ZZZQQX")
     app.button(key="build").click().run()
     assert not app.exception
-    assert any("infeasible" in item.value.lower() for item in app.error)
+    assert any(str(failure) in item.value for item in app.error)
+    assert f'<h1 class="pl-display">{headline}</h1>' in html_text(app)
+    actions = {button.key for button in app.button}
+    assert action in actions and ({"build", "fix_setup"} - {action}).isdisjoint(actions)
+    assert app.button(key=action).label == {"build": "Try again", "fix_setup": "Change the study"}[action]
+    app.button(key=action).click().run()
+    if action == "fix_setup":
+        assert app.radio(key="market").value == "My tickers" and app.text_area(key="ticker_text").value == "ZZZQQX"
+    else:
+        assert any(str(failure) in item.value for item in app.error)
