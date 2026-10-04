@@ -122,6 +122,18 @@ def test_csv_escapes_formula_text_cells_without_changing_numeric_cells():
     assert recovered["return"].tolist() == [-.5, .1]
 
 
+def test_csv_escapes_each_multiindex_level_without_changing_values():
+    frame = pd.DataFrame([[.25, -.5], [1.5, 2.0]],
+                         index=pd.MultiIndex.from_tuples([("=strategy", "@benchmark"), ("normal", "safe")], names=["strategy", "benchmark"]),
+                         columns=pd.MultiIndex.from_tuples([("+strategy", "-benchmark"), ("normal", "safe")], names=["strategy", "benchmark"]))
+    original = frame.copy()
+    recovered = pd.read_csv(io.StringIO(csv_text(frame)), header=[0, 1], index_col=[0, 1])
+    assert recovered.index[0] == ("'=strategy", "'@benchmark")
+    assert recovered.columns[0] == ("'+strategy", "'-benchmark")
+    np.testing.assert_array_equal(recovered, original)
+    pd.testing.assert_frame_equal(frame, original)
+
+
 def test_report_zip_escapes_formula_asset_labels(report_analysis):
     label = "=1+1"
     report_analysis.portfolios["Minimum volatility"].weights.index = [label, "BBB"]

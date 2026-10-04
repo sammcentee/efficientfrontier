@@ -2,6 +2,8 @@
 
 The active implementation is Python plus NumPy/CVXPY and the compiled Rust Clarabel solver. R is retained only as historical source. No hardcoded maximum ticker count or holdings count exists. Allocations can use any nonempty subset of the supplied universe, subject to the long-only, fully invested model and any optional position cap.
 
+This page measures computation time and memory. For investment performance against SPY and QQQ, see the [benchmark guide](BENCHMARKS.md).
+
 ## Measured comparison
 
 Measured on 2026-10-03 with Python 3.14.7, NumPy 2.5.3, pandas 3.0.6, CVXPY 1.9.3 and Clarabel 0.11.1, Linux/WSL2, 14 available logical CPUs. Each case runs in a fresh subprocess with `OPENBLAS_NUM_THREADS=1`, `OMP_NUM_THREADS=1` and Clarabel's default thread setting. These are single-run measurements, not averages or service guarantees.

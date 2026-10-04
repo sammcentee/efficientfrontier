@@ -9,6 +9,8 @@ from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 
+from .benchmark_report import add_benchmark_paths, benchmark_html, benchmark_markdown
+
 
 METRICS = {
     "total_return": ("Net total return", "percent"),
@@ -155,7 +157,7 @@ def findings(study: Any) -> list[str]:
     return result
 
 
-def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None) -> go.Figure:
+def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None, benchmark_equity=None) -> go.Figure:
     """Plot selected paths without changes to the complete study data."""
     colors = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff",
               "Low": "#6cbaff", "Medium": "#edb1f1", "Extreme": "#ff8b87"}
@@ -175,6 +177,7 @@ def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | N
             hovertemplate="%{x|%Y-%m-%d}<br>" + ("Drawdown: %{y:.2%}" if drawdown else "Net portfolio value: %{y:,.2f}")
             + "<extra>%{fullData.name}</extra>",
         ))
+    add_benchmark_paths(figure, benchmark_equity, drawdown)
     figure.update_layout(
         title={"text": "Backtest drawdowns" if drawdown else "Backtest performance", "font": {"size": 19}},
         template="plotly_dark", paper_bgcolor="#111c2e", plot_bgcolor="#111c2e",
@@ -203,7 +206,7 @@ def _markdown_table(frame: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def findings_markdown(study: Any, source: str) -> str:
+def findings_markdown(study: Any, source: str, benchmarks=None, evidence=None) -> str:
     """Create a standalone findings report without a Markdown-table dependency."""
     best = study.metrics["total_return"].idxmax()
     holdings = _formatted(_top_holdings(study, best), HOLDINGS)
@@ -211,12 +214,14 @@ def findings_markdown(study: Any, source: str) -> str:
     dates = study.equity.index
     settings = "\n".join(f"- {_markdown(key)}: {_markdown(value)}" for key, value in study.settings.items())
     notes = "\n".join(f"- {_markdown(note)}" for note in study.warnings)
+    comparison = benchmark_markdown(benchmarks, evidence, backtest=True) + "\n" if benchmarks is not None else ""
     return (
         "# Backtesting findings\n\n"
         f"Source: {_markdown(source)}\n\n"
         f"Portfolio baseline: {dates[0].date()}. Evaluation returns: {dates[1].date()} to {dates[-1].date()} "
         f"({len(dates) - 1} observations).\n\n"
-        "## Observed findings\n\n" + "\n".join(f"- {_markdown(note)}" for note in findings(study)) + "\n\n"
+        + comparison
+        + "## Observed findings\n\n" + "\n".join(f"- {_markdown(note)}" for note in findings(study)) + "\n\n"
         "These are retrospective comparisons; the selected strategy is not a forecast.\n\n"
         "## All method and portfolio combinations\n\n" + _markdown_table(_formatted(study.metrics, METRICS)) + "\n\n"
         f"## Holdings for {_markdown(best)}\n\n"
@@ -230,7 +235,7 @@ def findings_markdown(study: Any, source: str) -> str:
     )
 
 
-def backtest_html(study: Any) -> str:
+def backtest_html(study: Any, benchmarks=None, evidence=None) -> str:
     """Return escaped report sections; the parent document supplies Plotly.js."""
     best = study.metrics["total_return"].idxmax()
     holdings = _top_holdings(study, best)
@@ -253,12 +258,14 @@ def backtest_html(study: Any) -> str:
     assumptions = "".join(f"<p>{html.escape(note)}</p>" for note in _assumptions(study))
     settings = "".join(f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
                        for key, value in study.settings.items())
+    benchmark_equity = benchmarks.backtest_equity if benchmarks is not None else None
+    comparison = benchmark_html(benchmarks, evidence, backtest=True) if benchmarks is not None else ""
     return (
-        '<section id="backtesting"><h2>Backtesting findings</h2>'
+        '<section id="backtesting">' + comparison + '<h2>Backtesting findings</h2>'
         f"<ul>{bullets}</ul><p class=\"muted\">These are retrospective comparisons; "
         "the selected strategy is not a forecast.</p>"
-        f'<div class="chart">{backtest_chart(study).to_html(**chart_options)}</div>'
-        f'<div class="chart">{backtest_chart(study, drawdown=True).to_html(**chart_options)}</div>'
+        f'<div class="chart">{backtest_chart(study, benchmark_equity=benchmark_equity).to_html(**chart_options)}</div>'
+        f'<div class="chart">{backtest_chart(study, drawdown=True, benchmark_equity=benchmark_equity).to_html(**chart_options)}</div>'
         "<h2>All method and portfolio combinations</h2>"
         f'<div class="scroll">{_formatted(study.metrics, METRICS).to_html(escape=True, border=0, classes="data")}</div>'
         f"<h2>Holdings for {html.escape(str(best))}</h2><p>Up to 10 largest absolute P&amp;L contributions "

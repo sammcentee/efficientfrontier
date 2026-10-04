@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from plotly.offline import get_plotlyjs
 
 from .backtest_report import backtest_html, findings_markdown
+from .benchmark_report import add_benchmark_estimates, add_benchmark_paths, benchmark_html
 from .risk import risk_contributions, risk_summary
 
 
@@ -35,7 +36,7 @@ def _style(figure: go.Figure, title: str) -> go.Figure:
     return figure
 
 
-def frontier_chart(analysis: Any) -> go.Figure:
+def frontier_chart(analysis: Any, benchmark_estimates=None) -> go.Figure:
     """Show annualized historical training estimates, not future returns."""
     figure = go.Figure()
     figure.add_trace(go.Scatter(
@@ -49,13 +50,14 @@ def frontier_chart(analysis: Any) -> go.Figure:
             marker={"size": 13, "color": COLORS.get(name, "#f3a7da"), "line": {"width": 2, "color": "#111c2e"}},
             hovertemplate="Annual volatility: %{x:.2%}<br>Historical expected return: %{y:.2%}<extra>%{fullData.name}</extra>",
         ))
+    add_benchmark_estimates(figure, benchmark_estimates, "expected_return")
     _style(figure, "Efficient frontier")
     figure.update_xaxes(title="Annual volatility", tickformat=".1%", rangemode="tozero")
     figure.update_yaxes(title="Expected annual return", tickformat=".1%")
     return figure
 
 
-def holdout_chart(analysis: Any) -> go.Figure:
+def holdout_chart(analysis: Any, benchmark_equity=None) -> go.Figure:
     """Plot the realized buy-and-hold value of an initial 10,000 units."""
     figure = go.Figure()
     for name in analysis.equity.columns:
@@ -64,13 +66,14 @@ def holdout_chart(analysis: Any) -> go.Figure:
             mode="lines", line={"width": 2.5, "color": COLORS.get(name, "#f3a7da")},
             hovertemplate="%{x|%Y-%m-%d}<br>Portfolio value: %{y:,.2f}<extra>%{fullData.name}</extra>",
         ))
+    add_benchmark_paths(figure, benchmark_equity)
     _style(figure, "Holdout performance")
     figure.update_xaxes(title="Date")
     figure.update_yaxes(title="Value (initial 10,000)", tickformat=",.0f")
     return figure
 
 
-def latest_profile_chart(profiles: Any) -> go.Figure:
+def latest_profile_chart(profiles: Any, benchmark_estimates=None) -> go.Figure:
     """Plot the lowest historical window mean against estimated volatility."""
     figure = go.Figure(go.Scatter(
         x=profiles.frontier["volatility"], y=profiles.frontier["worst_window_return"],
@@ -83,6 +86,7 @@ def latest_profile_chart(profiles: Any) -> go.Figure:
             marker={"size": 13, "color": COLORS.get(name, "#f3a7da"), "line": {"width": 2, "color": "#111c2e"}},
             hovertemplate="Annual volatility: %{x:.2%}<br>Lowest annual window mean: %{y:.2%}<extra>%{fullData.name}</extra>",
         ))
+    add_benchmark_estimates(figure, benchmark_estimates, "worst_window_return")
     _style(figure, "Latest risk profiles")
     figure.update_xaxes(title="Annual volatility", tickformat=".1%", rangemode="tozero")
     figure.update_yaxes(title="Lowest annual window mean", tickformat=".1%")
@@ -102,15 +106,22 @@ def csv_text(frame: pd.DataFrame, index_label=None) -> str:
             return "'" + value
         return value
 
+    def text_axis(axis):
+        if isinstance(axis, pd.MultiIndex):
+            return axis.map(lambda values: tuple(text_label(value) for value in values)).set_names(
+                [text_label(name) for name in axis.names]
+            )
+        return axis.map(text_label).rename(text_label(axis.name))
+
     display = frame.copy(deep=False)
-    display.index = frame.index.map(text_label).rename(text_label(frame.index.name))
-    display.columns = frame.columns.map(text_label).rename(text_label(frame.columns.name))
+    display.index = text_axis(frame.index)
+    display.columns = text_axis(frame.columns)
     for column in display.select_dtypes(include=["object", "string"]).columns:
         display[column] = display[column].map(text_label)
     return display.to_csv(index_label=text_label(index_label), lineterminator="\r\n")
 
 
-def _metadata(analysis: Any, metadata: dict, study=None, latest_profiles=None) -> dict:
+def _metadata(analysis: Any, metadata: dict, study=None, latest_profiles=None, benchmarks=None, evidence=None) -> dict:
     result = dict(metadata)
     for label, returns in (("training", analysis.train_returns), ("holdout", analysis.test_returns)):
         result[f"{label}_start"] = str(returns.index[0].date()) if len(returns) else None
@@ -138,6 +149,10 @@ def _metadata(analysis: Any, metadata: dict, study=None, latest_profiles=None) -
             "warnings": latest_profiles.warnings,
             "interpretation": "Fits all supplied history through the last input date. Window means are in-sample estimates, not forecasts or holdout results.",
         }
+    if benchmarks is not None:
+        result["benchmarks"] = benchmarks.settings
+    if evidence is not None:
+        result["evidence"] = {**evidence.settings, "warnings": evidence.warnings}
     return result
 
 
@@ -151,7 +166,7 @@ def _table(frame: pd.DataFrame, percent_columns: list | None = None) -> str:
     return display.to_html(escape=True, border=0, classes="data", na_rep="—")
 
 
-def _latest_profiles_html(profiles: Any) -> str:
+def _latest_profiles_html(profiles: Any, benchmark_estimates=None) -> str:
     summary = profiles.summary.rename(columns={
         "expected_return": "Annual mean return", "volatility": "Annual volatility",
         "sharpe": "Estimated Sharpe", "worst_window_return": "Lowest annual window mean",
@@ -162,7 +177,7 @@ def _latest_profiles_html(profiles: Any) -> str:
     }).rename_axis("Window")
     window_returns = profiles.window_returns.rename_axis("Window")
     warnings = "".join(f"<li>{html.escape(str(note))}</li>" for note in profiles.warnings)
-    chart = latest_profile_chart(profiles).to_html(
+    chart = latest_profile_chart(profiles, benchmark_estimates).to_html(
         full_html=False, include_plotlyjs=False, config={"responsive": True, "displaylogo": False},
     )
     return (
@@ -192,14 +207,14 @@ def _latest_profiles_html(profiles: Any) -> str:
     )
 
 
-def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None) -> str:
+def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None, benchmarks=None, evidence=None) -> str:
     """Return an offline HTML report with a single embedded Plotly bundle."""
-    details = _metadata(analysis, metadata, study, latest_profiles)
+    details = _metadata(analysis, metadata, study, latest_profiles, benchmarks, evidence)
     source = str(details.get("source", "Unspecified source"))
     source_label = "Synthetic demonstration data" if any(word in source.lower() for word in ("demo", "synthetic")) else "Data source"
     metadata_rows = "".join(
         f"<tr><th>{html.escape(str(key).replace('_', ' ').capitalize())}</th><td>{html.escape(str(value))}</td></tr>"
-        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days", "latest_profiles")
+        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days", "latest_profiles", "benchmarks", "evidence")
     )
     warnings = "".join(f"<li>{html.escape(str(warning))}</li>" for warning in analysis.warnings)
     warnings_html = f'<aside><h2>Analysis notes</h2><ul>{warnings}</ul></aside>' if warnings else ""
@@ -217,10 +232,22 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None)
         "diversification_ratio": "Diversification ratio",
     })
     chart_options = {"responsive": True, "displaylogo": False}
-    frontier = frontier_chart(analysis).to_html(full_html=False, include_plotlyjs=False, config=chart_options)
-    holdout_plot = holdout_chart(analysis).to_html(full_html=False, include_plotlyjs=False, config=chart_options)
-    comparison_html = backtest_html(study) if study is not None else ""
-    profiles_html = _latest_profiles_html(latest_profiles) if latest_profiles is not None else ""
+    frontier = frontier_chart(analysis, benchmarks.training_estimates if benchmarks is not None else None).to_html(
+        full_html=False, include_plotlyjs=False, config=chart_options,
+    )
+    holdout_plot = holdout_chart(analysis, benchmarks.holdout_equity if benchmarks is not None else None).to_html(
+        full_html=False, include_plotlyjs=False, config=chart_options,
+    )
+    comparison_html = backtest_html(study, benchmarks, evidence) if study is not None else (
+        benchmark_html(benchmarks, evidence) if benchmarks is not None else ""
+    )
+    profiles_html = _latest_profiles_html(
+        latest_profiles, benchmarks.latest_estimates if benchmarks is not None else None,
+    ) if latest_profiles is not None else ""
+    comparison_notes = "".join(
+        f'<p class="source">{html.escape(str(details[key]))}</p>'
+        for key in ("benchmarks_note", "evidence_note") if details.get(key)
+    )
     cost_note = ("The original holdout excludes trading costs. The backtest comparison deducts the selected fees."
                  if study is not None else "No trading costs are included.")
     introduction = ("The backtest comparison updates portfolios using only information available before each trade. "
@@ -249,6 +276,7 @@ button,.modebar{{display:none!important}}details{{display:none}}.metadata{{font-
 <p class="muted">PORTFOLIO RESEARCH / REPRODUCIBLE ANALYSIS</p><h1>Efficient Frontier</h1>
 <button onclick="window.print()">Print / save PDF</button>
 <p class="source"><strong>{source_label}:</strong> {html.escape(source)}</p>
+{comparison_notes}
 {profiles_html}
 <p>{introduction}
 Training estimates describe historical data. They are not predictions or guarantees of future performance.</p>
@@ -282,7 +310,7 @@ This report is a historical research tool and does not predict investment outcom
 </main></body></html>'''
 
 
-def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None, latest_profiles=None) -> bytes:
+def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None, latest_profiles=None, benchmarks=None, evidence=None) -> bytes:
     """Bundle the report, inputs, and numeric results for offline inspection."""
     output = io.BytesIO()
     frames = {
@@ -306,12 +334,26 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None, 
             "latest_profile_frontier.csv": latest_profiles.frontier,
             "latest_profile_frontier_weights.csv": latest_profiles.frontier_weights,
         })
+    if benchmarks is not None:
+        frames.update({
+            "benchmark_prices.csv": benchmarks.prices,
+            "benchmark_holdout_metrics.csv": benchmarks.holdout_metrics,
+            "benchmark_holdout_curve.csv": benchmarks.holdout_equity,
+            "benchmark_training_estimates.csv": benchmarks.training_estimates,
+            "benchmark_latest_estimates.csv": benchmarks.latest_estimates,
+        })
+        if benchmarks.backtest_equity is not None:
+            frames.update({"benchmark_backtest_metrics.csv": benchmarks.backtest_metrics,
+                           "benchmark_backtest_curve.csv": benchmarks.backtest_equity})
+    if evidence is not None:
+        frames.update({"evidence_summary.csv": evidence.summary, "evidence_windows.csv": evidence.windows,
+                       "evidence_relative_curve.csv": evidence.relative_equity})
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        bundle.writestr("report.html", report_html(analysis, metadata, study, latest_profiles))
+        bundle.writestr("report.html", report_html(analysis, metadata, study, latest_profiles, benchmarks, evidence))
         if study is not None:
-            bundle.writestr("findings.md", findings_markdown(study, str(metadata.get("source", "Unspecified source"))))
+            bundle.writestr("findings.md", findings_markdown(study, str(metadata.get("source", "Unspecified source")), benchmarks, evidence))
         bundle.writestr("THIRD_PARTY_NOTICES.txt", "Plotly.js (embedded in report.html)\n\n" + PLOTLY_JS_LICENSE)
         for name, frame in frames.items():
-            bundle.writestr(name, csv_text(frame, index_label="Date" if name == "prices.csv" else None))
-        bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata, study, latest_profiles), indent=2, default=str))
+            bundle.writestr(name, csv_text(frame, index_label="Date" if name in ("prices.csv", "benchmark_prices.csv") else None))
+        bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata, study, latest_profiles, benchmarks, evidence), indent=2, default=str))
     return output.getvalue()
