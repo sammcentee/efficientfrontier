@@ -2,6 +2,8 @@
 
 Study run on 2026-10-03. These are descriptive comparisons, not stock recommendations or a prediction of future returns.
 
+This recorded study predates the SPY/QQQ evidence comparison. Its figures do not establish statistically supported outperformance against those benchmarks. See the [benchmark guide](BENCHMARKS.md) for a new comparison with matched dates and costs.
+
 ## Key observations
 
 - The highest net return, **256.75%**, came from fixed maximum-Sharpe targets with heavy concentration: LLY's closing weight reached **63.48%**.

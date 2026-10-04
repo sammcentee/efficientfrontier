@@ -6,6 +6,8 @@ import cvxpy as cp
 import numpy as np
 import pandas as pd
 
+from .metrics import performance_metrics, validate_periods_per_year
+
 TRADING_DAYS = 252
 
 
@@ -30,6 +32,31 @@ class Analysis:
     mean_returns: pd.Series
     covariance: pd.DataFrame
     warnings: list[str]
+    periods_per_year: float = TRADING_DAYS
+
+
+def _validate_price_frame(prices: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(prices, pd.DataFrame) or prices.empty or not prices.columns.is_unique:
+        raise ValueError("prices must be a nonempty DataFrame with unique asset names.")
+    if (
+        not isinstance(prices.index, pd.DatetimeIndex) or prices.index.hasnans
+        or not prices.index.is_unique or not prices.index.is_monotonic_increasing
+    ):
+        raise ValueError("Prices must have unique, increasing, nonmissing dates.")
+    values = prices.to_numpy()
+    if (
+        any(pd.api.types.is_bool_dtype(dtype) or pd.api.types.is_complex_dtype(dtype) for dtype in prices.dtypes)
+        or values.dtype.kind == "O" and any(isinstance(value, (bool, np.bool_, complex, np.complexfloating))
+                                           for value in values.flat)
+    ):
+        raise ValueError("Boolean or complex prices are invalid.")
+    try:
+        prices = prices.astype(float)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ValueError("Prices must be numeric values.") from exc
+    if not np.isfinite(prices.to_numpy()).all() or (prices <= 0).any().any():
+        raise ValueError("Prices must be finite and strictly positive; resolve missing data first.")
+    return prices
 
 
 def _solve(problem: cp.Problem) -> None:
@@ -183,23 +210,16 @@ def analyze(
     max_weight: float = 1.0,
     shrinkage: float = 0.1,
     frontier_points: int = 40,
+    periods_per_year: float = TRADING_DAYS,
 ) -> Analysis:
     """Fit earlier observations, then hold fixed adjusted-price exposures.
 
-    Means use arithmetic daily returns * 252. Covariance uses sample covariance
-    * 252, shrunk toward its diagonal. Holdout CAGR uses 252 observations per year;
-    its Sharpe uses annualized arithmetic returns, not CAGR. No fees, tax or FX.
+    Means and sample covariance use periods_per_year for annualization.
+    Covariance shrinks toward its diagonal. Holdout Sharpe and Sortino use annual
+    arithmetic excess returns. Calmar uses CAGR. No fees, tax or FX.
     """
-    if not isinstance(prices, pd.DataFrame) or prices.empty or not prices.columns.is_unique:
-        raise ValueError("prices must be a nonempty DataFrame with unique asset names.")
-    if (
-        not isinstance(prices.index, pd.DatetimeIndex) or prices.index.hasnans
-        or not prices.index.is_unique or not prices.index.is_monotonic_increasing
-    ):
-        raise ValueError("Prices must have unique, increasing, nonmissing dates.")
-    prices = prices.astype(float)
-    if not np.isfinite(prices.to_numpy()).all() or (prices <= 0).any().any():
-        raise ValueError("Prices must be finite and strictly positive; resolve missing data first.")
+    prices = _validate_price_frame(prices)
+    periods_per_year = validate_periods_per_year(periods_per_year)
     if not np.isfinite(train_fraction) or not 0 < train_fraction < 1:
         raise ValueError("train_fraction must be between zero and one.")
     if not np.isfinite(shrinkage) or not 0 <= shrinkage <= 1:
@@ -209,34 +229,30 @@ def analyze(
     if split < 2 or len(returns) - split < 2:
         raise ValueError("At least two training returns and two holdout returns are required.")
     train_returns, test_returns = returns.iloc[:split], returns.iloc[split:]
-    mean_returns = train_returns.mean() * TRADING_DAYS
-    sample_covariance = train_returns.cov() * TRADING_DAYS
+    mean_returns = train_returns.mean() * periods_per_year
+    sample_covariance = train_returns.cov() * periods_per_year
     diagonal = pd.DataFrame(np.diag(np.diag(sample_covariance)), index=prices.columns, columns=prices.columns)
     covariance = (1 - shrinkage) * sample_covariance + shrinkage * diagonal
     portfolios, frontier, frontier_weights, warnings = optimize(
         mean_returns, covariance, risk_free_rate, max_weight, frontier_points,
     )
+    if split < 30:
+        warnings.append(
+            f"Only {split} training returns are available (fewer than 30). Return and risk estimates can be unstable."
+        )
+    if len(prices.columns) >= split:
+        warnings.append(
+            f"The training sample has {split} returns for {len(prices.columns)} assets. "
+            "Sample covariance is singular before shrinkage. Use more history or fewer assets."
+        )
 
     # Hold each asset's adjusted-price exposure from the final training close.
     relative_prices = prices.iloc[split:].div(prices.iloc[split])
     equity = pd.DataFrame({name: relative_prices @ p.weights for name, p in portfolios.items()})
-    holdout_returns = equity.pct_change(fill_method=None).iloc[1:]
-    metrics = []
-    for name in equity.columns:
-        path = equity[name]
-        daily = holdout_returns[name]
-        volatility = float(daily.std(ddof=1) * np.sqrt(TRADING_DAYS))
-        sharpe = float((daily.mean() * TRADING_DAYS - risk_free_rate) / volatility) if volatility > 1e-12 else float("nan")
-        metrics.append({
-            "portfolio": name,
-            "total_return": float(path.iloc[-1] - 1),
-            "cagr": float(path.iloc[-1] ** (TRADING_DAYS / len(daily)) - 1),
-            "volatility": volatility,
-            "sharpe": sharpe,
-            "max_drawdown": float((path / path.cummax() - 1).min()),
-        })
+    metrics = [{"portfolio": name, **performance_metrics(equity[name], risk_free_rate, periods_per_year)}
+               for name in equity.columns]
     holdout_metrics = pd.DataFrame(metrics).set_index("portfolio")
     return Analysis(
         portfolios, frontier, frontier_weights, train_returns, test_returns,
-        equity, holdout_metrics, mean_returns, covariance, warnings,
+        equity, holdout_metrics, mean_returns, covariance, warnings, periods_per_year,
     )

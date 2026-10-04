@@ -9,12 +9,16 @@ from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 
+from .benchmark_report import add_benchmark_paths, benchmark_html, benchmark_markdown
+
 
 METRICS = {
     "total_return": ("Net total return", "percent"),
     "cagr": ("CAGR", "percent"),
     "volatility": ("Annual volatility", "percent"),
     "sharpe": ("Sharpe", "number"),
+    "sortino": ("Sortino", "number"),
+    "calmar": ("Calmar", "number"),
     "max_drawdown": ("Maximum drawdown", "percent"),
     "total_turnover": ("Gross turnover", "multiple"),
     "total_cost": ("Fees / initial capital", "percent"),
@@ -48,13 +52,29 @@ ASSUMPTIONS = (
     "are not modeled.",
     "Average weight uses exposure at the start of each evaluation session, including the "
     "initial cash session. Selection frequency is the share of allocation events with an "
-    "asset target above 0.0001%; it is not the fraction of daily observations held.",
-    "CAGR and volatility use 252 observations per year. Prices must be adjusted and share "
-    "a common currency basis. A fixed universe can introduce survivorship bias.",
+    "asset target above 0.0001%; it is not the fraction of observations held.",
+    "Prices must be adjusted and share a common currency basis. "
+    "A fixed universe can introduce survivorship bias.",
     "These findings describe the evaluated sample. The highest-return strategy is selected "
-    "after evaluation; it is not a forecast or a recommendation to hold its stocks. Repeated "
+    "after evaluation; it is not a forecast or a recommendation to hold its assets. Repeated "
     "strategy selection using these results can overfit the evaluation period.",
 )
+
+
+def _assumptions(study: Any) -> tuple[str, ...]:
+    periods = study.settings.get("periods_per_year", 252)
+    profile_notes = (
+        "Low, Medium, and Extreme use a frontier with a return target in each of three historical windows. "
+        "These are relative risk levels within each fit, not universal risk ratings. "
+        "Profile backtests fit only the history available before each allocation. "
+        "The latest model holdings use all supplied history and remain separate from these backtests and the original holdout.",
+    ) if study.settings.get("include_profiles", False) else ()
+    return ASSUMPTIONS + profile_notes + (
+        f"CAGR and volatility use {periods:g} observations per year. "
+        "Sortino measures excess return relative to downside deviation. "
+        "Calmar divides CAGR by the absolute maximum drawdown. "
+        "An em dash marks a ratio with a zero denominator.",
+    )
 
 
 def _formatted(frame: pd.DataFrame, columns: dict) -> pd.DataFrame:
@@ -137,12 +157,17 @@ def findings(study: Any) -> list[str]:
     return result
 
 
-def backtest_chart(study: Any, drawdown: bool = False) -> go.Figure:
-    """Plot all strategy paths with identical starting capital and dates."""
-    colors = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff"}
+def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None, benchmark_equity=None) -> go.Figure:
+    """Plot selected paths without changes to the complete study data."""
+    colors = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff",
+              "Low": "#6cbaff", "Medium": "#edb1f1", "Extreme": "#ff8b87"}
     dashes = {"Buy and hold": "solid", "Fixed rebalance": "dash", "Expanding window": "dot", "Rolling window": "dashdot"}
     figure = go.Figure()
-    for name in study.equity.columns:
+    names = study.equity.columns if strategies is None else strategies
+    unknown = [name for name in names if name not in study.equity.columns]
+    if unknown:
+        raise ValueError("Unknown backtest strategies: " + ", ".join(map(str, unknown)))
+    for name in names:
         method, _, policy = str(name).partition(" · ")
         path = study.equity[name]
         values = path / path.cummax() - 1 if drawdown else path * 10_000
@@ -152,16 +177,18 @@ def backtest_chart(study: Any, drawdown: bool = False) -> go.Figure:
             hovertemplate="%{x|%Y-%m-%d}<br>" + ("Drawdown: %{y:.2%}" if drawdown else "Net portfolio value: %{y:,.2f}")
             + "<extra>%{fullData.name}</extra>",
         ))
+    add_benchmark_paths(figure, benchmark_equity, drawdown)
     figure.update_layout(
-        title="Backtest drawdowns" if drawdown else "Backtest comparison · net of modeled trading fees",
+        title={"text": "Backtest drawdowns" if drawdown else "Backtest performance", "font": {"size": 19}},
         template="plotly_dark", paper_bgcolor="#111c2e", plot_bgcolor="#111c2e",
         font={"family": "Arial, sans-serif", "color": "#e6edf7"},
-        height=650, margin={"l": 65, "r": 25, "t": 65, "b": 180},
-        legend={"orientation": "h", "y": -0.2}, hovermode="x unified",
+        height=650, margin={"l": 55, "r": 15, "t": 55, "b": 200},
+        legend={"orientation": "h", "y": -0.2, "x": 0, "xanchor": "left", "maxheight": 150,
+                "font": {"size": 11}}, hovermode="x unified",
     )
     figure.update_xaxes(title="Date", gridcolor="#26344a")
-    figure.update_yaxes(title="Drawdown" if drawdown else "Value of 10,000 initial units",
-                        tickformat=".1%" if drawdown else ",.0f", gridcolor="#26344a")
+    figure.update_yaxes(title="Drawdown" if drawdown else "Value (initial 10,000)",
+                        tickformat=".1%" if drawdown else ",.0f", gridcolor="#26344a", automargin=True)
     return figure
 
 
@@ -179,7 +206,7 @@ def _markdown_table(frame: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def findings_markdown(study: Any, source: str) -> str:
+def findings_markdown(study: Any, source: str, benchmarks=None, evidence=None) -> str:
     """Create a standalone findings report without a Markdown-table dependency."""
     best = study.metrics["total_return"].idxmax()
     holdings = _formatted(_top_holdings(study, best), HOLDINGS)
@@ -187,12 +214,14 @@ def findings_markdown(study: Any, source: str) -> str:
     dates = study.equity.index
     settings = "\n".join(f"- {_markdown(key)}: {_markdown(value)}" for key, value in study.settings.items())
     notes = "\n".join(f"- {_markdown(note)}" for note in study.warnings)
+    comparison = benchmark_markdown(benchmarks, evidence, backtest=True) + "\n" if benchmarks is not None else ""
     return (
         "# Backtesting findings\n\n"
         f"Source: {_markdown(source)}\n\n"
         f"Portfolio baseline: {dates[0].date()}. Evaluation returns: {dates[1].date()} to {dates[-1].date()} "
         f"({len(dates) - 1} observations).\n\n"
-        "## Observed findings\n\n" + "\n".join(f"- {_markdown(note)}" for note in findings(study)) + "\n\n"
+        + comparison
+        + "## Observed findings\n\n" + "\n".join(f"- {_markdown(note)}" for note in findings(study)) + "\n\n"
         "These are retrospective comparisons; the selected strategy is not a forecast.\n\n"
         "## All method and portfolio combinations\n\n" + _markdown_table(_formatted(study.metrics, METRICS)) + "\n\n"
         f"## Holdings for {_markdown(best)}\n\n"
@@ -201,12 +230,12 @@ def findings_markdown(study: Any, source: str) -> str:
         "as the denominator, with trading fees accounted for separately. The CSV export contains all holdings.\n\n"
         + _markdown_table(holdings) + "\n\n"
         "## Settings\n\n" + settings + "\n\n"
-        "## Assumptions and interpretation\n\n" + "\n\n".join(ASSUMPTIONS) + "\n"
+        "## Assumptions and interpretation\n\n" + "\n\n".join(_assumptions(study)) + "\n"
         + ("\n## Study notes\n\n" + notes + "\n" if notes else "")
     )
 
 
-def backtest_html(study: Any) -> str:
+def backtest_html(study: Any, benchmarks=None, evidence=None) -> str:
     """Return escaped report sections; the parent document supplies Plotly.js."""
     best = study.metrics["total_return"].idxmax()
     holdings = _top_holdings(study, best)
@@ -218,23 +247,25 @@ def backtest_html(study: Any) -> str:
         orientation="h", marker_color=["#40d4be" if value >= 0 else "#ef8c8c" for value in bar_rows["pnl_contribution"]],
         hovertemplate="%{y}<br>P&L / initial capital: %{x:.2%}<extra></extra>",
     ))
-    bars.update_layout(title="Largest absolute holding contributions · before fees", template="plotly_dark",
+    bars.update_layout(title={"text": "Holding contributions", "font": {"size": 19}}, template="plotly_dark",
                        paper_bgcolor="#111c2e", plot_bgcolor="#111c2e", height=430,
                        margin={"l": 110, "r": 25, "t": 65, "b": 65})
-    bars.update_xaxes(title="P&L contribution / initial capital", tickformat=".1%")
+    bars.update_xaxes(title="P&L / initial capital", tickformat=".1%", automargin=True)
     chart_options = {"full_html": False, "include_plotlyjs": False,
                      "config": {"responsive": True, "displaylogo": False}}
     bullets = "".join(f"<li>{html.escape(note)}</li>" for note in findings(study))
     warnings = "".join(f"<li>{html.escape(str(note))}</li>" for note in study.warnings)
-    assumptions = "".join(f"<p>{html.escape(note)}</p>" for note in ASSUMPTIONS)
+    assumptions = "".join(f"<p>{html.escape(note)}</p>" for note in _assumptions(study))
     settings = "".join(f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
                        for key, value in study.settings.items())
+    benchmark_equity = benchmarks.backtest_equity if benchmarks is not None else None
+    comparison = benchmark_html(benchmarks, evidence, backtest=True) if benchmarks is not None else ""
     return (
-        '<section id="backtesting"><h2>Backtesting findings</h2>'
+        '<section id="backtesting">' + comparison + '<h2>Backtesting findings</h2>'
         f"<ul>{bullets}</ul><p class=\"muted\">These are retrospective comparisons; "
         "the selected strategy is not a forecast.</p>"
-        f'<div class="chart">{backtest_chart(study).to_html(**chart_options)}</div>'
-        f'<div class="chart">{backtest_chart(study, drawdown=True).to_html(**chart_options)}</div>'
+        f'<div class="chart">{backtest_chart(study, benchmark_equity=benchmark_equity).to_html(**chart_options)}</div>'
+        f'<div class="chart">{backtest_chart(study, drawdown=True, benchmark_equity=benchmark_equity).to_html(**chart_options)}</div>'
         "<h2>All method and portfolio combinations</h2>"
         f'<div class="scroll">{_formatted(study.metrics, METRICS).to_html(escape=True, border=0, classes="data")}</div>'
         f"<h2>Holdings for {html.escape(str(best))}</h2><p>Up to 10 largest absolute P&amp;L contributions "

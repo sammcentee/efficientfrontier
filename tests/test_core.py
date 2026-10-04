@@ -177,11 +177,12 @@ def test_training_arithmetic_means_and_diagonal_shrinkage():
     assert result.train_returns.index.max() < result.test_returns.index.min()
 
 
-def test_holdout_does_not_change_fitted_weights():
+@pytest.mark.parametrize("periods_per_year", [12, 252, 365])
+def test_holdout_does_not_change_fitted_weights(periods_per_year):
     prices = price_history()
-    first = analyze(prices, train_fraction=2 / 3, frontier_points=3)
+    first = analyze(prices, train_fraction=2 / 3, frontier_points=3, periods_per_year=periods_per_year)
     prices.iloc[5:, 0] *= 2
-    second = analyze(prices, train_fraction=2 / 3, frontier_points=3)
+    second = analyze(prices, train_fraction=2 / 3, frontier_points=3, periods_per_year=periods_per_year)
     pd.testing.assert_series_equal(first.mean_returns, second.mean_returns)
     pd.testing.assert_frame_equal(first.covariance, second.covariance)
     for name in first.portfolios:
@@ -215,3 +216,99 @@ def test_invalid_prices_are_rejected(value):
     prices.iloc[2, 0] = value
     with pytest.raises(ValueError, match="finite and strictly positive"):
         analyze(prices)
+
+
+@pytest.mark.parametrize("frequency,periods_per_year", [("MS", 12), ("W", 52), ("D", 365.25)])
+def test_selected_periods_scale_estimates_and_realized_metrics(frequency, periods_per_year):
+    prices = price_history()[["A"]]
+    prices.index = pd.date_range("2020-01-01", periods=len(prices), freq=frequency)
+    prices.iloc[-2:, 0] = [90, 108]
+    result = analyze(prices, train_fraction=2 / 3, risk_free_rate=0.12,
+                     frontier_points=2, periods_per_year=periods_per_year)
+    train = prices.pct_change(fill_method=None).iloc[1:5]
+    pd.testing.assert_series_equal(result.mean_returns, train.mean() * periods_per_year)
+    pd.testing.assert_frame_equal(result.covariance, train.cov() * periods_per_year)
+    assert result.periods_per_year == periods_per_year
+    row = result.holdout_metrics.loc["Equal weight"]
+    annual_excess = 0.05 * periods_per_year - 0.12
+    volatility = 0.3 * np.sqrt(periods_per_year / 2)
+    downside = (0.1 + 0.12 / periods_per_year) * np.sqrt(periods_per_year / 2)
+    assert row.total_return == pytest.approx(0.08)
+    assert row.cagr == pytest.approx(1.08 ** (periods_per_year / 2) - 1)
+    assert row.volatility == pytest.approx(volatility)
+    assert row.sharpe == pytest.approx(annual_excess / volatility)
+    assert row.sortino == pytest.approx(annual_excess / downside)
+    assert row.max_drawdown == pytest.approx(-0.1)
+    assert row.calmar == pytest.approx(row.cagr / 0.1)
+
+
+def test_default_periods_match_explicit_trading_year():
+    implicit = analyze(price_history(), frontier_points=3)
+    explicit = analyze(price_history(), frontier_points=3, periods_per_year=252)
+    assert implicit.periods_per_year == 252
+    for name in ("mean_returns", "covariance", "frontier", "equity", "holdout_metrics"):
+        first, second = getattr(implicit, name), getattr(explicit, name)
+        if isinstance(first, pd.Series):
+            pd.testing.assert_series_equal(first, second)
+        else:
+            pd.testing.assert_frame_equal(first, second)
+
+
+@pytest.mark.parametrize("periods_per_year", [0, -1, np.nan, np.inf, -np.inf, True, np.bool_(True), "12", None, 12j])
+def test_invalid_annualization_is_rejected(periods_per_year):
+    with pytest.raises(ValueError, match="periods_per_year"):
+        analyze(price_history(), periods_per_year=periods_per_year)
+
+
+@pytest.mark.parametrize("kind", ["boolean", "complex", "object_boolean", "object_complex"])
+def test_api_rejects_boolean_and_complex_prices(kind):
+    prices = price_history()
+    if kind == "boolean":
+        prices = prices > 0
+    elif kind == "complex":
+        prices = prices.astype(complex) + 1j
+    else:
+        prices = prices.astype(object)
+        prices.iloc[0, 0] = True if kind == "object_boolean" else 100 + 1j
+    with pytest.raises(ValueError, match="Boolean or complex"):
+        analyze(prices)
+
+
+@pytest.mark.parametrize("holdout", [[110, 121], [100, 100]])
+def test_sortino_and_calmar_are_undefined_without_downside(holdout):
+    prices = price_history()[["A"]]
+    prices.iloc[-2:, 0] = holdout
+    result = analyze(prices, train_fraction=2 / 3, risk_free_rate=0, periods_per_year=12)
+    row = result.holdout_metrics.loc["Equal weight"]
+    assert np.isnan(row.sortino)
+    assert np.isnan(row.calmar)
+    if holdout == [100, 100]:
+        assert np.isnan(row.sharpe)
+
+
+def test_downside_ratios_keep_the_sign_of_losses_when_volatility_is_zero():
+    prices = price_history()[["A"]]
+    prices.iloc[-2:, 0] = [90, 81]
+    result = analyze(prices, train_fraction=2 / 3, risk_free_rate=0, periods_per_year=12)
+    row = result.holdout_metrics.loc["Equal weight"]
+    assert np.isnan(row.sharpe)
+    assert row.sortino == pytest.approx(-np.sqrt(12))
+    assert row.calmar == pytest.approx((0.81 ** 6 - 1) / 0.19)
+
+
+def test_short_and_underdetermined_training_samples_warn_without_removing_assets():
+    prices = price_history().iloc[:, [0, 1, 0, 1]].copy()
+    prices.columns = ["A", "B", "C", "D"]
+    result = analyze(prices, train_fraction=2 / 3, frontier_points=2)
+    assert any("fewer than 30" in message for message in result.warnings)
+    assert any("singular before shrinkage" in message for message in result.warnings)
+    assert result.mean_returns.index.tolist() == ["A", "B", "C", "D"]
+
+
+def test_sufficient_training_sample_does_not_warn_about_sample_size():
+    rng = np.random.default_rng(81)
+    prices = pd.DataFrame(100 * np.exp(np.cumsum(rng.normal(0.001, 0.01, (70, 2)), axis=0)),
+                          index=pd.bdate_range("2020-01-01", periods=70), columns=["A", "B"])
+    result = analyze(prices, frontier_points=2)
+    assert not any("fewer than 30" in message or "singular before shrinkage" in message
+                   for message in result.warnings)

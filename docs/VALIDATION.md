@@ -1,10 +1,109 @@
-# What has actually been tested
+# Validation record
 
-Checked on **3 October 2026 (UTC)** using Python 3.14, Streamlit 1.65 and Chromium on Linux/WSL. The README screenshot comes from the running app with synthetic data.
+## Market benchmarks and historical evidence: 4 October 2026
+
+**359 tests passed**, including **25 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65 on Linux/WSL.
+
+- SPY and QQQ comparisons cover both frontiers, the original holdout, all backtests, the app, CLI, and report exports.
+- Data tests cover exact dates, separate downloads, weekly and monthly observations, malformed prices, and missing benchmark history. Comparisons do not fill or remove portfolio dates.
+- App and CLI tests cover offline CSV inputs, explicit download choices, currency controls, and recovery from benchmark failures. Chart filters preserve all statistical tests and exports.
+- Benchmark tests verify the original holdout with no fees and delayed backtest entry with the same fee rate as each portfolio.
+- An independent dense-matrix calculation matched the HAC coefficients and standard errors within `2.78e-17`. A separate closed-testing calculation matched the Holm adjustment, including undefined tests.
+- Tests cover short histories, constant benchmarks, insufficient residual variation, return scaling, and invalid equity paths. Undefined uncertainty remains undefined.
+- The new app copy and benchmark guide passed the STE structural checks. Technical terms still require manual review.
+
+The suite reports the existing pandas warning in the invalid-date rejection test. That test passes.
+
+### Live data and exported results
+
+Yahoo returned 1,697 adjusted-price rows from 2 January 2020 through 2 October 2026 for the six default example assets. The browser also completed a separate benchmark download for a four-asset portfolio without SPY or QQQ.
+
+The default **Expanding window · Medium** comparison used a baseline of 20 September 2024 and entered at the next close. Results ended on 2 October 2026. The selected trading fee was 10 basis points per unit bought or sold.
+
+| Evaluated path | Annualized growth | Medium portfolio difference |
+| --- | ---: | ---: |
+| Expanding window · Medium | 20.68% | — |
+| S&P 500 proxy (SPY) | 17.32% | +3.36 percentage points |
+| Nasdaq-100 proxy (QQQ) | 24.86% | −4.18 percentage points |
+
+This fixed display choice beat SPY and trailed QQQ in this sample. Neither mean advantage nor alpha passed the adjusted tests against either benchmark. These results do not establish a persistent advantage or give a probability of future success.
+
+Independent calculations checked the downloaded browser ZIP. Both benchmark curves matched the saved prices and entry fees within `2.22e-16`. All 48 strategy/benchmark pairs, 144 evaluation windows, relative wealth paths, and CAGR differences reconciled. The statistical family contained 96 tests and used 508 paired returns after the entry interval.
+
+An independent share-and-trade replay also matched all 24 CLI portfolio curves within `1.94e-14`. Each recorded fit ended before execution. A repeat CLI run from the saved price files produced the same results without a data download.
+
+### Browser checks for benchmark comparisons
+
+The T3 Code collaborative browser showed benchmark markers and curves across the app. The Market comparison view showed the fixed default strategy, uncertainty details, and chronological evaluation windows.
+
+At 390 × 844, the evidence cards stacked and the relative-performance title fit. The page had no horizontal overflow. The offline report rendered seven charts without external resource requests. Wide report tables remained inside scroll areas. The final app and report showed the revised statistical evidence labels.
+
+These checks establish provider access only during this run. Automated Yahoo tests use mocked responses. The browser checks do not establish physical-phone or native Windows/macOS support. No new PDF was generated in this pass.
+
+## Latest risk profiles and Yahoo default: 4 October 2026
+
+**257 tests passed**, including **20 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65 on Linux/WSL.
+
+- Yahoo Finance is the initial app source. Tests confirm that downloads start only after **Build frontier**.
+- Profile tests cover known solutions, weight limits, short histories, zero variance, data scaling, and nearly tied return estimates.
+- An independent analytic reference matched 80 two-asset frontier cases across different caps and shrinkage levels. Maximum allocation error was below `3.2e-7`.
+- A separate scale check confirmed the minimum-variance tie-break at the Extreme endpoint. Numerical tolerances are documented in [Backtesting](BACKTESTING.md#latest-model-holdings-and-profiles).
+- A half-variance objective resolved a solver precision warning. Tests confirm that future approximate solver results produce explicit profile notes.
+- Latest profiles use all supplied history. Changes to the training split do not change that fit. Backtest targets exclude future prices and execution-day returns.
+- Profile backtests preserve the original 12 combinations and add 12 profile combinations. Costs and holding contributions reconcile.
+- Reports contain profile weights, estimates, windows, and frontier data. Short-history reruns remove obsolete generated profile files and preserve unrelated files.
+
+The suite still reports the pre-existing pandas warning in the invalid-date rejection test. That test passes.
+
+### Browser and live-data checks
+
+The T3 Code collaborative browser loaded live Yahoo prices for the six default example tickers. The request returned 1,697 adjusted-price rows from 2 January 2020 through 2 October 2026.
+
+- The initial screen showed Yahoo Finance and waited for submission. Settings and backtest explanations were available before calculation.
+- The Latest holdings view showed three dated profiles. The backtest charts initially showed expanding Low, Medium, and Extreme alongside fixed equal weight.
+- The downloaded ZIP contained all 24 backtest holding files. Independent calculations confirmed profile weight totals, window boundaries, and annual arithmetic window means.
+- At 390 × 844, the profile cards stacked vertically. Profile and backtest charts had no page-wide horizontal overflow.
+- The offline report rendered six charts without external requests. Its chart titles fit the narrow viewport, and wide tables stayed in scroll areas.
+
+This live request confirms provider access during this check only. Automated Yahoo tests still use mocked responses. These browser checks do not establish physical-phone or native Windows/macOS support. No new PDF was generated in this pass.
+
+## General portfolio upgrade: 4 October 2026
+
+**212 tests passed**. The suite contains **16 Streamlit AppTest cases**. Dependency checks passed. These checks used Python 3.14 and Streamlit 1.65 on Linux/WSL.
+
+- Monthly, weekly, calendar-day, and custom annualization reach the estimates, backtests, metrics, interface, and reports. The selected factor does not resample prices.
+- International Yahoo symbols retain exchange suffixes. Explicit share-class aliases still work. Provider responses remain mocked in automated tests.
+- CSV inputs accept five complete price rows. Both engines still require two returns in each period. Direct API calls reject boolean and complex prices.
+- Independent formulas verify Sortino, Calmar, concentration, and signed variance contributions. Tests cover undefined ratios and zero-risk portfolios.
+- Default allocations, frontier values, equity curves, and previous metric columns match the original code within `1e-12` on the complete synthetic demo.
+- Further comparisons confirmed unchanged backtest allocations, holdings, trades, and time boundaries. Fits exclude the return on the execution date.
+- App tests verify applied settings, pending changes, risk selection, and chart filters. Filters preserve all strategy results and exports.
+- CLI checks cover a monthly CSV report and an offline demo with all four backtest methods. Export checks cover the `Date` header and risk CSVs.
+
+The suite reports one pre-existing pandas warning during the invalid-date rejection test. That test passes.
+
+### Browser checks for this upgrade
+
+These checks used the T3 Code collaborative browser:
+
+- The app displayed the demo, portfolio risk view, holdout view, and selected backtest curves.
+- A synthetic monthly CSV with 36 rows and two assets produced 24 training returns and 11 holdout returns.
+- The downloaded monthly ZIP recorded 12 observations per year. Independent checks confirmed its CAGR, variance-share totals, and 12 strategy exports.
+- At 390 × 844, the frontier, holdout, and backtest titles fit within their charts. The page had no horizontal overflow.
+- The standalone report displayed all five charts, risk tables, and new ratios. It requested no external resources. Its narrow layout contained wide tables in scroll areas.
+- The report print button called `window.print()`. This check did not produce a new PDF.
+
+The preview host logged Electron startup errors when it opened the report tab. The charts still rendered. This was not a clean browser-console check.
+
+These viewport checks used a desktop browser. They do not establish physical-phone support or native Windows/macOS coverage.
+
+## Earlier baseline: 3 October 2026
+
+The earlier checks used Python 3.14, Streamlit 1.65, and Chromium on Linux/WSL. The sections below record that baseline.
 
 ## Automated checks
 
-**135 tests passed**, including **10 Streamlit AppTest cases**. Dependency checks also passed.
+At that time, **135 tests passed**, including **10 Streamlit AppTest cases**. Dependency checks also passed.
 
 - Portfolio controls change the calculated weights, training split and selected frontier allocation. Single-asset and 64-asset inputs are covered.
 - Backtest controls change trading intervals, estimation windows and fees; the holdings selector shows the corresponding strategy's records.

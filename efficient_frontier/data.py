@@ -1,4 +1,4 @@
-"""Explicit, complete daily price inputs for portfolio research."""
+"""Explicit, complete price observations for portfolio research."""
 
 import csv
 from io import StringIO
@@ -11,29 +11,28 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+BENCHMARK_SYMBOLS = ("SPY", "QQQ")
+
+
+def _normalize_ticker(symbol: str) -> str:
+    symbol = symbol.strip().upper()
+    aliases = {"BRK.A": "BRK-A", "BRK.B": "BRK-B", "BF.A": "BF-A", "BF.B": "BF-B"}
+    return aliases.get(symbol, symbol)
+
 
 def parse_tickers(text: str) -> list[str]:
-    """Normalize Yahoo symbols and remove duplicates, retaining input order."""
+    """Normalize Yahoo symbols and remove duplicates. Preserve exchange suffixes and input order."""
     return list(dict.fromkeys(
-        token.upper().replace(".", "-")
+        _normalize_ticker(token)
         for token in re.split(r"[,\s]+", text.strip()) if token
     ))
 
 
-def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
-    """Return sorted daily prices; never fill gaps or discard an asset or row."""
-    if not isinstance(prices, pd.DataFrame):
-        raise ValueError("Prices must be a table with dates and asset columns.")
-    result = prices.copy()
-    result.columns = [str(column).strip() for column in result.columns]
-    if len(result.columns) == 0:
-        raise ValueError("Provide at least one asset.")
-    if any(not column for column in result.columns) or result.columns.has_duplicates:
-        raise ValueError("Asset column names must be nonempty and unique.")
-    if pd.api.types.is_numeric_dtype(result.index.dtype):
+def _normalize_price_dates(index: pd.Index) -> pd.DatetimeIndex:
+    if pd.api.types.is_numeric_dtype(index.dtype):
         raise ValueError("The price index must contain dates, not row numbers.")
     try:
-        dates = pd.DatetimeIndex(pd.to_datetime(result.index, errors="raise"))
+        dates = pd.DatetimeIndex(pd.to_datetime(index, errors="raise"))
         if dates.tz is not None:
             dates = dates.tz_localize(None)
         dates = dates.normalize()
@@ -43,9 +42,22 @@ def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Every row must have a valid date; blank dates are not allowed.")
     if dates.has_duplicates:
         raise ValueError("Duplicate dates are not allowed; provide one price per asset per day.")
-    result.index = dates.rename("Date")
-    if len(result) < 100:
-        raise ValueError("Provide at least 100 daily price observations for every asset.")
+    return dates.rename("Date")
+
+
+def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
+    """Return prices in date order. Never fill gaps or discard an asset or row."""
+    if not isinstance(prices, pd.DataFrame):
+        raise ValueError("Prices must be a table with dates and asset columns.")
+    result = prices.copy()
+    result.columns = [str(column).strip() for column in result.columns]
+    if len(result.columns) == 0:
+        raise ValueError("Provide at least one asset.")
+    if any(not column for column in result.columns) or result.columns.has_duplicates:
+        raise ValueError("Asset column names must be nonempty and unique.")
+    result.index = _normalize_price_dates(result.index)
+    if len(result) < 5:
+        raise ValueError("Provide at least 5 price observations for every asset.")
     try:
         if any(pd.api.types.is_bool_dtype(dtype) or pd.api.types.is_complex_dtype(dtype)
                for dtype in result.dtypes):
@@ -65,7 +77,7 @@ def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_csv(source) -> pd.DataFrame:
-    """Load a CSV path or file-like object whose first column is Date."""
+    """Load daily, weekly, or monthly prices from a CSV with Date as its first column."""
     try:
         content = source.read() if hasattr(source, "read") else Path(source).read_bytes()
         if isinstance(content, bytes):
@@ -87,8 +99,8 @@ def load_csv(source) -> pd.DataFrame:
     return validate_prices(table.set_index(headers[0]))
 
 
-def download_prices(tickers: list[str], start, end) -> pd.DataFrame:
-    """Fetch Yahoo adjusted close prices; an unavailable asset is an error."""
+def _download_adjusted_close(tickers: list[str], start, end) -> pd.DataFrame:
+    """Fetch Yahoo adjusted closes before date selection and price validation."""
     symbols = parse_tickers(" ".join(tickers))
     if not symbols:
         raise ValueError("Enter at least one ticker.")
@@ -117,7 +129,7 @@ def download_prices(tickers: list[str], start, end) -> pd.DataFrame:
     if not price_levels:
         raise ValueError("Yahoo returned no adjusted close prices. Retry or upload an adjusted-price CSV.")
     prices = raw.xs("Close", axis=1, level=price_levels[0]).copy()
-    prices.columns = [str(symbol).upper().replace(".", "-") for symbol in prices.columns]
+    prices.columns = [_normalize_ticker(str(symbol)) for symbol in prices.columns]
     if prices.columns.has_duplicates:
         raise ValueError("Yahoo returned duplicate asset columns. Retry or upload an adjusted-price CSV.")
     missing = [symbol for symbol in symbols if symbol not in prices.columns or prices[symbol].isna().all()]
@@ -126,7 +138,58 @@ def download_prices(tickers: list[str], start, end) -> pd.DataFrame:
             f"Yahoo returned no prices for: {', '.join(missing)}. Check these symbols "
             "and their available history, or upload a CSV."
         )
-    return validate_prices(prices.loc[:, symbols])
+    return prices.loc[:, symbols]
+
+
+def download_prices(tickers: list[str], start, end) -> pd.DataFrame:
+    """Fetch Yahoo adjusted close prices; an unavailable asset is an error."""
+    return validate_prices(_download_adjusted_close(tickers, start, end))
+
+
+def _validate_benchmark_dates(expected_dates: pd.DatetimeIndex) -> None:
+    if (
+        not isinstance(expected_dates, pd.DatetimeIndex) or len(expected_dates) < 5
+        or expected_dates.hasnans or not expected_dates.is_unique
+        or not expected_dates.is_monotonic_increasing or expected_dates.tz is not None
+        or not expected_dates.equals(expected_dates.normalize())
+    ):
+        raise ValueError("Benchmark comparison requires at least 5 unique dates in increasing order, without times or a timezone.")
+
+
+def validate_benchmark_prices(benchmarks: pd.DataFrame, expected_dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """Require complete SPY and QQQ prices for exactly the expected dates."""
+    _validate_benchmark_dates(expected_dates)
+    if isinstance(benchmarks, pd.DataFrame):
+        values = benchmarks.to_numpy()
+        if values.dtype.kind == "O" and any(
+            isinstance(value, (bool, np.bool_, complex, np.complexfloating)) for value in values.flat
+        ):
+            raise ValueError("Benchmark prices must be numeric values, without boolean or complex values.")
+    prices = validate_prices(benchmarks)
+    prices.columns = [_normalize_ticker(symbol) for symbol in prices.columns]
+    if prices.columns.has_duplicates or set(prices.columns) != set(BENCHMARK_SYMBOLS):
+        raise ValueError("Benchmark columns must contain SPY and QQQ exactly once, with no other assets.")
+    if not prices.index.equals(expected_dates):
+        raise ValueError("Benchmark dates must exactly match the asset dates. The comparison does not fill or remove dates.")
+    return prices.loc[:, list(BENCHMARK_SYMBOLS)]
+
+
+def download_benchmarks(expected_dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """Fetch daily adjusted prices and select each exact requested observation.
+
+    The selection excludes extra market dates. A missing requested date is an error.
+    This permits weekly or monthly samples without interpolation or date changes.
+    """
+    _validate_benchmark_dates(expected_dates)
+    prices = _download_adjusted_close(
+        list(BENCHMARK_SYMBOLS), expected_dates[0], expected_dates[-1] + pd.Timedelta(days=1),
+    )
+    prices.index = _normalize_price_dates(prices.index)
+    missing = expected_dates.difference(prices.index)
+    if len(missing):
+        dates = ", ".join(date.date().isoformat() for date in missing[:3])
+        raise ValueError(f"Yahoo benchmarks are missing {len(missing)} requested dates, including: {dates}.")
+    return validate_benchmark_prices(prices.loc[expected_dates], expected_dates)
 
 
 def demo_prices() -> pd.DataFrame:

@@ -83,11 +83,12 @@ def test_full_switch_charges_both_sell_and_buy_legs(monkeypatch):
     assert switch.cost == pytest.approx(0.01 * (switch.nav_before + switch.nav_after))
 
 
-def test_future_changes_do_not_affect_prior_equity_or_targets():
+@pytest.mark.parametrize("periods_per_year", [12, 252, 365])
+def test_future_changes_do_not_affect_prior_equity_or_targets(periods_per_year):
     prices = history()
-    first = run_backtests(prices, train_fraction=0.5, rebalance_every=1)
+    first = run_backtests(prices, train_fraction=0.5, rebalance_every=1, periods_per_year=periods_per_year)
     prices.iloc[5:, 0] *= 1.4
-    second = run_backtests(prices, train_fraction=0.5, rebalance_every=1)
+    second = run_backtests(prices, train_fraction=0.5, rebalance_every=1, periods_per_year=periods_per_year)
     pd.testing.assert_frame_equal(first.equity.iloc[:2], second.equity.iloc[:2])
     for key in first.allocations:
         # Even the close-5 trade cannot observe the changed close-5 price.
@@ -97,7 +98,8 @@ def test_future_changes_do_not_affect_prior_equity_or_targets():
         )
 
 
-def test_training_windows_end_before_execution_and_rolling_is_bounded(monkeypatch):
+@pytest.mark.parametrize("periods_per_year", [12, 52, 252])
+def test_training_windows_end_before_execution_and_rolling_is_bounded(monkeypatch, periods_per_year):
     calls = []
 
     def recording_optimizer(mean, covariance, *args, **kwargs):
@@ -109,15 +111,16 @@ def test_training_windows_end_before_execution_and_rolling_is_bounded(monkeypatc
 
     monkeypatch.setattr(backtest, "optimize", recording_optimizer)
     prices = history()
-    study = run_backtests(prices, train_fraction=0.5, rebalance_every=1, rolling_window=2)
+    study = run_backtests(prices, train_fraction=0.5, rebalance_every=1, rolling_window=2,
+                          periods_per_year=periods_per_year)
     returns = prices.pct_change().iloc[1:]
     # Shared initial fit plus expanding windows; rolling never includes execution day's return.
     expected_windows = [(0, 3), (0, 4), (0, 5), (1, 3), (2, 4), (3, 5)]
     assert len(calls) == len(expected_windows)
     for (mean, covariance), (start, end) in zip(calls, expected_windows):
         sample = returns.iloc[start:end]
-        pd.testing.assert_series_equal(mean, sample.mean() * 252)
-        expected_covariance = sample.cov() * 252
+        pd.testing.assert_series_equal(mean, sample.mean() * periods_per_year)
+        expected_covariance = sample.cov() * periods_per_year
         expected_covariance.iloc[0, 1] *= 0.9
         expected_covariance.iloc[1, 0] *= 0.9
         pd.testing.assert_frame_equal(covariance, expected_covariance)
@@ -195,3 +198,149 @@ def test_invalid_settings(kwargs, match):
 def test_invalid_prices(change, match):
     with pytest.raises(ValueError, match=match):
         run_backtests(change(history()))
+
+
+@pytest.mark.parametrize("frequency,periods_per_year", [("MS", 12), ("W", 52)])
+def test_periodic_backtest_metrics_use_selected_annualization(frequency, periods_per_year):
+    prices = history()[["A"]]
+    prices.index = pd.date_range("2020-01-01", periods=len(prices), freq=frequency)
+    prices.iloc[5:, 0] = [90, 108, 108]
+    study = run_backtests(prices, train_fraction=0.5, risk_free_rate=0.12, cost_bps=0,
+                          periods_per_year=periods_per_year)
+    annual_excess = 0.025 * periods_per_year - 0.12
+    downside = np.sqrt(((0.1 + 0.12 / periods_per_year) ** 2
+                        + 2 * (0.12 / periods_per_year) ** 2) * periods_per_year / 4)
+    for _, row in study.metrics.iterrows():
+        assert row.total_return == pytest.approx(0.08)
+        assert row.cagr == pytest.approx(1.08 ** (periods_per_year / 4) - 1)
+        assert row.volatility == pytest.approx(np.sqrt(0.0475 / 3 * periods_per_year))
+        assert row.sortino == pytest.approx(annual_excess / downside)
+        assert row.calmar == pytest.approx(row.cagr / 0.1)
+    assert study.settings["periods_per_year"] == periods_per_year
+    assert study.settings["trading_days_per_year"] == periods_per_year
+
+
+def test_backtest_default_periods_match_explicit_trading_year():
+    implicit = run_backtests(history(), train_fraction=0.5)
+    explicit = run_backtests(history(), train_fraction=0.5, periods_per_year=252)
+    pd.testing.assert_frame_equal(implicit.equity, explicit.equity)
+    pd.testing.assert_frame_equal(implicit.metrics, explicit.metrics)
+    assert implicit.settings == explicit.settings
+
+
+@pytest.mark.parametrize("periods_per_year", [0, -1, np.nan, np.inf, True, np.bool_(True), "12", None, 12j])
+def test_backtest_rejects_invalid_annualization(periods_per_year):
+    with pytest.raises(ValueError, match="periods_per_year"):
+        run_backtests(history(), periods_per_year=periods_per_year)
+
+
+@pytest.mark.parametrize("kind", ["boolean", "complex", "object_boolean", "object_complex"])
+def test_backtest_rejects_boolean_and_complex_prices(kind):
+    prices = history()
+    if kind == "boolean":
+        prices = prices > 0
+    elif kind == "complex":
+        prices = prices.astype(complex) + 1j
+    else:
+        prices = prices.astype(object)
+        prices.iloc[0, 0] = True if kind == "object_boolean" else 100 + 1j
+    with pytest.raises(ValueError, match="Boolean or complex"):
+        run_backtests(prices)
+
+
+def test_backtest_ratios_are_undefined_for_flat_zero_cost_equity():
+    prices = history().copy()
+    prices.iloc[4:] = 100
+    study = run_backtests(prices, train_fraction=0.5, risk_free_rate=0, cost_bps=0, periods_per_year=12)
+    for column in ("sharpe", "sortino", "calmar"):
+        assert study.metrics[column].isna().all()
+
+
+def profile_history():
+    rng = np.random.default_rng(304)
+    returns = rng.normal([0.01, 0.006], [0.03, 0.015], size=(20, 2))
+    prices = np.vstack([np.ones(2), np.cumprod(1 + returns, axis=0)]) * 100
+    return pd.DataFrame(prices, index=pd.date_range("2020-01-01", periods=21, freq="MS"), columns=["A", "B"])
+
+
+def test_optional_profiles_preserve_original_strategies_and_reconcile_costs():
+    prices = profile_history()
+    settings = dict(train_fraction=0.6, rolling_window=8, rebalance_every=2,
+                    risk_free_rate=0.02, periods_per_year=12, cost_bps=25)
+    original = run_backtests(prices, **settings)
+    extended = run_backtests(prices, **settings, include_profiles=True)
+    assert len(original.equity.columns) == 12
+    assert len(extended.equity.columns) == 24
+    assert original.settings["include_profiles"] is False
+    assert extended.settings["include_profiles"] is True
+    pd.testing.assert_frame_equal(original.equity, extended.equity.loc[:, original.equity.columns])
+    pd.testing.assert_frame_equal(original.metrics, extended.metrics.loc[original.metrics.index])
+    for method in METHOD_NAMES:
+        minimum, low = f"{method} · Minimum volatility", f"{method} · Low"
+        np.testing.assert_allclose(extended.allocations[low], extended.allocations[minimum], atol=2e-5)
+        for profile in ("Low", "Medium", "Extreme"):
+            key = f"{method} · {profile}"
+            trades = extended.trades[key]
+            np.testing.assert_allclose(trades.cost, 0.0025 * trades.turnover * trades.nav_before, atol=1e-13)
+            assert extended.metrics.loc[key, "total_return"] == pytest.approx(
+                extended.holdings[key].pnl_contribution.sum() - trades.cost.sum(), abs=1e-13,
+            )
+            assert extended.metrics.loc[key, "fallback_count"] == 0
+
+
+def test_profile_refits_never_observe_execution_day_or_future_prices():
+    prices = profile_history()
+    settings = dict(train_fraction=0.6, rolling_window=8, rebalance_every=2,
+                    periods_per_year=12, include_profiles=True)
+    first = run_backtests(prices, **settings)
+    prices.iloc[15:, 0] *= 1.4
+    second = run_backtests(prices, **settings)
+    pd.testing.assert_frame_equal(first.equity.loc[:prices.index[14]], second.equity.loc[:prices.index[14]])
+    for method in METHOD_NAMES:
+        for profile in ("Low", "Medium", "Extreme"):
+            key = f"{method} · {profile}"
+            pd.testing.assert_frame_equal(first.allocations[key].loc[:prices.index[15]],
+                                          second.allocations[key].loc[:prices.index[15]])
+
+
+def test_profile_fit_slices_match_expanding_and_rolling_return_windows(monkeypatch):
+    prices = profile_history()
+    calls = []
+
+    def record_profiles(window, **kwargs):
+        calls.append((window.copy(), kwargs))
+        weights = pd.Series([0.5, 0.5], index=window.columns)
+        return SimpleNamespace(
+            portfolios={name: SimpleNamespace(weights=weights) for name in ("Low", "Medium", "Extreme")},
+            warnings=["Each historical window has less than one year of observations."],
+        )
+
+    monkeypatch.setattr(backtest, "build_profiles", record_profiles)
+    settings = dict(train_fraction=0.6, rolling_window=8, rebalance_every=2, risk_free_rate=0.03,
+                    periods_per_year=12, max_weight=0.7, shrinkage=0.2, include_profiles=True)
+    study = run_backtests(prices, **settings)
+    expected_windows = [(0, 12), (0, 14), (0, 16), (0, 18), (4, 12), (6, 14), (8, 16), (10, 18)]
+    assert len(calls) == len(expected_windows)
+    for (window, kwargs), (start, end) in zip(calls, expected_windows):
+        pd.testing.assert_frame_equal(window, prices.iloc[start:end + 1])
+        assert kwargs == dict(risk_free_rate=0.03, periods_per_year=12, max_weight=0.7,
+                              shrinkage=0.2, frontier_points=3)
+    assert len([message for message in study.warnings if "less than one year" in message]) == 1
+    for trades in study.trades.values():
+        assert (pd.to_datetime(trades.train_end).to_numpy() < trades.index.to_numpy()).all()
+
+
+@pytest.mark.parametrize("settings", [
+    {"train_fraction": 0.25},
+    {"train_fraction": 0.6, "rolling_window": 5},
+])
+def test_profiles_require_six_returns_in_each_fit_window(settings):
+    with pytest.raises(ValueError, match="at least six training returns"):
+        run_backtests(profile_history(), include_profiles=True, **settings)
+
+
+def test_profiles_accept_six_initial_training_returns():
+    study = run_backtests(profile_history().iloc[:11], train_fraction=0.6, rolling_window=6,
+                          periods_per_year=12, include_profiles=True)
+    assert study.settings["split"] == 6
+    assert len(study.equity.columns) == 24

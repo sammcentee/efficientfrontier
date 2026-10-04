@@ -5,10 +5,13 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .core import TRADING_DAYS, optimize
+from .core import TRADING_DAYS, _validate_price_frame, optimize
+from .metrics import performance_metrics, validate_periods_per_year
+from .profiles import build_profiles
 
 METHOD_NAMES = ("Buy and hold", "Fixed rebalance", "Expanding window", "Rolling window")
 PORTFOLIO_NAMES = ("Minimum volatility", "Maximum Sharpe", "Equal weight")
+PROFILE_NAMES = ("Low", "Medium", "Extreme")
 
 
 @dataclass
@@ -45,8 +48,10 @@ def run_backtests(
     rebalance_every: int = 21,
     rolling_window: int | None = None,
     cost_bps: float = 10.0,
+    periods_per_year: float = TRADING_DAYS,
+    include_profiles: bool = False,
 ) -> BacktestStudy:
-    """Compare four execution methods for three long-only portfolio targets.
+    """Compare four execution methods for long-only portfolio targets.
 
     Fit through one close and trade at the following close. The first out-of-
     sample session is cash earning zero interest. Refit windows exclude execution-
@@ -55,17 +60,10 @@ def run_backtests(
 
     Holding contribution is dollar profit in initial-capital units before costs;
     contributions minus total cost reconcile to the portfolio's total return.
+    Optional Low, Medium, and Extreme profiles use only each past fit window.
     """
-    if not isinstance(prices, pd.DataFrame) or prices.empty or not prices.columns.is_unique:
-        raise ValueError("prices must be a nonempty DataFrame with unique asset names.")
-    if (
-        not isinstance(prices.index, pd.DatetimeIndex) or prices.index.hasnans
-        or not prices.index.is_unique or not prices.index.is_monotonic_increasing
-    ):
-        raise ValueError("Prices must have unique, increasing, nonmissing dates.")
-    prices = prices.astype(float)
-    if not np.isfinite(prices.to_numpy()).all() or (prices <= 0).any().any():
-        raise ValueError("Prices must be finite and strictly positive; resolve missing data first.")
+    prices = _validate_price_frame(prices)
+    periods_per_year = validate_periods_per_year(periods_per_year)
     if not np.isfinite(train_fraction) or not 0 < train_fraction < 1:
         raise ValueError("train_fraction must be between zero and one.")
     if not np.isfinite(shrinkage) or not 0 <= shrinkage <= 1:
@@ -94,9 +92,12 @@ def run_backtests(
         or not 2 <= rolling_window <= split
     ):
         raise ValueError("rolling_window must be an integer between two and the initial training length.")
+    if include_profiles and (split < 6 or rolling_window < 6):
+        raise ValueError("Profile backtests require at least six training returns in both the initial and rolling windows.")
 
     labels = prices.columns
     dates = prices.index
+    portfolio_names = PORTFOLIO_NAMES + PROFILE_NAMES if include_profiles else PORTFOLIO_NAMES
     execution_rows = range(split + 1, len(prices) - 1, rebalance_every)
     fits = {}
 
@@ -104,11 +105,11 @@ def run_backtests(
         # Only weights and messages are retained, not each dense covariance.
         if (start, end) not in fits:
             sample = returns.iloc[start:end]
-            covariance = sample.cov() * TRADING_DAYS
+            covariance = sample.cov() * periods_per_year
             diagonal = pd.DataFrame(np.diag(np.diag(covariance)), index=labels, columns=labels)
             covariance = (1 - shrinkage) * covariance + shrinkage * diagonal
             portfolios, _, _, messages = optimize(
-                sample.mean() * TRADING_DAYS, covariance, risk_free_rate, max_weight,
+                sample.mean() * periods_per_year, covariance, risk_free_rate, max_weight,
                 frontier_points=2,
             )
             fallback = "Maximum Sharpe" not in portfolios
@@ -116,10 +117,20 @@ def run_backtests(
                 name: portfolios[name if name in portfolios else "Minimum volatility"].weights.to_numpy()
                 for name in PORTFOLIO_NAMES
             }
-            fits[start, end] = (targets, fallback, messages)
+            profile_messages = []
+            if include_profiles:
+                profiles = build_profiles(
+                    prices.iloc[start:end + 1], risk_free_rate=risk_free_rate, max_weight=max_weight,
+                    shrinkage=shrinkage, periods_per_year=periods_per_year, frontier_points=3,
+                )
+                targets.update({name: profiles.portfolios[name].weights.loc[labels].to_numpy()
+                                for name in PROFILE_NAMES})
+                profile_messages = profiles.warnings
+            fits[start, end] = (targets, fallback, messages, profile_messages)
         return fits[start, end]
 
     equity, allocations, holdings, trades, metrics, warnings = {}, {}, {}, {}, [], []
+    seen_profile_warnings = set()
     daily_returns = returns.to_numpy()
     cost_rate = cost_bps / 10_000
     for method in METHOD_NAMES:
@@ -128,7 +139,7 @@ def run_backtests(
         for i in rows:
             end = split if method in ("Buy and hold", "Fixed rebalance") else i - 1
             start = max(0, end - rolling_window) if method == "Rolling window" else 0
-            targets, fallback, messages = fit(start, end)
+            targets, fallback, messages, profile_messages = fit(start, end)
             schedule[i] = (targets, fallback, start, end)
             if fallback:
                 warnings.append(
@@ -139,8 +150,12 @@ def run_backtests(
                 if not message.startswith("Maximum Sharpe omitted:"):
                     warning = f"{dates[i].date()} · {method}: {message}"
                     warnings.append(warning)
+            for message in profile_messages:
+                if message not in seen_profile_warnings:
+                    warnings.append(f"{dates[i].date()} · {method} · Profiles: {message}")
+                    seen_profile_warnings.add(message)
 
-        for portfolio in PORTFOLIO_NAMES:
+        for portfolio in portfolio_names:
             key = f"{method} · {portfolio}"
             positions = np.zeros(len(labels))
             contribution = np.zeros(len(labels))
@@ -186,15 +201,8 @@ def run_backtests(
                 "pnl_contribution": contribution,
             }, index=labels)
             values = pd.Series(path, dtype=float)
-            daily = values.pct_change(fill_method=None).iloc[1:]
-            volatility = float(daily.std(ddof=1) * np.sqrt(TRADING_DAYS))
             metrics.append({
-                "strategy": key, "total_return": nav - 1,
-                "cagr": nav ** (TRADING_DAYS / len(daily)) - 1,
-                "volatility": volatility,
-                "sharpe": float((daily.mean() * TRADING_DAYS - risk_free_rate) / volatility)
-                if volatility > 1e-12 else float("nan"),
-                "max_drawdown": float((values / values.cummax() - 1).min()),
+                "strategy": key, **performance_metrics(values, risk_free_rate, periods_per_year),
                 "total_turnover": float(trades[key].turnover.sum()),
                 "total_cost": float(trades[key].cost.sum()),
                 "rebalance_count": len(trade_rows), "fallback_count": fallbacks,
@@ -204,7 +212,9 @@ def run_backtests(
         "train_fraction": train_fraction, "risk_free_rate": risk_free_rate,
         "max_weight": max_weight, "shrinkage": shrinkage, "rebalance_every": int(rebalance_every),
         "rolling_window": int(rolling_window), "cost_bps": cost_bps, "split": split,
-        "trading_days_per_year": TRADING_DAYS, "cash_interest_rate": 0.0,
+        "include_profiles": bool(include_profiles),
+        "periods_per_year": periods_per_year,
+        "trading_days_per_year": periods_per_year, "cash_interest_rate": 0.0,
         "train_start": str(returns.index[0].date()), "train_end": str(dates[split].date()),
         "test_start": str(dates[split + 1].date()), "test_end": str(dates[-1].date()),
         "initial_execution": str(dates[split + 1].date()),
