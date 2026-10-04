@@ -83,6 +83,12 @@ Fees charge both bought and sold notional. Entry from cash leaves `1 / (1 + c)` 
 
 When no feasible maximum-Sharpe portfolio has positive estimated excess return, that strategy uses minimum-volatility weights for that execution. The warning and fallback count remain in the results; the interval is never discarded. Fixed rebalancing continues to restore its original target, including any original fallback.
 
+## Passive benchmarks and evidence
+
+SPY and QQQ comparisons use the same evaluation dates as each strategy. The backtest benchmarks stay in cash through the first evaluation interval, then buy at its close. The selected entry cost leaves `1 / (1 + cost_bps / 10000)` invested. The original holdout benchmarks enter at the final training close without costs. Neither benchmark path includes a final sale.
+
+Benchmarks remain separate from the eligible assets and portfolio weight cap. The statistical comparison uses all strategies in the current run, even when chart selections display fewer curves. Latest model holdings remain an in-sample fit. [Benchmark methods and evidence](BENCHMARKS.md) explains the USD assumption, data coverage, HAC estimates, Holm correction, and limits on inference.
+
 ## Return and risk metrics
 
 The original holdout and the backtests use the same metric definitions. Backtest returns include the selected fees. Let `p` denote observations per year, `r` the observed portfolio returns, and `rf` the annual risk-free rate.

@@ -1,5 +1,45 @@
 # Validation record
 
+## Market benchmarks and historical evidence: 4 October 2026
+
+**359 tests passed**, including **25 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65 on Linux/WSL.
+
+- SPY and QQQ comparisons cover both frontiers, the original holdout, all backtests, the app, CLI, and report exports.
+- Data tests cover exact dates, separate downloads, weekly and monthly observations, malformed prices, and missing benchmark history. Comparisons do not fill or remove portfolio dates.
+- App and CLI tests cover offline CSV inputs, explicit download choices, currency controls, and recovery from benchmark failures. Chart filters preserve all statistical tests and exports.
+- Benchmark tests verify the original holdout with no fees and delayed backtest entry with the same fee rate as each portfolio.
+- An independent dense-matrix calculation matched the HAC coefficients and standard errors within `2.78e-17`. A separate closed-testing calculation matched the Holm adjustment, including undefined tests.
+- Tests cover short histories, constant benchmarks, insufficient residual variation, return scaling, and invalid equity paths. Undefined uncertainty remains undefined.
+- The new app copy and benchmark guide passed the STE structural checks. Technical terms still require manual review.
+
+The suite reports the existing pandas warning in the invalid-date rejection test. That test passes.
+
+### Live data and exported results
+
+Yahoo returned 1,697 adjusted-price rows from 2 January 2020 through 2 October 2026 for the six default example assets. The browser also completed a separate benchmark download for a four-asset portfolio without SPY or QQQ.
+
+The default **Expanding window · Medium** comparison used a baseline of 20 September 2024 and entered at the next close. Results ended on 2 October 2026. The selected trading fee was 10 basis points per unit bought or sold.
+
+| Evaluated path | Annualized growth | Medium portfolio difference |
+| --- | ---: | ---: |
+| Expanding window · Medium | 20.68% | — |
+| S&P 500 proxy (SPY) | 17.32% | +3.36 percentage points |
+| Nasdaq-100 proxy (QQQ) | 24.86% | −4.18 percentage points |
+
+This fixed display choice beat SPY and trailed QQQ in this sample. Neither mean advantage nor alpha passed the adjusted tests against either benchmark. These results do not establish a persistent advantage or give a probability of future success.
+
+Independent calculations checked the downloaded browser ZIP. Both benchmark curves matched the saved prices and entry fees within `2.22e-16`. All 48 strategy/benchmark pairs, 144 evaluation windows, relative wealth paths, and CAGR differences reconciled. The statistical family contained 96 tests and used 508 paired returns after the entry interval.
+
+An independent share-and-trade replay also matched all 24 CLI portfolio curves within `1.94e-14`. Each recorded fit ended before execution. A repeat CLI run from the saved price files produced the same results without a data download.
+
+### Browser checks for benchmark comparisons
+
+The T3 Code collaborative browser showed benchmark markers and curves across the app. The Market comparison view showed the fixed default strategy, uncertainty details, and chronological evaluation windows.
+
+At 390 × 844, the evidence cards stacked and the relative-performance title fit. The page had no horizontal overflow. The offline report rendered seven charts without external resource requests. Wide report tables remained inside scroll areas. The final app and report showed the revised statistical evidence labels.
+
+These checks establish provider access only during this run. Automated Yahoo tests use mocked responses. The browser checks do not establish physical-phone or native Windows/macOS support. No new PDF was generated in this pass.
+
 ## Latest risk profiles and Yahoo default: 4 October 2026
 
 **257 tests passed**, including **20 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65 on Linux/WSL.

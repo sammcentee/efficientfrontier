@@ -14,6 +14,7 @@ Use adjusted prices for your own assets, from one ticker to a larger portfolio. 
 - **Compare Low, Medium, and Extreme profiles.** Inspect the latest model holdings and their results across three historical windows.
 - **Inspect portfolio risk.** Compare concentration, effective holdings, diversification, and each asset's share of portfolio variance.
 - **Compare backtests.** Inspect costs, drawdown, Sortino, and Calmar alongside returns. Select the curves you want to compare.
+- **Compare with SPY and QQQ.** Inspect passive benchmark results, period consistency, and uncertainty in the historical return advantage.
 - **Keep the full results.** Chart selections do not remove data from the exports. Reports include the inputs, assumptions, allocations, and risk tables.
 
 The historical stock study below remains a separate example. It uses daily data and 252 observations per year.
@@ -77,7 +78,7 @@ Keep the launcher window open while using the app. To stop it, press **Ctrl+C** 
 1. Leave **Price data** on **Yahoo Finance**. Enter your tickers or choose **Original 60 holdings**. The default tickers are example inputs.
 2. Set the date range. Select **Build frontier** to download prices and calculate the results.
 3. Open **Latest holdings**. Compare Low, Medium, and Extreme allocations, their fit date, and their three historical windows.
-4. Open **Backtests & holdings** to inspect later performance with costs. Compare drawdown and concentration as well as return.
+4. Open **Market comparison** to compare historical results with SPY and QQQ. Inspect **Backtests & holdings** for trade details.
 5. Inspect the original **Efficient frontier** and **Portfolio risk** for the mean-return model. These estimates are not forecasts.
 6. Open **Portfolio settings explained** or **Backtest methods explained** for help. Select **Build frontier** after a change.
 
@@ -147,6 +148,18 @@ The app binds to localhost. It needs no credentials or network connection for th
 - Download an offline interactive HTML report, Markdown findings and CSVs; use the report's **Print / save PDF** button for a static copy.
 
 The demo is explicitly synthetic, with `DEMO_*` asset names. It is a software demonstration, not market history. Yahoo failures are reported rather than replaced with synthetic prices.
+
+## Compare with the market
+
+SPY and QQQ provide passive ETF references for the S&P 500 and Nasdaq-100. Comparisons use the same evaluation dates and entry-cost rules as the strategy. The [benchmark guide](docs/BENCHMARKS.md) explains sources, accounting, and statistical limits.
+
+The evidence separates compound performance from annual mean advantage and benchmark alpha. It also shows three evaluation windows. Statistical tests account for serial dependence and all strategy/benchmark comparisons in the current run. A p-value is not the probability of future outperformance.
+
+The **Market comparison** tab shows the results. **Market benchmarks** in the sidebar controls sources and the USD declaration.
+
+Yahoo runs obtain the benchmark series automatically. CSV runs can use an offline benchmark file or existing SPY and QQQ columns. Downloads for CSV input require an explicit choice. Comparisons require a USD declaration and complete benchmark prices for every asset date. Synthetic demo results do not use actual market benchmarks.
+
+The latest model allocations use all supplied history. Their fitted return estimates are separate from benchmark evidence on later evaluation returns. The historical stock study below does not establish statistically supported outperformance against SPY or QQQ.
 
 ## Industry and sector allocations
 
@@ -272,6 +285,10 @@ For large inputs, the correlation chart initially displays a selectable subset t
 # Your adjusted prices, without an additional position cap
 .venv/bin/python -m efficient_frontier --csv prices.csv
 
+# Offline SPY/QQQ comparison with a separate USD benchmark file
+.venv/bin/python -m efficient_frontier --csv data/prices.csv \
+  --benchmark-csv data/benchmarks.csv --currency USD --backtests
+
 # Weekly CSV data: annualize at 52 and rebalance every four observed weeks
 .venv/bin/python -m efficient_frontier --csv data/weekly-prices.csv \
   --periods-per-year 52 --backtests --rebalance-every 4 --rolling-window 52
@@ -294,11 +311,15 @@ For large inputs, the correlation chart initially displays a selectable subset t
 .venv/bin/python -m efficient_frontier --csv data/prices.csv --max-weight .01
 ```
 
+Yahoo runs include SPY/QQQ comparisons by default. CSV runs stay offline unless you pass `--download-benchmarks`. Use `--no-benchmarks` to skip the comparison. `--currency` defaults to `USD` and records your declaration without currency conversion. See the [benchmark guide](docs/BENCHMARKS.md#command-line-use) for data rules and options.
+
 The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Risk exports include `risk_summary.csv` and `risk_contributions.csv`.
 
 With sufficient history, latest profile exports include `latest_profile_summary.csv` and `latest_profile_weights.csv`. The bundle also includes window dates, window returns, frontier estimates, and frontier weights. `metadata.json` records the fit date and assumptions. The [export guide](docs/BACKTESTING.md#reproduce-and-inspect) lists the filenames.
 
 Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
+
+When benchmarks are available, exports also include their prices, equity paths, metrics, and the complete statistical evidence. See the [benchmark export list](docs/BENCHMARKS.md#exports).
 
 With `--backtests`, exports also contain `findings.md`, comparison metrics/curves, and each strategy's holdings, dated target allocations and trade ledger. Open the HTML report and choose **Print / save PDF** for a static copy. The PDF uses the browser's print engine, so no extra Python PDF package is required.
 
