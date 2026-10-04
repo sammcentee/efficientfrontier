@@ -54,14 +54,20 @@ ASSUMPTIONS = (
     "Prices must be adjusted and share a common currency basis. "
     "A fixed universe can introduce survivorship bias.",
     "These findings describe the evaluated sample. The highest-return strategy is selected "
-    "after evaluation; it is not a forecast or a recommendation to hold its stocks. Repeated "
+    "after evaluation; it is not a forecast or a recommendation to hold its assets. Repeated "
     "strategy selection using these results can overfit the evaluation period.",
 )
 
 
 def _assumptions(study: Any) -> tuple[str, ...]:
     periods = study.settings.get("periods_per_year", 252)
-    return ASSUMPTIONS + (
+    profile_notes = (
+        "Low, Medium, and Extreme use a frontier with a return target in each of three historical windows. "
+        "These are relative risk levels within each fit, not universal risk ratings. "
+        "Profile backtests fit only the history available before each allocation. "
+        "The latest model holdings use all supplied history and remain separate from these backtests and the original holdout.",
+    ) if study.settings.get("include_profiles", False) else ()
+    return ASSUMPTIONS + profile_notes + (
         f"CAGR and volatility use {periods:g} observations per year. "
         "Sortino measures excess return relative to downside deviation. "
         "Calmar divides CAGR by the absolute maximum drawdown. "
@@ -151,7 +157,8 @@ def findings(study: Any) -> list[str]:
 
 def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None) -> go.Figure:
     """Plot selected paths without changes to the complete study data."""
-    colors = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff"}
+    colors = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff",
+              "Low": "#6cbaff", "Medium": "#edb1f1", "Extreme": "#ff8b87"}
     dashes = {"Buy and hold": "solid", "Fixed rebalance": "dash", "Expanding window": "dot", "Rolling window": "dashdot"}
     figure = go.Figure()
     names = study.equity.columns if strategies is None else strategies

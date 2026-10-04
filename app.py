@@ -11,7 +11,8 @@ from efficient_frontier.core import analyze
 from efficient_frontier.backtest import run_backtests
 from efficient_frontier.backtest_report import HOLDINGS, METRICS, backtest_chart, findings
 from efficient_frontier.data import demo_prices, download_prices, load_csv, original_tickers, parse_tickers
-from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, report_zip, weights_frame
+from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, latest_profile_chart, report_zip, weights_frame
+from efficient_frontier.profiles import build_profiles
 from efficient_frontier.risk import risk_contributions, risk_summary
 
 
@@ -43,19 +44,24 @@ def compare_backtests(prices, settings, backtest_settings):
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
-def export_report(analysis, prices, metadata, study):
-    return report_zip(analysis, prices, metadata, study)
+def calculate_latest(prices, settings):
+    return build_profiles(prices, **{key: value for key, value in settings.items() if key != "train_fraction"})
+
+
+@st.cache_data(show_spinner=False, max_entries=2)
+def export_report(analysis, prices, metadata, study, latest_profiles):
+    return report_zip(analysis, prices, metadata, study, latest_profiles)
 
 
 with st.sidebar:
     st.markdown("### ◈ Portfolio Lab")
     st.caption("Your efficient frontier, rebuilt.")
-    source = st.selectbox("Price data", ["Demo · synthetic", "Yahoo Finance", "Upload CSV"], key="source")
+    source = st.selectbox("Price data", ["Yahoo Finance", "Demo · synthetic", "Upload CSV"], key="source")
     universe = "Custom tickers"
     if source == "Yahoo Finance":
         universe = st.radio("Universe", ["Custom tickers", "Original 60 holdings"])
     use_cap = st.toggle("Limit weight per asset", value=False, key="use_cap",
-                        help="Optional concentration limit. There is no limit on the number of tickers or holdings.")
+                        help="Limit concentration at each allocation. A fully invested portfolio needs enough assets to satisfy the cap. Weights can drift above it between trades.")
     with st.expander("Observation frequency"):
         frequencies = {"Trading days (252)": 252, "Calendar days (365)": 365,
                        "Weekly (52)": 52, "Monthly (12)": 12, "Custom": None}
@@ -84,15 +90,23 @@ with st.sidebar:
             st.caption("Six simulated assets. Repeatable data for exploring the app; no market performance claims.")
         with st.expander("Portfolio settings", expanded=True):
             cap = st.number_input("Maximum weight per asset (%)", min_value=0.0, max_value=100.0,
-                                  value=40.0, step=1.0, format="%.4f", key="cap") if use_cap else 100.0
-            risk_free = st.number_input("Annual risk-free rate (%)", min_value=-10.0, max_value=100.0, value=2.0, step=0.25, key="risk_free")
-            train_pct = st.slider("Data used for training", 50, 90, 70, step=5, format="%d%%")
-            shrink = st.slider("Covariance shrinkage", 0, 100, 10, step=5, format="%d%%", help="Blend the training covariance toward its diagonal. 0% uses the sample covariance; 100% removes estimated correlations.")
+                                  value=40.0, step=1.0, format="%.4f", key="cap",
+                                  help="For example, a 25% cap needs at least four assets. The cap applies to target weights, not later weights after prices change.") if use_cap else 100.0
+            risk_free = st.number_input("Annual risk-free rate (%)", min_value=-10.0, max_value=100.0, value=2.0, step=0.25, key="risk_free",
+                                        help="Annual comparison rate for Sharpe and Sortino ratios. It also affects Maximum Sharpe allocations. It does not add cash to the portfolio.")
+            train_pct = st.slider("Data used for training", 50, 90, 70, step=5, format="%d%%",
+                                  help="The earliest observations estimate the initial portfolio. Later observations evaluate it. More training data leaves less data for evaluation.")
+            shrink = st.slider("Covariance shrinkage", 0, 100, 10, step=5, format="%d%%",
+                               help="Reduce reliance on noisy historical co-movement. 0% uses sample correlations. 100% ignores correlations but keeps individual asset variances. This is a manual setting, not automatic Ledoit-Wolf estimation.")
+            st.caption("Open Portfolio settings explained on the main page for examples and trade-offs.")
         with st.expander("Backtest comparison"):
             include_backtests = st.checkbox("Compare four backtesting methods", value=True, key="include_backtests")
-            rebalance_every = st.number_input("Sessions between trades", min_value=1, value=21, step=1)
-            rolling_window = st.number_input("Rolling estimation sessions (0 = initial training length)", min_value=0, value=0, step=21)
-            cost_bps = st.number_input("Trading cost (basis points per bought or sold unit)", min_value=0., max_value=9999., value=10., step=1., key="cost_bps")
+            rebalance_every = st.number_input("Sessions between trades", min_value=1, value=21, step=1,
+                                             help="Count supplied observations between trades. This schedule applies to fixed, expanding, and rolling methods. Buy and hold allocates only once.")
+            rolling_window = st.number_input("Rolling estimation sessions (0 = initial training length)", min_value=0, value=0, step=21,
+                                            help="The rolling method estimates each new target from this many recent returns. A shorter window adapts faster but uses less evidence.")
+            cost_bps = st.number_input("Trading cost (basis points per bought or sold unit)", min_value=0., max_value=9999., value=10., step=1., key="cost_bps",
+                                       help="One basis point is 0.01%. A cost of 10 means 0.1% of each amount bought or sold. Both sides of a rebalance incur costs.")
             st.caption("Each session is one supplied observation. The schedule does not count calendar months.")
             st.caption("Targets use the previous close's data and trade at the next close. Repeated fits take longer for large universes.")
         submitted = st.form_submit_button("Build frontier", type="primary", width="stretch")
@@ -102,13 +116,74 @@ with st.sidebar:
 
 st.caption("PORTFOLIO RESEARCH / EFFICIENT FRONTIER")
 st.title("Find the balance.")
-st.markdown("Explore the trade-off between risk and return, then test your allocations on the data held aside.")
+st.markdown("Find model holdings for low, medium, or extreme relative risk. Favor returns that hold up across several historical windows.")
+
+with st.expander("Portfolio settings explained"):
+    st.markdown("""
+**Weight limit.** A cap limits each asset's target weight and controls concentration.
+A 25% cap requires at least four assets for a fully invested portfolio.
+Price changes can move actual weights above the cap between trades.
+
+**Risk-free rate.** This annual comparison rate affects Sharpe and Sortino ratios and the Maximum Sharpe allocation.
+It does not add cash or an interest-bearing asset to the portfolio.
+
+**Training split.** The earliest return observations estimate the initial portfolio.
+The later observations form the holdout, in date order.
+More training data can support estimates, but leaves fewer observations for evaluation.
+Repeated choices based on holdout results reduce its independence.
+The separate Latest holdings view uses all supplied observations through the last price date.
+The training split does not change that latest fit.
+
+**Covariance shrinkage.** Covariance measures how asset returns move together.
+Estimates from historical data can be noisy, especially with few observations or many assets.
+The slider reduces off-diagonal covariance toward zero while it keeps each asset's individual variance.
+
+At **0%**, the model uses sample correlations.
+At **100%**, the model ignores correlations between assets but keeps individual variances.
+Intermediate values reduce reliance on these estimated relationships.
+Shrinkage can reduce dependence on noisy correlations, but it does not guarantee better results.
+This is a manual choice, not automatic Ledoit-Wolf estimation.
+""")
+
+with st.expander("Backtest methods explained"):
+    st.markdown("""
+Each method evaluates allocations on the same later observations.
+When history permits, each method includes Low, Medium, and Extreme profiles plus the three original portfolio targets.
+Each profile fit divides its available history into three windows and favors the weakest window's estimated return.
+
+| Method | What happens |
+| --- | --- |
+| Buy and hold | Allocate once, then let weights change with prices. |
+| Fixed rebalance | Restore the original target weights at each scheduled trade. The estimates do not change. |
+| Expanding window | Estimate new target weights from all prior observations at each scheduled trade. The sample grows over time. |
+| Rolling window | Estimate new target weights from a fixed number of recent returns. Older observations leave the sample. |
+
+**Trade timing.** Each target uses data through a previous close.
+The trade executes at the next observation's close.
+The first evaluation interval stays in cash without interest.
+New weights do not earn the return from the interval before execution.
+
+**Schedule and annualization.** A session is one supplied observation, not one calendar day or month.
+The trade interval counts these observations.
+The annualization assumption scales return and risk measures. It does not change observation dates or trade dates.
+
+**Costs.** One basis point is 0.01%.
+A setting of 10 basis points charges 0.1% of each amount bought or sold.
+For example, a sale of 1,000 units plus a purchase of 1,000 units costs 2 units.
+The comparison includes entry costs and excludes a final liquidation.
+The model excludes taxes and currency conversion.
+
+The separate Original holdout allocates at the split without costs.
+Its entry timing differs from the four-method comparison.
+These historical comparisons do not predict which method will perform best in the future.
+""")
 
 settings = dict(train_fraction=train_pct / 100, risk_free_rate=risk_free / 100,
                 max_weight=cap / 100, shrinkage=shrink / 100, periods_per_year=periods_per_year)
 if submitted or ("result" not in st.session_state and source == "Demo · synthetic"):
     st.session_state.pop("result", None)
     st.session_state.pop("backtests", None)
+    st.session_state.pop("latest_profiles", None)
     try:
         with st.spinner("Preparing prices and solving the frontier…"):
             if source == "Demo · synthetic":
@@ -122,13 +197,19 @@ if submitted or ("result" not in st.session_state and source == "Demo · synthet
                     raise ValueError("Choose a CSV of adjusted prices before building the frontier.")
                 prices = load_csv(BytesIO(uploaded.getvalue()))
             result = calculate(prices, settings)
+            latest_profiles = calculate_latest(prices, settings) if len(prices) >= 7 else None
+            profile_backtests = min(len(result.train_returns), rolling_window or len(result.train_returns)) >= 6
             study = compare_backtests(prices, settings, dict(rebalance_every=rebalance_every,
-                                      rolling_window=rolling_window or None, cost_bps=cost_bps)) if include_backtests else None
+                                      rolling_window=rolling_window or None, cost_bps=cost_bps,
+                                      include_profiles=profile_backtests)) if include_backtests else None
+            if study is not None and not profile_backtests:
+                study.warnings.append("Risk-profile backtests need at least six returns in both the initial and rolling fit windows. Only the original targets are shown.")
             metadata = {"source": source, "use_cap": use_cap, **settings}
             if source == "Yahoo Finance":
                 metadata.update(requested_start=start.isoformat(), requested_end_exclusive=end.isoformat(), universe=universe)
             st.session_state.result = (result, prices, metadata)
             st.session_state.backtests = study
+            st.session_state.latest_profiles = latest_profiles
     except (ValueError, RuntimeError) as exc:
         st.error(str(exc))
 
@@ -138,6 +219,7 @@ if "result" not in st.session_state or st.session_state.result[2]["source"] != s
 
 result, prices, metadata = st.session_state.result
 study = st.session_state.get("backtests")
+latest_profiles = st.session_state.get("latest_profiles")
 if "synthetic" in metadata["source"]:
     st.info("DEMO DATA · These prices are synthetic. Use Yahoo Finance or upload your own adjusted prices to research real assets.")
 else:
@@ -162,7 +244,40 @@ cols[2].metric("Holdout observations", f"{len(result.test_returns):,}")
 cols[3].metric("Position weight limit", "None" if metadata["max_weight"] == 1 else f"{metadata['max_weight'] * 100:g}%")
 st.caption(f"Train: {result.train_returns.index[0]:%d %b %Y} – {result.train_returns.index[-1]:%d %b %Y}  ·  Holdout: {result.test_returns.index[0]:%d %b %Y} – {result.test_returns.index[-1]:%d %b %Y}")
 
-frontier_tab, risk_tab, backtest_tab, holdout_tab, data_tab = st.tabs(["Efficient frontier", "Portfolio risk", "Backtests & holdings", "Original holdout", "Data & methodology"])
+latest_tab, frontier_tab, risk_tab, backtest_tab, holdout_tab, data_tab = st.tabs(["Latest holdings", "Efficient frontier", "Portfolio risk", "Backtests & holdings", "Original holdout", "Data & methodology"])
+with latest_tab:
+    st.subheader("Latest model holdings")
+    if latest_profiles is None:
+        st.info("Supply at least seven price observations for three historical windows with two returns each.")
+    else:
+        st.caption(f"As of {latest_profiles.as_of} · All {latest_profiles.observations:,} supplied returns · Three historical windows")
+        st.write("These are model-optimal allocations for the selected assets, constraints, and worst-window return objective. Risk labels are relative to this frontier.")
+        descriptions = {
+            "Low": "Minimum estimated volatility on this frontier.",
+            "Medium": "The middle worst-window return target on this frontier.",
+            "Extreme": "The highest worst-window return target and highest modeled risk on this frontier.",
+        }
+        for column, (name, portfolio) in zip(st.columns(3), latest_profiles.portfolios.items()):
+            with column:
+                st.markdown(f"### {name}")
+                st.caption(descriptions[name])
+                st.metric("Estimated annual volatility", f"{portfolio.volatility:.2%}")
+                st.metric("Weakest window estimate", f"{latest_profiles.summary.loc[name, 'worst_window_return']:.2%}")
+                leaders = portfolio.weights.sort_values(ascending=False).head(5)
+                st.dataframe(leaders.rename("Largest allocations").to_frame().style.format("{:.2%}"), width="stretch")
+        st.caption("The cards show up to five assets. The complete allocations below include every asset and sum to 100% per profile.")
+        st.dataframe(weights_frame(latest_profiles).style.format("{:.2%}"), width="stretch")
+        st.plotly_chart(latest_profile_chart(latest_profiles), width="stretch", theme=None)
+        with st.expander("How the consistency preference works", expanded=True):
+            st.write("The model splits the supplied returns into three consecutive, non-overlapping windows. It calculates each allocation's annual arithmetic return estimate in each window.")
+            st.write("The frontier minimizes volatility at targets for the weakest window estimate. This favors a stronger weakest period over a high average from one strong period.")
+            st.write("This objective does not minimize drawdown or require positive returns in every year. Extreme does not add leverage or deliberately maximize variance.")
+            st.dataframe(latest_profiles.windows, width="stretch")
+            st.dataframe(latest_profiles.window_returns.style.format("{:.2%}"), width="stretch")
+        st.info("These latest weights use all supplied history, including the original holdout. The window estimates describe that fit. They are not out-of-sample results.")
+        for warning in latest_profiles.warnings:
+            st.warning(warning)
+
 with frontier_tab:
     st.plotly_chart(frontier_chart(result), width="stretch", theme=None)
     st.caption("The curve shows minimum estimated volatility at each target return, using every supplied ticker. A position limit applies only if enabled. All estimates use the training period only.")
@@ -230,9 +345,13 @@ with backtest_tab:
         st.caption("All methods share evaluation dates and costs. Buy and hold lets weights drift; fixed rebalancing restores the initial targets; expanding and rolling windows estimate new targets. Trades execute one session after the last estimation close. These are retrospective comparisons, not forecasts.")
         for item in findings(study):
             st.write(item)
-        default_strategies = [name for name in study.equity.columns
-                              if name in ("Fixed rebalance · Maximum Sharpe", "Expanding window · Maximum Sharpe",
-                                          "Rolling window · Maximum Sharpe", "Fixed rebalance · Equal weight")]
+        preferred = ("Expanding window · Low", "Expanding window · Medium", "Expanding window · Extreme",
+                     "Fixed rebalance · Equal weight") if study.settings.get("include_profiles") else (
+                         "Fixed rebalance · Maximum Sharpe", "Expanding window · Maximum Sharpe",
+                         "Rolling window · Maximum Sharpe", "Fixed rebalance · Equal weight")
+        default_strategies = [name for name in study.equity.columns if name in preferred]
+        if study.settings.get("include_profiles"):
+            st.caption("Low, Medium, and Extreme here use only information available before each trade. These backtests do not apply the latest weights to past dates.")
         chart_strategies = st.multiselect("Strategies shown in charts", list(study.equity.columns),
                                           default=default_strategies, key="chart_strategies")
         st.caption("This selection controls both charts. Tables and downloads include every strategy.")
@@ -274,7 +393,8 @@ with data_tab:
         st.subheader("How it works")
         st.markdown(f"""
 - Simple returns between supplied price observations. No forward-fill or silent asset removal.
-- The earliest **{metadata['train_fraction']:.0%}** of return observations estimates the portfolio. The remaining observations are held aside.
+- The original mean-return model uses the earliest **{metadata['train_fraction']:.0%}** of return observations. The remaining observations form its holdout.
+- Latest holdings use all supplied history and three windows. Their fit includes the original holdout. Each backtest fit uses only prior data.
 - Annual return = mean return × **{metadata['periods_per_year']:g}**. Annual covariance = covariance per observation × **{metadata['periods_per_year']:g}**.
 - Covariance blends **{metadata['shrinkage']:.0%}** toward its diagonal to temper estimated correlations.
 - Convex optimization finds minimum-volatility portfolios and, when positive excess return is feasible, maximum Sharpe.
@@ -287,6 +407,6 @@ with data_tab:
     st.download_button("Download prices CSV", csv_text(prices, index_label="Date"), "prices.csv", "text/csv")
 
 st.divider()
-st.download_button("Download research report + CSVs", export_report(result, prices, metadata, study),
+st.download_button("Download research report + CSVs", export_report(result, prices, metadata, study, latest_profiles),
                    "efficient-frontier-report.zip", "application/zip", type="primary")
 st.caption("Includes an offline HTML report with Print / save PDF, exact inputs and results. Enabled backtests add findings.md, performance curves, holding contributions, target allocations and trading costs.")

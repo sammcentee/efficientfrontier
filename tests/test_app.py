@@ -10,8 +10,69 @@ from streamlit.testing.v1 import AppTest
 APP = Path(__file__).resolve().parents[1] / "app.py"
 
 
-def test_demo_renders_and_invalid_cap_clears_old_result():
+def demo_app():
     app = AppTest.from_file(str(APP), default_timeout=20).run()
+    return app.selectbox(key="source").select("Demo · synthetic").run()
+
+
+def test_yahoo_is_default_and_only_submit_downloads_prices(monkeypatch):
+    from efficient_frontier import data
+
+    calls = []
+    prices = data.demo_prices().iloc[:, :2].copy()
+    prices.columns = ["DEFAULT-AAA", "DEFAULT-BBB"]
+
+    def download(tickers, start, end):
+        calls.append((tickers, start, end))
+        return prices
+
+    monkeypatch.setattr(data, "download_prices", download)
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    assert not app.exception
+    assert app.selectbox(key="source").value == "Yahoo Finance"
+    assert calls == []
+    assert "result" not in app.session_state
+    assert not app.metric
+    assert not app.get("download_button")
+    app.toggle(key="use_cap").set_value(True).run()
+    assert calls == []
+    app.number_input(key="cap").set_value(100.)
+    app.text_area[0].set_value("DEFAULT-AAA, DEFAULT-BBB")
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    assert len(calls) == 1
+    assert calls[0][0] == ["DEFAULT-AAA", "DEFAULT-BBB"]
+    assert app.session_state.result[2]["source"] == "Yahoo Finance"
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
+
+
+def test_setting_and_backtest_explanations_are_available_before_first_run():
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    assert not app.exception
+    assert "result" not in app.session_state
+    labels = [item.label for item in app.expander]
+    assert "Portfolio settings explained" in labels
+    assert "Backtest methods explained" in labels
+    explanation = "\n".join(item.value for item in app.markdown)
+    for phrase in (
+        "Covariance measures how asset returns move together",
+        "reduces off-diagonal covariance toward zero",
+        "keeps each asset's individual variance",
+        "does not guarantee better results",
+        "not automatic Ledoit-Wolf estimation",
+        "does not add cash",
+        "requires at least four assets",
+        "later observations form the holdout, in date order",
+        "Buy and hold", "Fixed rebalance", "Expanding window", "Rolling window",
+        "next observation's close", "One basis point is 0.01%",
+        "does not change observation dates or trade dates",
+    ):
+        assert phrase in explanation
+
+
+def test_demo_renders_and_invalid_cap_clears_old_result():
+    app = demo_app()
     assert not app.exception
     assert not app.error
     assert app.metric[0].value == "6"
@@ -27,7 +88,7 @@ def test_demo_renders_and_invalid_cap_clears_old_result():
 
 
 def test_high_risk_free_rate_omits_sharpe_without_breaking_app():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     app.number_input(key="risk_free").set_value(100.0)
     app.button[0].click().run()
     assert not app.exception
@@ -37,7 +98,7 @@ def test_high_risk_free_rate_omits_sharpe_without_breaking_app():
 
 
 def test_switching_source_does_not_show_stale_demo_results():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     app.selectbox(key="source").select("Upload CSV").run()
     assert not app.exception
     assert len(app.metric) == 0
@@ -50,7 +111,7 @@ def test_single_asset_renders_its_single_frontier_point(monkeypatch):
     from efficient_frontier import data
     prices = data.demo_prices().iloc[:, :1]
     monkeypatch.setattr(data, "demo_prices", lambda: prices)
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     assert not app.exception
     assert not app.error
     assert app.metric[0].value == "1"
@@ -66,7 +127,7 @@ def test_large_universe_chart_selection_keeps_all_assets_in_analysis(monkeypatch
                           index=pd.bdate_range("2024-01-01", periods=150),
                           columns=[f"DEMO_{i}" for i in range(64)])
     monkeypatch.setattr(data, "demo_prices", lambda: prices)
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     assert not app.exception
     assert not app.error
     assert app.metric[0].value == "64"
@@ -77,9 +138,9 @@ def test_large_universe_chart_selection_keeps_all_assets_in_analysis(monkeypatch
 
 
 def test_backtest_controls_update_costs_and_can_disable_comparison():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     assert not app.exception
-    assert len(app.session_state.backtests.metrics) == 12
+    assert len(app.session_state.backtests.metrics) == 24
     assert app.session_state.backtests.settings["cost_bps"] == 10
     app.number_input(key="cost_bps").set_value(0.)
     app.button[0].click().run()
@@ -92,7 +153,7 @@ def test_backtest_controls_update_costs_and_can_disable_comparison():
 
 
 def test_portfolio_settings_apply_to_results_and_frontier_selection():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     app.toggle(key="use_cap").set_value(True).run()
     app.number_input(key="cap").set_value(30.)
     app.number_input(key="risk_free").set_value(1.)
@@ -121,7 +182,7 @@ def test_portfolio_settings_apply_to_results_and_frontier_selection():
 
 
 def test_backtest_schedule_and_holdings_selector_match_shown_results():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     next(item for item in app.number_input if item.label == "Sessions between trades").set_value(42)
     next(item for item in app.number_input if item.label.startswith("Rolling estimation")).set_value(126)
     app.number_input(key="cost_bps").set_value(25.)
@@ -151,7 +212,7 @@ def test_backtest_schedule_and_holdings_selector_match_shown_results():
 
 
 def test_invalid_backtest_settings_clear_results_and_downloads():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     assert len(app.get("download_button")) == 2
     next(item for item in app.number_input if item.label.startswith("Rolling estimation")).set_value(1)
     app.button[0].click().run()
@@ -178,7 +239,7 @@ def test_yahoo_inputs_reach_downloader_and_failure_clears_previous_results(monke
         return prices
 
     monkeypatch.setattr(data, "download_prices", download)
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     app.selectbox(key="source").select("Yahoo Finance").run()
     app.text_area[0].set_value("aapl, MSFT brk.b aapl")
     app.date_input[0].set_value(date(2020, 1, 1))
@@ -216,7 +277,7 @@ def test_yahoo_inputs_reach_downloader_and_failure_clears_previous_results(monke
 
 @pytest.mark.parametrize("preset,periods", [("Calendar days (365)", 365), ("Weekly (52)", 52), ("Monthly (12)", 12)])
 def test_frequency_changes_annualization_without_resampling_prices(preset, periods):
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     original_prices = app.session_state.result[1].copy()
     app.selectbox(key="observation_frequency").select(preset).run()
     assert not app.exception
@@ -238,7 +299,7 @@ def test_frequency_changes_annualization_without_resampling_prices(preset, perio
 
 
 def test_custom_frequency_and_cap_changes_keep_applied_settings_clear():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     app.selectbox(key="observation_frequency").select("Custom").run()
     app.number_input(key="periods_per_year").set_value(48.5).run()
     app.toggle(key="use_cap").set_value(True).run()
@@ -262,7 +323,7 @@ def test_custom_frequency_and_cap_changes_keep_applied_settings_clear():
 def test_risk_selector_displays_matching_weights_and_variance_contributions():
     from efficient_frontier.risk import risk_contributions, risk_summary
 
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     app.selectbox(key="risk_portfolio").select("Equal weight").run()
     assert not app.exception
     analysis = app.session_state.result[0]
@@ -280,8 +341,9 @@ def test_risk_selector_displays_matching_weights_and_variance_contributions():
 
 
 def test_backtest_chart_selection_preserves_all_results():
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = demo_app()
     assert len(app.multiselect(key="chart_strategies").value) == 4
+    assert {"Expanding window · Low", "Expanding window · Medium", "Expanding window · Extreme"} <= set(app.multiselect(key="chart_strategies").value)
     original_metrics = app.session_state.backtests.metrics.copy()
     selected = "Rolling window · Maximum Sharpe"
     app.multiselect(key="chart_strategies").set_value([selected]).run()
@@ -298,3 +360,37 @@ def test_backtest_chart_selection_preserves_all_results():
     assert any("Select at least one strategy" in item.value for item in app.info)
     pd.testing.assert_frame_equal(app.session_state.backtests.metrics, original_metrics)
     assert len(app.get("download_button")) == 2
+
+
+def test_latest_holdings_use_all_history_and_do_not_depend_on_holdout_split():
+    app = demo_app()
+    assert not app.exception
+    assert app.tabs[0].label == "Latest holdings"
+    latest = app.session_state.latest_profiles
+    prices = app.session_state.result[1]
+    assert latest.as_of == str(prices.index[-1].date())
+    assert latest.observations == len(prices) - 1
+    assert list(latest.portfolios) == ["Low", "Medium", "Extreme"]
+    weights = pd.DataFrame({name: p.weights for name, p in latest.portfolios.items()})
+    assert any(item.value.equals(weights.rename_axis("ticker")) for item in app.dataframe)
+    assert any("not out-of-sample results" in item.value for item in app.info)
+    app.slider[0].set_value(50)
+    app.button[0].click().run()
+    assert not app.exception
+    pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, latest.frontier_weights)
+    assert len(app.session_state.result[0].train_returns) < len(prices) * .6
+
+
+def test_short_history_keeps_original_analysis_and_explains_missing_profiles(monkeypatch):
+    from efficient_frontier import data
+
+    prices = data.demo_prices().iloc[:5, :2]
+    monkeypatch.setattr(data, "demo_prices", lambda: prices)
+    app = demo_app()
+    assert not app.exception
+    assert not app.error
+    assert app.session_state.latest_profiles is None
+    assert len(app.session_state.backtests.metrics) == 12
+    assert app.session_state.backtests.settings["include_profiles"] is False
+    assert any("at least seven" in item.value for item in app.info)
+    assert any("at least six" in message for message in app.session_state.backtests.warnings)
