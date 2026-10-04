@@ -15,7 +15,7 @@ from .presentation import report_zip
 def main():
     parser = argparse.ArgumentParser(description="Build an efficient frontier and chronological holdout report.")
     sources = parser.add_mutually_exclusive_group()
-    sources.add_argument("--csv", type=Path, help="Adjusted daily prices: Date,ASSET1,ASSET2,…")
+    sources.add_argument("--csv", type=Path, help="Adjusted prices: Date,ASSET1,ASSET2,…")
     sources.add_argument("--tickers", help="Comma-separated Yahoo Finance symbols; no ticker-count cap")
     sources.add_argument("--original-holdings", action="store_true", help="Use the original 60 tickers from spy_holdings.ods")
     parser.add_argument("--start", default="2020-01-01")
@@ -25,13 +25,15 @@ def main():
     parser.add_argument("--max-weight", type=float, default=1.0,
                         help="Optional per-asset cap as a decimal; default 1 means no additional cap")
     parser.add_argument("--shrinkage", type=float, default=.1)
+    parser.add_argument("--periods-per-year", type=float, default=252,
+                        help="Observations per year: 252 trading days, 365 calendar days, 52 weeks, or 12 months; no resampling")
     parser.add_argument("--backtests", action="store_true", help="Compare buy-and-hold, fixed rebalancing, expanding and rolling windows")
-    parser.add_argument("--rebalance-every", type=int, default=21, help="Backtest trading interval in sessions (not calendar months)")
+    parser.add_argument("--rebalance-every", type=int, default=21, help="Backtest trading interval in observations (not calendar months)")
     parser.add_argument("--rolling-window", type=int, help="Rolling estimation returns; default is the initial training length")
     parser.add_argument("--cost-bps", type=float, default=10., help="Backtest fee per unit of bought or sold notional, in basis points")
     parser.add_argument("--output", type=Path, default=Path("results/latest"))
     args = parser.parse_args()
-    settings = {key: getattr(args, key) for key in ("train_fraction", "risk_free_rate", "max_weight", "shrinkage")}
+    settings = {key: getattr(args, key) for key in ("train_fraction", "risk_free_rate", "max_weight", "shrinkage", "periods_per_year")}
     try:
         if args.csv:
             prices, source = load_csv(args.csv), "CSV: " + args.csv.name

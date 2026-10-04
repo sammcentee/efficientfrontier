@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from plotly.offline import get_plotlyjs
 
 from .backtest_report import backtest_html, findings_markdown
+from .risk import risk_contributions, risk_summary
 
 
 COLORS = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff"}
@@ -22,14 +23,14 @@ PLOTLY_JS_LICENSE = (Path(__file__).parent / "third_party" / "plotly.js.LICENSE.
 
 def _style(figure: go.Figure, title: str) -> go.Figure:
     figure.update_layout(
-        title=title, template="plotly_dark", paper_bgcolor="#111c2e", plot_bgcolor="#111c2e",
+        title={"text": title, "font": {"size": 19}}, template="plotly_dark", paper_bgcolor="#111c2e", plot_bgcolor="#111c2e",
         font={"family": "Arial, sans-serif", "color": "#e6edf7"},
-        margin={"l": 65, "r": 25, "t": 65, "b": 60},
-        legend={"orientation": "h", "y": -0.22}, height=470,
+        margin={"l": 55, "r": 15, "t": 55, "b": 110},
+        legend={"orientation": "h", "y": -0.22, "font": {"size": 11}, "maxheight": 90}, height=490,
         hovermode="closest",
     )
-    figure.update_xaxes(gridcolor="#26344a")
-    figure.update_yaxes(gridcolor="#26344a")
+    figure.update_xaxes(gridcolor="#26344a", automargin=True)
+    figure.update_yaxes(gridcolor="#26344a", automargin=True)
     return figure
 
 
@@ -47,9 +48,9 @@ def frontier_chart(analysis: Any) -> go.Figure:
             marker={"size": 13, "color": COLORS.get(name, "#f3a7da"), "line": {"width": 2, "color": "#111c2e"}},
             hovertemplate="Annual volatility: %{x:.2%}<br>Historical expected return: %{y:.2%}<extra>%{fullData.name}</extra>",
         ))
-    _style(figure, "Training period · historical efficient frontier")
+    _style(figure, "Efficient frontier")
     figure.update_xaxes(title="Annual volatility", tickformat=".1%", rangemode="tozero")
-    figure.update_yaxes(title="Historical expected annual return", tickformat=".1%")
+    figure.update_yaxes(title="Expected annual return", tickformat=".1%")
     return figure
 
 
@@ -62,9 +63,9 @@ def holdout_chart(analysis: Any) -> go.Figure:
             mode="lines", line={"width": 2.5, "color": COLORS.get(name, "#f3a7da")},
             hovertemplate="%{x|%Y-%m-%d}<br>Portfolio value: %{y:,.2f}<extra>%{fullData.name}</extra>",
         ))
-    _style(figure, "Holdout period · realized buy-and-hold performance")
+    _style(figure, "Holdout performance")
     figure.update_xaxes(title="Date")
-    figure.update_yaxes(title="Value of 10,000 initial units", tickformat=",.0f")
+    figure.update_yaxes(title="Value (initial 10,000)", tickformat=",.0f")
     return figure
 
 
@@ -96,7 +97,8 @@ def _metadata(analysis: Any, metadata: dict, study=None) -> dict:
         result[f"{label}_end"] = str(returns.index[-1].date()) if len(returns) else None
         result[f"{label}_observations"] = len(returns)
     result.update(
-        assets=list(analysis.train_returns.columns), annualization_days=252,
+        assets=list(analysis.train_returns.columns), periods_per_year=analysis.periods_per_year,
+        annualization_days=analysis.periods_per_year,  # Legacy metadata key.
         holdout_strategy="Allocate once at the split, then hold adjusted-price exposures; no cross-asset rebalancing, and weights drift.",
         distributions="Reflected in the data provider's adjusted-price series, not accumulated as separate cash.",
         estimation="Historical arithmetic mean returns and covariance estimated from training data only.",
@@ -127,7 +129,7 @@ def report_html(analysis: Any, metadata: dict, study=None) -> str:
     source_label = "Synthetic demonstration data" if any(word in source.lower() for word in ("demo", "synthetic")) else "Data source"
     metadata_rows = "".join(
         f"<tr><th>{html.escape(str(key).replace('_', ' ').capitalize())}</th><td>{html.escape(str(value))}</td></tr>"
-        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files")
+        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days")
     )
     warnings = "".join(f"<li>{html.escape(str(warning))}</li>" for warning in analysis.warnings)
     warnings_html = f'<aside><h2>Analysis notes</h2><ul>{warnings}</ul></aside>' if warnings else ""
@@ -138,6 +140,11 @@ def report_html(analysis: Any, metadata: dict, study=None) -> str:
     holdout = analysis.holdout_metrics.rename(columns={
         "total_return": "Total return", "cagr": "CAGR", "volatility": "Annual volatility",
         "sharpe": "Realized Sharpe", "max_drawdown": "Maximum drawdown",
+        "sortino": "Sortino", "calmar": "Calmar",
+    })
+    risk = risk_summary(analysis).rename(columns={
+        "max_weight": "Largest weight", "effective_holdings": "Effective holdings",
+        "diversification_ratio": "Diversification ratio",
     })
     chart_options = {"responsive": True, "displaylogo": False}
     frontier = frontier_chart(analysis).to_html(full_html=False, include_plotlyjs=False, config=chart_options)
@@ -165,6 +172,8 @@ main{{max-width:none;padding:0}}h1{{font-size:25pt}}h2{{break-after:avoid}}.sour
 table{{font-size:8pt}}th,td{{padding:5px}}tr{{break-inside:avoid}}thead{{display:table-header-group}}
 button,.modebar{{display:none!important}}details{{display:none}}.metadata{{font-size:8pt}}
 }}
+@media screen and (max-width:600px){{main{{padding:24px 12px}}h1{{font-size:30px}}h2{{font-size:21px}}
+.source,aside{{padding:12px}}th,td{{padding:8px}}}}
 </style><script>{get_plotlyjs()}</script></head><body><main>
 <p class="muted">PORTFOLIO RESEARCH / REPRODUCIBLE ANALYSIS</p><h1>Efficient Frontier</h1>
 <button onclick="window.print()">Print / save PDF</button>
@@ -173,17 +182,27 @@ button,.modebar{{display:none!important}}details{{display:none}}.metadata{{font-
 Training estimates describe historical data. They are not predictions or guarantees of future performance.</p>
 {warnings_html}
 {comparison_html}
-<h2>Training estimates</h2><p class="muted">Arithmetic mean returns and covariance are annualized using 252 trading days.
-Covariance shrinkage is applied using training data only. The configured risk-free rate is used for Sharpe ratios.</p>
+<h2>Training estimates</h2><p class="muted">Arithmetic mean returns and covariance use {analysis.periods_per_year:g} observations per year.
+The analysis applies covariance shrinkage to training data only. Sharpe ratios use the configured risk-free rate.</p>
 <div class="chart">{frontier}</div>
 <div class="scroll">{_table(estimates, ["Historical expected annual return", "Annual volatility"])}</div>
 <h2>Portfolio allocations</h2><p class="muted">These are the initial weights at the training/holdout split.</p>
 <div class="scroll">{_table(weights_frame(analysis))}</div>
+<h2>Concentration and risk</h2><p class="muted">These measures use the initial weights and the estimated training covariance.
+Effective holdings equals one divided by the sum of squared weights.
+The diversification ratio divides weighted asset volatility by portfolio volatility.</p>
+<div class="scroll">{_table(risk, ["Largest weight"])}</div>
+<h3>Share of portfolio variance</h3><p class="muted">Each asset contributes this share of total portfolio variance.
+The shares sum to 100% when portfolio variance is positive. Negative shares identify assets that reduce total variance through covariance.
+An em dash marks undefined risk shares and diversification ratios when portfolio variance is zero.</p>
+<div class="scroll">{_table(risk_contributions(analysis))}</div>
 <h2>Realized holdout results</h2><p class="muted">Each portfolio starts with 10,000 units, allocates once at the split,
 and then holds adjusted-price exposures. There is no subsequent trading between assets; portfolio weights drift with prices.
 Distributions follow the provider's price adjustments rather than accumulating as separate cash.
-CAGR is annualized using 252 trading days.</p><div class="chart">{holdout_plot}</div>
-<div class="scroll">{_table(holdout, [column for column in holdout.columns if column != "Realized Sharpe"])}</div>
+CAGR and volatility use {analysis.periods_per_year:g} observations per year.</p>
+<p class="muted">Sortino measures excess return relative to downside deviation. Calmar divides CAGR by the absolute maximum drawdown.
+An em dash marks a ratio with a zero denominator.</p><div class="chart">{holdout_plot}</div>
+<div class="scroll">{_table(holdout, ["Total return", "CAGR", "Annual volatility", "Maximum drawdown"])}</div>
 <h2>Data and assumptions</h2><div class="scroll"><table class="metadata">{metadata_rows}</table></div>
 <footer>{cost_note} Taxes and currency conversion (FX) are excluded. Price series must share a consistent currency basis.
 This report is a historical research tool and does not predict investment outcomes. Charts work offline.
@@ -198,6 +217,7 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None) 
         "weights.csv": weights_frame(analysis), "frontier.csv": analysis.frontier,
         "frontier_weights.csv": analysis.frontier_weights, "holdout_metrics.csv": analysis.holdout_metrics,
         "holdout_curve.csv": analysis.equity, "prices.csv": prices,
+        "risk_summary.csv": risk_summary(analysis), "risk_contributions.csv": risk_contributions(analysis),
     }
     if study is not None:
         frames.update({"backtest_metrics.csv": study.metrics, "backtest_curve.csv": study.equity})
@@ -211,6 +231,6 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None) 
             bundle.writestr("findings.md", findings_markdown(study, str(metadata.get("source", "Unspecified source"))))
         bundle.writestr("THIRD_PARTY_NOTICES.txt", "Plotly.js (embedded in report.html)\n\n" + PLOTLY_JS_LICENSE)
         for name, frame in frames.items():
-            bundle.writestr(name, csv_text(frame))
+            bundle.writestr(name, csv_text(frame, index_label="Date" if name == "prices.csv" else None))
         bundle.writestr("metadata.json", json.dumps(_metadata(analysis, metadata, study), indent=2, default=str))
     return output.getvalue()

@@ -6,6 +6,17 @@ A local research app built from the original `Efficient Frontier v1.12.R` projec
 
 **New to this? [Start here: no coding needed](#start-here-no-coding-needed).**
 
+## A portfolio lab for your own data
+
+Use adjusted prices for your own assets, from one ticker to a larger portfolio. The original 60-stock list is an optional example.
+
+- **Choose the data frequency.** Use daily, weekly, or monthly CSV prices and set the number of observations per year.
+- **Inspect portfolio risk.** Compare concentration, effective holdings, diversification, and each asset's share of portfolio variance.
+- **Compare backtests.** Inspect costs, drawdown, Sortino, and Calmar alongside returns. Select the curves you want to compare.
+- **Keep the full results.** Chart selections do not remove data from the exports. Reports include the inputs, assumptions, allocations, and risk tables.
+
+The historical stock study below remains a separate example. It uses daily data and 252 observations per year.
+
 ## What the stock study found
 
 **Retrospective research:** the fixed list of **60 securities** was first recorded in **October 2024**. Applying it to earlier history introduces selection hindsight; these results are observations, not forecasts or stock recommendations.
@@ -91,9 +102,10 @@ The app binds to localhost. It needs no credentials or network connection for th
 - Compare minimum volatility, maximum Sharpe, and equal-weight portfolios.
 - Analyze one ticker or a larger custom universe; the original 60-ticker list is an optional preset.
 - Optionally set a maximum starting position size, plus risk-free rate, training fraction, and covariance shrinkage. Position caps are off by default.
-- Use Yahoo adjusted daily prices, upload a CSV, or explore a deterministic synthetic demo.
+- Use Yahoo adjusted daily prices, upload a daily, weekly, or monthly CSV, or explore a deterministic synthetic demo.
 - Select the 60 tickers from the original spreadsheet as a Yahoo universe.
-- Compare buy-and-hold performance on the chronological holdout: growth, volatility, Sharpe and drawdown.
+- Compare buy-and-hold performance on the chronological holdout: growth, volatility, Sharpe, Sortino, Calmar, and drawdown.
+- Inspect concentration, effective holdings, diversification, and each asset's share of portfolio variance.
 - Compare buy-and-hold, periodic rebalancing, expanding-window and rolling-window backtests with delayed execution and configurable trading costs.
 - Inspect each holding's contribution, allocation history, selection frequency and concentration after price drift.
 - Download an offline interactive HTML report, Markdown findings and CSVs; use the report's **Print / save PDF** button for a static copy.
@@ -122,11 +134,32 @@ Upload a CSV with `Date` first and one asset per column:
 Date,ASSET_A,ASSET_B
 2023-01-03,100.00,80.00
 2023-01-04,101.00,79.50
+2023-01-05,100.50,80.10
+2023-01-06,102.00,80.40
+2023-01-09,101.80,81.00
 ```
 
-The file needs at least 100 complete daily price observations and one or more assets. There is no hardcoded upper limit on columns. Supply adjusted prices in a common currency. Duplicate dates or columns, nonnumeric values, missing observations and nonpositive prices are rejected. Dates are sorted; assets are not silently removed and prices are not forward-filled. The app cannot infer adjustment status, currency, or whether an uploaded series is genuinely daily.
+The file needs at least five complete price rows and one asset. There is no fixed upper limit on columns. Both analysis engines need at least two returns in each of the training and holdout periods. Five price rows meet this minimum only with a suitable split, such as 50/50.
+
+Supply adjusted prices in a common currency. The app does not convert currencies. The app rejects duplicate dates or columns, nonnumeric values, missing observations, and nonpositive prices. It sorts dates but does not remove assets or fill missing prices. It cannot confirm price adjustments, currency, or the interval between observations.
+
+Open **Observation frequency**. Select **Annualization basis** to match your data.
+
+| Price interval | Observations per year |
+| --- | ---: |
+| Daily trading sessions | 252 |
+| Daily calendar observations | 365 |
+| Weekly | 52 |
+| Monthly | 12 |
+| Custom | A finite number of at least 1 |
+
+The CLI uses `--periods-per-year`, with a default of 252. The CLI accepts any positive, finite value. This setting changes annualization only. It does not resample prices or convert daily data into weekly data.
+
+The app gives a warning when the training period contains fewer than 30 returns. It also gives a warning when the asset count equals or exceeds the number of training returns. These checks identify weak samples. They do not establish that a larger sample gives reliable forecasts.
 
 Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. Downloads are cached for one hour in the app. If a requested ticker is unavailable or its history is incomplete, change the ticker list or requested dates and rerun. A narrow common trading calendar works best; cross-market holidays can cause gaps.
+
+Yahoo symbols retain exchange suffixes such as `VOD.L`, `IWDA.AS`, `BMW.DE`, and `7203.T`. Explicit share-class aliases convert `BRK.B` to `BRK-B`, `BRK.A` to `BRK-A`, `BF.B` to `BF-B`, and `BF.A` to `BF-A`. The app does not replace other periods in ticker names. International symbols still require compatible dates and prices in a common currency.
 
 Downloaded market data is subject to the provider's terms. The [yfinance project](https://github.com/ranaroussi/yfinance) describes Yahoo's API as intended for personal use and links to the applicable data terms. A software license does not grant permission to redistribute downloaded prices or reports containing them. Use synthetic data for public examples.
 
@@ -136,19 +169,25 @@ The original holdings file is a static list of 60 symbols, **not a full S&P 500 
 
 ## Method
 
-1. Calculate daily simple returns, `price[t] / price[t-1] - 1`.
+1. Calculate simple returns between consecutive price rows: `price[t] / price[t-1] - 1`.
 2. Use the first `floor(training_fraction × number_of_returns)` observations for estimation. The rest are held aside.
-3. Annualize arithmetic mean returns and sample covariance using 252 sessions per year.
+3. Annualize arithmetic mean returns and sample covariance with the selected observations per year. The default is 252.
 4. Blend covariance toward its diagonal: `(1 - shrinkage) × covariance + shrinkage × diag(covariance)`. The default 10% is a user-controlled assumption, not an automatically fitted estimator.
 5. Solve long-only, fully invested portfolios with nonnegative weights summing to one. Any asset can receive zero weight, so the optimizer can select subsets without sampling or enumerating combinations. A per-asset maximum is optional; the default is 100%, imposing no additional concentration restriction. The frontier minimizes variance at target returns on its efficient branch. CVXPY calls the compiled Clarabel solver.
 6. Solve maximum Sharpe using a convex change of variables when a feasible portfolio has positive expected excess return. If none does, omit this portfolio and explain why. Near-zero risk yields an undefined Sharpe rather than an artificial infinity.
 7. Allocate at the final training price and use each asset's adjusted-price growth throughout the holdout, without subsequent trading between assets. Distributions are reflected in the provider's price adjustments, rather than accumulated as separate cash. The first holdout return starts at the final training price. Equal weight uses the same timing and buy-and-hold convention.
 
-Frontier returns are **historical arithmetic estimates**, not CAGR or forecasts. Holdout annualized growth compounds realized returns, using 252 observations per year. Holdout Sharpe subtracts the selected annual risk-free rate from annualized mean realized daily portfolio returns. Drawdown includes the initial capital, so a loss on the first holdout day counts.
+Frontier returns are **historical arithmetic estimates**, not CAGR or forecasts. Holdout annualized growth compounds realized returns with the selected observations per year. Holdout Sharpe subtracts the annual risk-free rate from the annualized arithmetic mean of realized portfolio returns. Drawdown includes the initial capital, so a loss on the first holdout observation counts. [Metric definitions](docs/BACKTESTING.md#return-and-risk-metrics) explain Sortino and Calmar.
 
-The original holdout's weight cap applies when positions are established. Weights can drift above the cap during the holdout. Cash is not an investable asset; the risk-free input is used only for Sharpe. This original calculation excludes transaction costs, spreads, taxes, FX conversion and execution constraints. The separate backtest comparison deducts selected trading costs and delays execution by one session; its buy-and-hold result is therefore different. The asset universe is user-selected and fixed. Repeatedly selecting settings based on holdout performance contaminates that holdout. This is a research tool, not a trading system or an investment recommendation.
+The original holdout's weight cap applies when positions are established. Weights can drift above the cap during the holdout. Cash is not an investable asset. Sharpe and Sortino use the risk-free input.
 
-The **Backtests & holdings** tab is enabled by default and compares all four methods. You can disable it when exploring a large frontier alone. No full frontier is reconstructed at each refit; only a small set of portfolio targets is needed. Repeated fits still add computational work. See [the accounting and evaluation rules](docs/BACKTESTING.md).
+This original calculation excludes transaction costs, spreads, taxes, FX conversion and execution constraints. The separate backtest comparison deducts selected trading costs and delays execution by one observed interval. Its buy-and-hold result is therefore different. The asset universe is user-selected and fixed. Repeatedly selecting settings based on holdout performance contaminates that holdout. This is a research tool, not a trading system or an investment recommendation.
+
+The **Backtests & holdings** tab is enabled by default and compares all four methods. You can disable it when exploring a large frontier alone. No full frontier is reconstructed at each refit; only a small set of portfolio targets is needed. Repeated fits still add computational work.
+
+The **Strategies shown in charts** control affects the displayed curves only. All strategy results remain in the exports. See [the accounting and evaluation rules](docs/BACKTESTING.md).
+
+The **Portfolio risk** tab uses the initial portfolio weights and the covariance estimate from the training period. It shows the largest weight, effective holdings, diversification ratio, and each asset's share of variance. These estimates describe the initial portfolio. They do not measure later changes in weights. See [the risk definitions](docs/BACKTESTING.md#portfolio-risk-and-diversification).
 
 With singular covariance, such as perfectly correlated assets and zero shrinkage, several allocations can tie for minimum variance at a target return. The curve may include equal-risk points with different returns; a unique allocation is not guaranteed.
 
@@ -175,6 +214,10 @@ For large inputs, the correlation chart initially displays a selectable subset t
 # Your adjusted prices, without an additional position cap
 .venv/bin/python -m efficient_frontier --csv prices.csv
 
+# Weekly CSV data: annualize at 52 and rebalance every four observed weeks
+.venv/bin/python -m efficient_frontier --csv data/weekly-prices.csv \
+  --periods-per-year 52 --backtests --rebalance-every 4 --rolling-window 52
+
 # Four backtesting methods, trading every 21 sessions, with 10 bps costs
 .venv/bin/python -m efficient_frontier --csv data/holdings.csv \
   --backtests --train-fraction .5 --rolling-window 252 \
@@ -193,7 +236,9 @@ For large inputs, the correlation chart initially displays a selectable subset t
 .venv/bin/python -m efficient_frontier --csv data/prices.csv --max-weight .01
 ```
 
-The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
+The default output is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and the CSV inputs/results. Risk exports include `risk_summary.csv` and `risk_contributions.csv`.
+
+Output files in that destination are replaced on rerun; use a different `--output` folder to preserve an experiment. Generated results and downloaded prices are excluded from Git. The HTML report includes Plotly JavaScript and works offline.
 
 With `--backtests`, exports also contain `findings.md`, comparison metrics/curves, and each strategy's holdings, dated target allocations and trade ledger. Open the HTML report and choose **Print / save PDF** for a static copy. The PDF uses the browser's print engine, so no extra Python PDF package is required.
 

@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 import pandas as pd
+import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,47 @@ def test_explicit_empty_universe_does_not_fall_back_to_demo(tmp_path):
                          cwd=ROOT, capture_output=True, text=True)
     assert run.returncode == 1
     assert "at least one" in run.stderr.lower()
+    assert not output.exists()
+
+
+def test_monthly_csv_cli_uses_selected_annualization_and_exports_risk(tmp_path):
+    rng = np.random.default_rng(9)
+    prices = pd.DataFrame(
+        100 * np.exp(np.cumsum(rng.normal(.008, .03, (36, 2)), axis=0)),
+        index=pd.date_range("2020-01-31", periods=36, freq="ME", name="Date"),
+        columns=["FUND_A", "FUND_B"],
+    )
+    source = tmp_path / "monthly.csv"
+    prices.to_csv(source)
+    output = tmp_path / "monthly"
+    run = subprocess.run([
+        sys.executable, "-m", "efficient_frontier", "--csv", str(source),
+        "--periods-per-year", "12", "--backtests", "--rebalance-every", "3",
+        "--rolling-window", "12", "--output", str(output),
+    ], cwd=ROOT, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["periods_per_year"] == 12
+    assert metadata["backtests"]["periods_per_year"] == 12
+    assert metadata["backtests"]["rebalance_every"] == 3
+    metrics = pd.read_csv(output / "holdout_metrics.csv", index_col=0)
+    curve = pd.read_csv(output / "holdout_curve.csv", index_col=0)
+    np.testing.assert_allclose(metrics.cagr, curve.iloc[-1].pow(12 / (len(curve) - 1)) - 1)
+    assert {"sortino", "calmar"} <= set(metrics.columns)
+    assert (output / "risk_summary.csv").is_file()
+    contributions = pd.read_csv(output / "risk_contributions.csv", index_col=0)
+    np.testing.assert_allclose(contributions.sum(), 1)
+    assert "12 observations per year" in (output / "report.html").read_text()
+
+
+def test_invalid_annualization_fails_before_export(tmp_path):
+    output = tmp_path / "invalid"
+    run = subprocess.run([
+        sys.executable, "-m", "efficient_frontier", "--periods-per-year", "0",
+        "--output", str(output),
+    ], cwd=ROOT, capture_output=True, text=True)
+    assert run.returncode == 1
+    assert "periods_per_year" in run.stderr
     assert not output.exists()
 
 

@@ -1,4 +1,4 @@
-"""Explicit, complete daily price inputs for portfolio research."""
+"""Explicit, complete price observations for portfolio research."""
 
 import csv
 from io import StringIO
@@ -12,16 +12,22 @@ import pandas as pd
 import yfinance as yf
 
 
+def _normalize_ticker(symbol: str) -> str:
+    symbol = symbol.strip().upper()
+    aliases = {"BRK.A": "BRK-A", "BRK.B": "BRK-B", "BF.A": "BF-A", "BF.B": "BF-B"}
+    return aliases.get(symbol, symbol)
+
+
 def parse_tickers(text: str) -> list[str]:
-    """Normalize Yahoo symbols and remove duplicates, retaining input order."""
+    """Normalize Yahoo symbols and remove duplicates. Preserve exchange suffixes and input order."""
     return list(dict.fromkeys(
-        token.upper().replace(".", "-")
+        _normalize_ticker(token)
         for token in re.split(r"[,\s]+", text.strip()) if token
     ))
 
 
 def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
-    """Return sorted daily prices; never fill gaps or discard an asset or row."""
+    """Return prices in date order. Never fill gaps or discard an asset or row."""
     if not isinstance(prices, pd.DataFrame):
         raise ValueError("Prices must be a table with dates and asset columns.")
     result = prices.copy()
@@ -44,8 +50,8 @@ def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
     if dates.has_duplicates:
         raise ValueError("Duplicate dates are not allowed; provide one price per asset per day.")
     result.index = dates.rename("Date")
-    if len(result) < 100:
-        raise ValueError("Provide at least 100 daily price observations for every asset.")
+    if len(result) < 5:
+        raise ValueError("Provide at least 5 price observations for every asset.")
     try:
         if any(pd.api.types.is_bool_dtype(dtype) or pd.api.types.is_complex_dtype(dtype)
                for dtype in result.dtypes):
@@ -65,7 +71,7 @@ def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_csv(source) -> pd.DataFrame:
-    """Load a CSV path or file-like object whose first column is Date."""
+    """Load daily, weekly, or monthly prices from a CSV with Date as its first column."""
     try:
         content = source.read() if hasattr(source, "read") else Path(source).read_bytes()
         if isinstance(content, bytes):
@@ -117,7 +123,7 @@ def download_prices(tickers: list[str], start, end) -> pd.DataFrame:
     if not price_levels:
         raise ValueError("Yahoo returned no adjusted close prices. Retry or upload an adjusted-price CSV.")
     prices = raw.xs("Close", axis=1, level=price_levels[0]).copy()
-    prices.columns = [str(symbol).upper().replace(".", "-") for symbol in prices.columns]
+    prices.columns = [_normalize_ticker(str(symbol)) for symbol in prices.columns]
     if prices.columns.has_duplicates:
         raise ValueError("Yahoo returned duplicate asset columns. Retry or upload an adjusted-price CSV.")
     missing = [symbol for symbol in symbols if symbol not in prices.columns or prices[symbol].isna().all()]
