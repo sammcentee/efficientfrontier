@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 
-from .style import BENCHMARK_COLORS, style_chart
+from .style import BENCHMARK_COLORS, INK_2, INK_3, INK_4, PLOTLY_CONFIG, display_label, style_chart
 
 EVIDENCE_LABELS = {
     "total_return_difference": "Total return difference", "cagr_difference": "CAGR difference",
@@ -30,10 +30,16 @@ def add_benchmark_paths(figure: go.Figure, equity: pd.DataFrame | None, drawdown
         values = path / path.cummax() - 1 if drawdown else path * 10_000
         figure.add_trace(go.Scatter(
             x=equity.index, y=values, name=html.escape(str(name)), mode="lines",
-            line={"color": BENCHMARK_COLORS.get(name, "#737b85"), "width": 2, "dash": "longdash"},
+            line={"color": BENCHMARK_COLORS.get(name, "#737b85"), "width": 1.75},
             hovertemplate="%{x|%Y-%m-%d}<br>" + ("Drawdown: %{y:.2%}" if drawdown else "Benchmark value: %{y:,.2f}")
             + "<extra>%{fullData.name}</extra>",
         ))
+
+
+def _ticker(name) -> str:
+    """Return the ETF symbol from a label such as "S&P 500 (SPY)"."""
+    text = str(name)
+    return text[text.rfind("(") + 1:-1] if text.endswith(")") and "(" in text else text
 
 
 def add_benchmark_estimates(figure: go.Figure, estimates: pd.DataFrame | None, objective: str) -> None:
@@ -41,8 +47,9 @@ def add_benchmark_estimates(figure: go.Figure, estimates: pd.DataFrame | None, o
         return
     for name, row in estimates.iterrows():
         figure.add_trace(go.Scatter(
-            x=[row["volatility"]], y=[row[objective]], name=html.escape(str(name)), mode="markers",
+            x=[row["volatility"]], y=[row[objective]], name=html.escape(str(name)), mode="markers+text",
             marker={"symbol": "diamond", "size": 11, "color": BENCHMARK_COLORS.get(name, "#737b85")},
+            text=[html.escape(_ticker(name))], textposition="bottom center", textfont={"size": 12, "color": INK_2},
             hovertemplate="Annual volatility: %{x:.2%}<br>"
             + ("Lowest annual window mean" if objective == "worst_window_return" else "Historical expected annual return")
             + ": %{y:.2%}<extra>%{fullData.name}</extra>",
@@ -67,13 +74,13 @@ def evidence_chart(evidence: Any, strategy: str) -> go.Figure:
     for benchmark, path in paths.items():
         figure.add_trace(go.Scatter(
             x=paths.index, y=path, name=html.escape(str(benchmark)), mode="lines",
-            line={"color": BENCHMARK_COLORS.get(benchmark, "#737b85"), "width": 2.5},
+            line={"color": BENCHMARK_COLORS.get(benchmark, "#737b85"), "width": 2},
             hovertemplate="%{x|%Y-%m-%d}<br>Relative wealth: %{y:.3f}×<extra>%{fullData.name}</extra>",
         ))
-    figure.add_hline(y=1, line_dash="dot", line_color="#b7bcc4")
-    style_chart(figure, "Relative performance", hovermode="x unified")
-    figure.update_xaxes(title="Date")
-    figure.update_yaxes(title="Portfolio / benchmark", tickformat=".2f")
+    figure.add_hline(y=1, line_color=INK_4, line_width=1, annotation_text="Level with the market",
+                     annotation_position="top right", annotation_font={"size": 11, "color": INK_3})
+    style_chart(figure, "Versus the markets", height=380, hovermode="x unified")
+    figure.update_yaxes(tickformat=".2f", ticksuffix="×")
     return figure
 
 
@@ -164,19 +171,20 @@ def benchmark_html(benchmarks: Any, evidence=None, backtest: bool = False) -> st
     if evidence is not None:
         strategy = default_evidence_strategy(evidence)
         summary = evidence_summary_frame(evidence)
+        shown = summary.rename(index=display_label, level="strategy")
         document += '<h2>Evidence against benchmarks</h2>'
         document += "".join(f'<p class="muted">{html.escape(note)}</p>' for note in _evidence_notes(evidence))
         if strategy is not None:
-            document += f'<h3>{html.escape(str(strategy))}</h3><p>This default does not depend on realized returns.</p>'
+            document += f'<h3>{html.escape(display_label(strategy))}</h3><p>This default does not depend on realized returns.</p>'
             document += f'<div class="scroll">{summary.xs(strategy, level="strategy").to_html(escape=True, border=0, classes="data")}</div>'
-            chart = evidence_chart(evidence, strategy).to_html(full_html=False, include_plotlyjs=False, config={"responsive": True, "displaylogo": False})
+            chart = evidence_chart(evidence, strategy).to_html(full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG)
             document += f'<div class="chart">{chart}</div>'
             windows = _window_frame(evidence.windows.loc[evidence.windows.strategy == strategy].drop(columns="strategy"))
             document += '<h3>Results in each window</h3>'
             document += f'<div class="scroll">{windows.to_html(index=False, escape=True, border=0, classes="data")}</div>'
         document += '<details><summary>All strategy comparisons</summary>'
-        document += f'<div class="scroll">{summary.to_html(escape=True, border=0, classes="data")}</div></details>'
-        windows = _window_frame(evidence.windows)
+        document += f'<div class="scroll">{shown.to_html(escape=True, border=0, classes="data")}</div></details>'
+        windows = _window_frame(evidence.windows.assign(strategy=evidence.windows["strategy"].map(display_label)))
         document += '<details><summary>Historical windows for every comparison</summary>'
         document += f'<div class="scroll">{windows.to_html(index=False, escape=True, border=0, classes="data")}</div></details>'
         if evidence.warnings:
@@ -204,9 +212,10 @@ def benchmark_markdown(benchmarks: Any, evidence=None, backtest: bool = False) -
         document += "\n## Evidence against benchmarks\n\n" + "\n\n".join(_markdown(note) for note in _evidence_notes(evidence)) + "\n\n"
         strategy = default_evidence_strategy(evidence)
         if strategy is not None:
-            document += f"Default comparison: {_markdown(strategy)}. This choice does not depend on realized returns.\n\n"
-        document += _markdown_table(evidence_summary_frame(evidence)) + "\n"
-        document += "\n### Historical windows\n\n" + _markdown_table(_window_frame(evidence.windows).set_index(["Strategy", "Benchmark", "Window"])) + "\n"
+            document += f"Default comparison: {_markdown(display_label(strategy))}. This choice does not depend on realized returns.\n\n"
+        document += _markdown_table(evidence_summary_frame(evidence).rename(index=display_label, level="strategy")) + "\n"
+        windows = evidence.windows.assign(strategy=evidence.windows["strategy"].map(display_label))
+        document += "\n### Historical windows\n\n" + _markdown_table(_window_frame(windows).set_index(["Strategy", "Benchmark", "Window"])) + "\n"
         if evidence.warnings:
             document += "\n" + "\n".join(f"- {_markdown(note)}" for note in evidence.warnings) + "\n"
     return document

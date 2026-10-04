@@ -248,7 +248,7 @@ def test_latest_profile_chart_uses_lowest_window_mean_not_full_history_mean(late
     chart = latest_profile_chart(latest_profiles)
     np.testing.assert_allclose(chart.data[0].x, [0.1, 0.15, 0.25])
     np.testing.assert_allclose(chart.data[0].y, [0.02, 0.04, 0.06])
-    assert [trace.name for trace in chart.data[1:]] == ["Low", "Medium", "Extreme"]
+    assert [trace.name for trace in chart.data[1:]] == ["Low", "Medium", "Highest"]
     for index, trace in enumerate(chart.data[1:]):
         assert trace.y[0] == pytest.approx([0.02, 0.04, 0.06][index])
     assert len({trace.marker.color for trace in chart.data[1:]}) == 3
@@ -303,3 +303,29 @@ def test_latest_profile_weights_escape_formula_asset_names(report_analysis, late
         weights = pd.read_csv(bundle.open("latest_profile_weights.csv"), index_col=0)
         assert weights.index[0] == "'=1+1"
         np.testing.assert_allclose(weights.loc["'=1+1"], [0.8, 0.5, 0.2])
+
+
+def test_report_summary_comes_first_and_names_the_selected_level(report_analysis, latest_profiles):
+    document = report_html(report_analysis, {"source": "Synthetic demo", "universe": "Demo"}, latest_profiles=latest_profiles,
+                           selected_profile="Extreme")
+    assert document.index('id="summary"') < document.index('id="latest-profiles"')
+    summary = document.split('<section id="summary">')[1].split("</section>")[0]
+    assert 'The <span class="pl-nb">highest-risk</span> portfolio puts 80.0% in one asset.' in summary
+    assert "Highest" in summary and "Extreme" not in summary
+    assert "Market benchmarks" not in summary and "Backtesting findings" not in summary
+    assert "Efficient Frontier · Research Report" not in document
+    assert "<title>Portfolio Lab · Research report</title>" in document
+    assert document.count("* plotly.js v") == 1
+
+
+def test_report_view_is_recorded_only_when_requested_and_files_keep_extreme(report_analysis, latest_profiles):
+    prices = pd.DataFrame({"AAA": [100.0, 101.0], "BBB": [100.0, 100.5]}, index=pd.bdate_range("2024-01-01", periods=2))
+    plain = report_zip(report_analysis, prices, {}, latest_profiles=latest_profiles)
+    chosen = report_zip(report_analysis, prices, {}, latest_profiles=latest_profiles, selected_profile="Extreme",
+                        selected_method="Buy and hold")
+    with zipfile.ZipFile(io.BytesIO(plain)) as bundle:
+        assert "report_view" not in json.loads(bundle.read("metadata.json"))
+    with zipfile.ZipFile(io.BytesIO(chosen)) as bundle:
+        assert json.loads(bundle.read("metadata.json"))["report_view"] == {"risk_level": "Extreme", "rule": "Buy and hold"}
+        assert list(pd.read_csv(bundle.open("latest_profile_weights.csv"), index_col=0).columns) == ["Low", "Medium", "Extreme"]
+        assert "Sorted by Highest." in bundle.read("report.html").decode()

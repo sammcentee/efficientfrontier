@@ -24,7 +24,7 @@ from efficient_frontier.universe import download_universe_prices, fetch_nasdaq10
 
 st.set_page_config(page_title="Portfolio Lab", page_icon="◒", layout="wide")
 st.set_option("client.toolbarMode", "viewer")
-st.markdown(APP_CSS, unsafe_allow_html=True)
+st.html(f"<style>{APP_CSS}</style>")
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
