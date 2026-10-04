@@ -64,6 +64,22 @@ def test_zip_contains_reproducible_results_and_assumptions(report_analysis):
         assert bundle.read("report.html").startswith(b"<!doctype html>")
 
 
+def test_report_data_table_shows_plain_labels_and_percents_and_metadata_stays_raw(report_analysis):
+    prices = pd.DataFrame({"AAA": [100.0, 101.0], "BBB": [100.0, 100.5]}, index=pd.bdate_range("2024-01-01", periods=2))
+    settings = {"source": "Synthetic demo", "compare_market": True, "train_fraction": 0.7, "risk_free_rate": 0.02,
+                "max_weight": 1.0, "shrinkage": 0.1}
+    with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, prices, settings))) as bundle:
+        data = bundle.read("report.html").decode().split('<section id="data">')[1].split("</table>")[0]
+        for row in ("<th>Market comparison</th><td>Yes</td>", "<th>Prices for the first fit</th><td>70%</td>",
+                    "<th>Risk-free rate</th><td>2.00%</td>", "<th>Largest holding allowed</th><td>No limit</td>",
+                    "<th>Covariance shrinkage</th><td>10%</td>", "<th>Observations per year</th><td>252</td>",
+                    "<th>Assets</th><td>AAA, BBB</td>"):
+            assert row in data
+        assert "_" not in data and "Train fraction" not in data and "0.7<" not in data
+        metadata = json.loads(bundle.read("metadata.json"))
+        assert {key: metadata[key] for key in settings} == settings
+
+
 def test_standalone_report_and_archive_include_complete_plotly_license(report_analysis):
     license_text = (Path(__file__).resolve().parents[1] / "efficient_frontier" / "third_party" / "plotly.js.LICENSE.txt").read_text(encoding="utf-8")
     assert "Permission is hereby granted, free of charge" in license_text

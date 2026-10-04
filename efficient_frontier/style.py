@@ -76,6 +76,9 @@ APP_ONLY_CSS = """
 .stApp:has(.st-key-study_work) [data-stale="true"]{opacity:.35!important;pointer-events:none}
 /* Stale blocks (expanders, popovers) carry no data-stale. During a build, nothing after the skeleton takes clicks. */
 .stApp:has(.st-key-cancel_build) [data-testid="stLayoutWrapper"]:has(>.st-key-tile_skeleton)~*{pointer-events:none}
+/* No run renders a popover before its work card, so during the work every popover trigger is stale. */
+.stApp:has(.st-key-cancel_build) [data-testid="stPopover"],
+.stApp:has(.st-key-study_work) [data-testid="stPopover"]{opacity:.35;pointer-events:none}
 .st-key-tile_skeleton>:not(:first-child){display:none}
 
 /* 3 Nav bar */
@@ -142,6 +145,8 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
 [data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
 [data-testid="stCaptionContainer"]{color:var(--pl-ink-3);opacity:1}
 .st-key-mustread [data-testid="stCaptionContainer"]{font-size:17px;line-height:1.47;color:var(--pl-ink)}
+/* Rule labels are long. The default chip limit cut "Refit on all past prices · Medium" by a few pixels on a phone. */
+.st-key-chart_strategies [data-tag]{max-width:100%}
 @media (hover:none){[data-testid="stElementToolbar"],[data-has-shortcut="true"] kbd{display:none}}
 
 /* 9 Drawer and popovers */

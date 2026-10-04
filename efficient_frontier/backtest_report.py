@@ -160,10 +160,11 @@ def findings(study: Any) -> list[str]:
 
 
 def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None, benchmark_equity=None,
-                   focus: str | None = None) -> go.Figure:
+                   focus: str | None = None, label=display_label) -> go.Figure:
     """Plot selected paths without changes to the complete study data.
 
     With a focus strategy, that path is blue and every other strategy is a thin grey line without a legend entry.
+    ``label`` names each strategy trace.
     """
     figure = go.Figure()
     names = study.equity.columns if strategies is None else strategies
@@ -181,7 +182,7 @@ def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | N
         else:
             line, legend = {"color": REST, "width": 1.25}, False
         figure.add_trace(go.Scatter(
-            x=study.equity.index, y=values, name=html.escape(display_label(name)), mode="lines", line=line, showlegend=legend,
+            x=study.equity.index, y=values, name=html.escape(label(name)), mode="lines", line=line, showlegend=legend,
             hovertemplate="%{x|%Y-%m-%d}<br>" + ("Drawdown: %{y:.2%}" if drawdown else "Net portfolio value: %{y:,.2f}")
             + "<extra>%{fullData.name}</extra>",
         ))
@@ -247,6 +248,8 @@ def findings_markdown(study: Any, source: str, benchmarks=None, evidence=None) -
 
 def backtest_html(study: Any, benchmarks=None, evidence=None, focus: str | None = None) -> str:
     """Return escaped report sections; the parent document supplies Plotly.js."""
+    from .story import setting_label, setting_text  # story imports this module, so the import waits for the call.
+
     best = study.metrics["total_return"].idxmax()
     focus = _focus(study, focus)
     holdings = _top_holdings(study, best)
@@ -268,7 +271,7 @@ def backtest_html(study: Any, benchmarks=None, evidence=None, focus: str | None 
     bullets = "".join(f"<li>{html.escape(display_label(note))}</li>" for note in findings(study))
     warnings = "".join(f"<li>{html.escape(str(note))}</li>" for note in study.warnings)
     assumptions = "".join(f"<p>{html.escape(note)}</p>" for note in _assumptions(study))
-    settings = "".join(f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
+    settings = "".join(f"<tr><th>{html.escape(setting_label(key))}</th><td>{html.escape(setting_text(key, value))}</td></tr>"
                        for key, value in study.settings.items())
     benchmark_equity = benchmarks.backtest_equity if benchmarks is not None else None
     comparison = benchmark_html(benchmarks, evidence, backtest=True) if benchmarks is not None else ""

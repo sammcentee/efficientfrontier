@@ -5,6 +5,7 @@ from hashlib import sha256
 import html
 from io import BytesIO
 import math
+import time
 
 import pandas as pd
 import plotly.express as px
@@ -21,7 +22,7 @@ from efficient_frontier.evidence import analyze_evidence
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, latest_profile_chart, weights_frame
 from efficient_frontier.profiles import build_profiles
 from efficient_frontier.risk import risk_contributions, risk_summary
-from efficient_frontier.style import ACCENT, APP_CSS, GRID, PLOTLY_CONFIG, display_label, style_chart
+from efficient_frontier.style import ACCENT, APP_CSS, GRID, PLOTLY_CONFIG, style_chart
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100
 
 
@@ -173,10 +174,18 @@ def open_setup():
         return
     state.draft_clear = set()
     state.setup_open = True
+    state.setup_opened_at = time.monotonic()
 
 
 def close_setup():
     st.session_state.setup_open = False
+
+
+def dismiss_setup():
+    """Esc or a click outside the drawer. The second click of a double click on Change lands outside the new drawer,
+    so the drawer ignores a dismiss in its first 0.5 s (the Windows double-click time). The next run draws it again."""
+    if time.monotonic() - st.session_state.get("setup_opened_at", 0.0) >= 0.5:
+        close_setup()
 
 
 def remove_file(name):
@@ -262,19 +271,7 @@ def make_report_callable():
 
 def settings_frame(metadata):
     """Study settings with plain labels. The metadata does not change."""
-    def shown(key, value):
-        if isinstance(value, bool):
-            return "Yes" if value else "No"
-        if key in ("train_fraction", "shrinkage"):
-            return f"{value * 100:g}%"
-        if key == "risk_free_rate":
-            return f"{value:.2%}"
-        if key == "max_weight":
-            return "No limit" if value >= 1 else f"{value * 100:g}%"
-        if key == "periods_per_year":
-            return f"{value:g}"
-        return str(value)
-    return pd.DataFrame([{"Setting": story.SETTING_LABELS.get(key, key.replace("_", " ").capitalize()), "Value": shown(key, value)}
+    return pd.DataFrame([{"Setting": story.setting_label(key), "Value": story.setting_text(key, value)}
                          for key, value in metadata.items() if key != "universe_coverage"])
 
 
@@ -480,7 +477,7 @@ def file_slot(label, key, name, clear_key, caption=None, help=None):
     return upload
 
 
-@st.dialog("Change the study", width="small", position="right", on_dismiss=close_setup)
+@st.dialog("Change the study", width="small", position="right", on_dismiss=dismiss_setup)
 def setup_sheet():
     state = st.session_state
     setup = state.setup
@@ -914,7 +911,7 @@ def research():
             figure.update_yaxes(title=None, autorange="reversed", dtick=1, showgrid=False)
             figure.update_layout(legend_title_text="")
             st.plotly_chart(figure, width="stretch", theme=None, config=PLOTLY_CONFIG)
-            st.dataframe(frame.style.format("{:.2%}", na_rep="—"), width="stretch")
+            st.dataframe(frame.style.format("{:.2%}", na_rep="—"), column_config={"_index": "Symbol"}, width="stretch")
             st.caption("The chart shows up to 20 assets. The table has every asset. Variance shares can be negative. "
                        "When portfolio variance is zero, the shares are undefined.")
     elif topic == "Data & coverage":
@@ -960,30 +957,34 @@ def research():
             preferred = f"{method} · {profile}"
             st.session_state.holding_strategy = preferred if preferred in study.equity else study.equity.columns[0]
         with st.container(border=True, key="tile_r_tests"):
-            strategies = st.multiselect("Strategies in this chart", list(study.equity), format_func=display_label, key="chart_strategies",
+            strategies = st.multiselect("Strategies in this chart", list(study.equity), format_func=story.strategy_label, key="chart_strategies",
                                         default=[name for name in (f"{method} · {level}" for level in ("Low", "Medium", "Extreme")) if name in study.equity])
-            holding = st.selectbox("Inspect one strategy", list(study.equity), key="holding_strategy", format_func=display_label)
+            holding = st.selectbox("Inspect one strategy", list(study.equity), key="holding_strategy", format_func=story.strategy_label)
             if strategies:
                 st.plotly_chart(backtest_chart(study, strategies=strategies, benchmark_equity=benchmarks.backtest_equity if benchmarks is not None else None,
-                                               focus=holding), width="stretch", theme=None, config=PLOTLY_CONFIG)
+                                               focus=holding, label=story.strategy_label), width="stretch", theme=None, config=PLOTLY_CONFIG)
             st.caption("Blue: the strategy in Inspect one strategy. Grey: the other strategies in this chart. "
                        "Chart selections do not change any result or test.")
             formats = {name: "{:.0f}" if name.endswith("count") else ratio if name in ("sharpe", "sortino", "calmar")
                        else "{:.2f}×" if name == "total_turnover" else "{:.2%}" for name in study.metrics}
-            st.dataframe(study.metrics.rename(index=display_label).style.format(formats, na_rep="—"),
-                         column_config={name: label for name, (label, _) in METRICS.items()}, width="stretch")
+            st.dataframe(study.metrics.rename(index=story.strategy_label).style.format(formats, na_rep="—"),
+                         column_config={"_index": "Strategy", **{name: label for name, (label, _) in METRICS.items()}}, width="stretch")
         with st.container(border=True, key="tile_r_holdings"):
-            st.html(title_html(f"Holdings of {display_label(holding)}"))
-            st.dataframe(study.holdings[holding].style.format("{:.2%}"), column_config={name: label for name, (label, _) in HOLDINGS.items()}, width="stretch")
+            st.html(title_html(f"Holdings of {story.strategy_label(holding)}"))
+            st.dataframe(study.holdings[holding].style.format("{:.2%}"),
+                         column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}}, width="stretch")
             st.caption("Profit and loss contributions use initial capital. Their sum, less fees, equals the strategy's net total return.")
             with st.expander("Target weights and trades"):
                 st.dataframe(study.allocations[holding].style.format("{:.2%}"), column_config={"_index": DATE_COLUMN}, width="stretch")
-                st.dataframe(study.trades[holding], width="stretch", column_config={
-                    "_index": DATE_COLUMN, "turnover": st.column_config.NumberColumn("Turnover", format="percent"),
-                    "cost": "Fee", "nav_before": "Value before", "nav_after": "Value after", "train_start": "Fit from", "train_end": "Fit to"})
+                st.dataframe(study.trades[holding].style.format({
+                    "turnover": "{:.2%}", "cost": lambda value: f"{value * 10_000:,.2f}", "nav_before": lambda value: f"{value * 10_000:,.0f}",
+                    "nav_after": lambda value: f"{value * 10_000:,.0f}", "train_start": day, "train_end": day}), width="stretch", column_config={
+                    "_index": DATE_COLUMN, "turnover": "Turnover", "cost": "Fee", "nav_before": "Value before", "nav_after": "Value after",
+                    "train_start": "Fit from", "train_end": "Fit to"})
+                st.caption("Values and fees are per 10,000 at the start.")
             if evidence is not None:
                 with st.expander("Every statistical comparison"):
-                    comparisons = evidence_summary_frame(evidence).rename(index=display_label, level="strategy").reset_index()
+                    comparisons = evidence_summary_frame(evidence).rename(index=story.strategy_label, level="strategy").reset_index()
                     st.dataframe(comparisons, hide_index=True, width="stretch",
                                  column_config={"strategy": "Strategy", "benchmark": "Market", **story.STAT_LABELS})
     else:

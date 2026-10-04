@@ -51,14 +51,23 @@ def test_headline_html_keeps_hyphenated_phrases_together():
     ("AstraZeneca PLC American Depositary Shares", "AstraZeneca"),
     ("Ferrovial SE Ordinary Shares", "Ferrovial"),
     ("Cisco Systems, Inc. Common Stock (DE)", "Cisco Systems"),
-    ("Copart, Inc. (DE)", "Copart"),
+    ("Copart, Inc. (DE) Common Stock", "Copart"),
     ("Strategy Inc Common Stock Class A", "Strategy"),
     ("Shopify Inc. Class A Subordinate Voting Shares", "Shopify"),
-    ("Warner Bros. Discovery, Inc. Series A", "Warner Bros. Discovery"),
+    ("Warner Bros. Discovery, Inc. Series A Common Stock", "Warner Bros. Discovery"),
     ("Apple", "Apple"),
+    ("Company", "Company"),
 ])
 def test_short_company_name_drops_security_type_and_legal_suffixes(raw, short):
     assert short_company_name(raw) == short
+
+
+def test_short_company_name_for_every_nasdaq_100_member():
+    """Raw names from the Nasdaq.com list of 1 Oct 2026. The short names in the fixture were typed by hand."""
+    members = pd.read_csv(Path(__file__).parent / "fixtures" / "nasdaq100_names.csv")
+    assert len(members) == 101
+    shown = members["name"].map(short_company_name)
+    assert shown[shown != members["short_name"]].to_dict() == {}
 
 
 def market_study(cagr):

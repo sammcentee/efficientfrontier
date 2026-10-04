@@ -4,6 +4,7 @@ import html
 from io import BytesIO
 import json
 from pathlib import Path
+import re
 from types import SimpleNamespace
 import zipfile
 
@@ -557,12 +558,54 @@ def test_market_costs_charts_and_evidence_preserve_all_96_tests(monkeypatch, mar
     pd.testing.assert_frame_equal(app.session_state.evidence.summary, original)
     research_view(app, "All backtests")
     app.multiselect(key="chart_strategies").set_value(["Rolling window · Low"]).run()
-    assert {html.unescape(trace["name"]) for trace in figures(app)[0]["data"]} == names | {"Rolling window · Low"}
+    # Research names each engine strategy with its rule label. The multiselect value stays the engine key.
+    assert {html.unescape(trace["name"]) for trace in figures(app)[0]["data"]} == names | {"Refit on recent prices · Low"}
     app.multiselect(key="chart_strategies").set_value([]).run()
     assert not app.exception
     pd.testing.assert_frame_equal(app.session_state.backtests.metrics, study.metrics)
     pd.testing.assert_frame_equal(app.session_state.evidence.summary, original)
     assert app.session_state.evidence.settings["multiple_testing_tests"] == 96
+
+
+def test_overview_answers_follow_the_selected_rule_and_level(monkeypatch, market_prices):
+    """What it holds, the market answer, the 95% ranges and the stretch table show the selected rule and level only."""
+    prices = market_prices.copy()
+    # A late lead for FUND_X makes the answer differ between rules and levels.
+    prices["FUND_X"] *= np.exp(.0005 * np.maximum(np.arange(len(prices)) - 252, 0))
+    app = market_app(monkeypatch, prices)
+    assert not app.exception and not app.error
+    latest, evidence = app.session_state.latest_profiles, app.session_state.evidence
+
+    def points(value):
+        return "0.0" if round(value * 100, 1) == 0 else f"{value * 100:+.1f}".replace("-", "−")
+
+    def numbers(selected):
+        """The interval and stretch values that the evidence tiles must show for one rule and level."""
+        ranges = [f"<b>{points(row.annual_advantage)}</b> points<small>range {points(row.advantage_ci_low)} to "
+                  f"{points(row.advantage_ci_high)}</small>" for row in evidence.summary.xs(selected, level="strategy").itertuples()]
+        stretches = [f"{row.relative_return:+.1%}".replace("-", "−") + f"<small>{'ahead' if row.relative_return > 0 else 'behind'}</small>"
+                     for row in evidence.windows.loc[evidence.windows.strategy == selected].itertuples()]
+        return ranges + stretches
+
+    choices = [("Expanding window", "Medium"), ("Rolling window", "Extreme"), ("Rolling window", "Low")]
+    expected = {f"{method} · {profile}": numbers(f"{method} · {profile}") for method, profile in choices}
+    answers = {}
+    for method, profile in choices:
+        app.selectbox(key="comparison_method").select(method).run()
+        app.segmented_control(key="risk_profile").set_value(profile).run()
+        assert not app.exception
+        page, selected = html_text(app), f"{method} · {profile}"
+        weights = latest.portfolios[profile].weights
+        held = weights[weights >= .0005].sort_values(ascending=False)
+        rows = re.findall(r'<li class="pl-row"[^>]*><span class="pl-name"><b>([^<]+)</b>.*?<span class="pl-pct">([^<]+)</span>', page)
+        assert rows == [(symbol, f"{weight:.1%}") for symbol, weight in held.items()]
+        heading = page.split('id="pl-market"')[1].split("</h2>")[0].split('tabindex="-1">')[1]
+        answers[selected] = html.unescape(re.sub("<[^>]+>", "", heading))
+        assert all(value in page for value in expected[selected])
+        assert not any(value in page for other, values in expected.items() if other != selected for value in values)
+    assert answers == {"Expanding window · Medium": "Partly. It beat the S&P 500 but trailed the Nasdaq-100.",
+                       "Rolling window · Extreme": "Yes. It beat both markets in this test.",
+                       "Rolling window · Low": "Partly. It beat the S&P 500 but trailed the Nasdaq-100."}
 
 
 def test_failed_market_test_in_a_build_keeps_the_holdout_market_results(monkeypatch, market_prices):
@@ -730,26 +773,37 @@ def test_csv_benchmark_upload_wins_and_download_requires_explicit_choice(monkeyp
 
 
 def test_research_risk_and_trade_tables_match_complete_results():
+    from streamlit.dataframe_util import convert_arrow_bytes_to_pandas_df
     from efficient_frontier.risk import risk_contributions
-    from efficient_frontier.style import display_label
+    from efficient_frontier.story import strategy_label
+
+    def index_label(frame):
+        return json.loads(frame.proto.columns).get("_index", {}).get("label")
 
     app = run_comparison(demo_app())
     study = app.session_state.backtests
     research_view(app, "Risk breakdown")
     app.selectbox(key="risk_portfolio").select("Equal weight").run()
     result = app.session_state.result[0]
-    displayed = next(item.value for item in app.dataframe if "Share of portfolio variance" in item.value.columns)
+    table = next(item for item in app.dataframe if "Share of portfolio variance" in item.value.columns)
     expected = pd.DataFrame({"Allocation weight": result.portfolios["Equal weight"].weights,
                              "Share of portfolio variance": risk_contributions(result)["Equal weight"]}).sort_values("Allocation weight", ascending=False)
-    pd.testing.assert_frame_equal(displayed, expected)
+    pd.testing.assert_frame_equal(table.value, expected)
+    assert index_label(table) == "Symbol"
     research_view(app, "All backtests")
     selected = "Rolling window · Maximum Sharpe"
     app.selectbox(key="holding_strategy").select(selected).run()
     assert not app.exception
-    assert any(item.value.equals(study.holdings[selected]) for item in app.dataframe)
-    assert any(item.value.equals(study.allocations[selected]) for item in app.dataframe)
-    assert any(item.value.equals(study.trades[selected]) for item in app.dataframe)
-    assert any(item.value.equals(study.metrics.rename(index=display_label)) for item in app.dataframe)
+    tables = {name: next(item for item in app.dataframe if item.value.equals(frame)) for name, frame in (
+        ("holdings", study.holdings[selected]), ("allocations", study.allocations[selected]), ("trades", study.trades[selected]),
+        ("metrics", study.metrics.rename(index=strategy_label)))}
+    assert "Holdings of Refit on recent prices · Maximum Sharpe" in html_text(app)
+    # Plain headers, and trades in the units of the overview: 10,000 at the start and day-month-year dates.
+    assert (index_label(tables["metrics"]), index_label(tables["holdings"])) == ("Strategy", "Symbol")
+    first = study.trades[selected].iloc[0]
+    shown = convert_arrow_bytes_to_pandas_df(tables["trades"].proto.arrow_data.styler.display_values).iloc[0]
+    assert (shown.cost, shown.nav_before) == (f"{first.cost * 10_000:,.2f}", f"{first.nav_before * 10_000:,.0f}")
+    assert re.fullmatch(r"\d{1,2} [A-Z][a-z]{2} \d{4}", shown.train_end)
 
 
 def test_research_holdout_ratios_are_not_formatted_as_percentages():

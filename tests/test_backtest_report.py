@@ -167,6 +167,16 @@ def test_html_escapes_asset_names_settings_and_warnings_without_bundle(study):
     assert document.count("<td>1.50</td>") == 12
 
 
+def test_backtest_settings_table_shows_plain_labels_and_percents(study):
+    study.settings.update(train_fraction=0.7, risk_free_rate=0.02, include_profiles=True, test_start="2024-01-03")
+    settings = backtest_html(study).split("<h2>Backtest settings</h2>")[1].split("</table>")[0]
+    for row in ("<th>Trading cost</th><td>10 basis points (0.10%)</td>", "<th>Trade every (price rows)</th><td>21</td>",
+                "<th>Recent history for refits (price rows)</th><td>252</td>", "<th>Prices for the first fit</th><td>70%</td>",
+                "<th>Risk-free rate</th><td>2.00%</td>", "<th>Risk levels tested</th><td>Yes</td>", "<th>Test from</th><td>2024-01-03</td>"):
+        assert row in settings
+    assert "_" not in settings
+
+
 @pytest.mark.parametrize("periods", [12.0, 52, 365])
 def test_backtest_reports_use_configured_annualization(study, periods):
     study.settings["periods_per_year"] = periods

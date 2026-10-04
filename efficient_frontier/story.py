@@ -34,7 +34,16 @@ SETTING_LABELS = {
     "universe_source_date": "Index list date", "universe_retrieved_at": "Index list retrieved", "universe_requested": "Securities checked",
     "universe_included": "Securities used", "universe_excluded": "Securities left out", "universe_limitation": "Survivorship note",
     "benchmark_source": "Market price source", "benchmarks_note": "Market note", "evidence_note": "Evidence note",
-    "input_file": "Price file",
+    "input_file": "Price file", "universe_calendar": "Market calendar", "universe_start": "Index prices from",
+    "universe_end": "Index prices to", "universe_eligibility": "Eligibility", "training_start": "First fit from",
+    "training_end": "First fit to", "training_observations": "Returns in the first fit", "holdout_start": "Holdout from",
+    "holdout_end": "Holdout to", "holdout_observations": "Returns in the holdout", "assets": "Assets",
+    "holdout_strategy": "Holdout rule", "distributions": "Distributions", "estimation": "Estimates", "exclusions": "Not included",
+    "rebalance_every": "Trade every (price rows)", "rolling_window": "Recent history for refits (price rows)",
+    "cost_bps": "Trading cost", "split": "Last price row of the first fit", "include_profiles": "Risk levels tested",
+    "trading_days_per_year": "Trading days per year", "cash_interest_rate": "Interest on cash", "train_start": "First fit from",
+    "train_end": "First fit to", "test_start": "Test from", "test_end": "Test to", "initial_execution": "First trade",
+    "execution": "Trade timing", "cost_convention": "Cost rule",
 }
 STAT_LABELS = {
     "CAGR difference": "Growth gap", "Annual mean advantage": "Average gap", "Mean CI lower": "95% range, low",
@@ -103,11 +112,10 @@ HELD = 0.0005
 INFO_SVG = ('<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'
             '<circle cx="9" cy="9" r="7.25"/><path d="M9 8v5" stroke-linecap="round"/>'
             '<circle cx="9" cy="5.5" r=".9" fill="currentColor" stroke="none"/></svg>')
-_JURISDICTION = re.compile(r"\s*\([A-Z]{2}\)\s*$")
-_SECURITY_TYPE = re.compile(r"\s+((Class [A-Z]\s+)?(Common Stock|Common Shares|Capital Stock|Ordinary Shares(\s*\([^)]*\))?"
-                            r"|American Depositary Shares|New York Registry Shares|Subordinate Voting Shares)(\s+Class [A-Z])?"
-                            r"|Series [A-Z])\s*$")
-_LEGAL_SUFFIX = re.compile(r"(\s*,|\s+(Inc\.|Inc|Incorporated|Corporation|Corp\.|Corp|plc|PLC|N\.V\.|Ltd\.|Limited|S\.A\.|AG|SE))\s*$")
+# One trailing comma, bracket note such as "(DE)", security type, share class or legal form. Names drop them one at a time.
+_NAME_SUFFIX = re.compile(r"(\s*,|\s*\([^)]*\)|\s+(Common Stock|Common Shares|Capital Stock|Ordinary Shares|American Depositary Shares"
+                          r"|New York Registry Shares|Subordinate Voting Shares|Class [A-Z]|Series [A-Z]|Inc\.?|Incorporated"
+                          r"|Corporation|Corp\.?|Company|plc|PLC|N\.V\.|Ltd\.?|Limited|S\.A\.|AG|SE))\s*$")
 
 
 # ----------------------------------------------------------------------------- formatting helpers
@@ -159,13 +167,44 @@ def _matched(benchmarks: Any):
 
 
 def short_company_name(name) -> str:
-    """Drop the security type and legal suffixes for display. Exported files keep the raw names."""
-    text = _SECURITY_TYPE.sub("", _JURISDICTION.sub("", str(name).strip()))
+    """Drop the security type, share class, bracket notes and legal suffixes for display. Exported files keep the raw names."""
+    text = str(name).strip()
     while True:
-        shorter = _LEGAL_SUFFIX.sub("", text)
+        shorter = _NAME_SUFFIX.sub("", text)
         if shorter == text or not shorter.strip():
-            return text.strip()
+            return text
         text = shorter
+
+
+def strategy_label(name) -> str:
+    """Show an engine strategy such as "Expanding window · Extreme" as "Refit on all past prices · Highest"."""
+    method, separator, policy = str(name).partition(" · ")
+    if not separator:
+        return display_label(name)
+    return f"{RULE_LABELS.get(method, method)} · {LEVEL_LABELS.get(policy, policy)}"
+
+
+def setting_label(key) -> str:
+    return SETTING_LABELS.get(key, str(key).replace("_", " ").capitalize())
+
+
+def setting_text(key, value) -> str:
+    """A study setting as display text. Fractions show as percents. CSV and JSON files keep the raw values."""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if key in ("train_fraction", "shrinkage"):
+        return f"{value * 100:g}%"
+    if key in ("risk_free_rate", "cash_interest_rate"):
+        return f"{value:.2%}"
+    if key == "max_weight":
+        return "No limit" if value >= 1 else f"{value * 100:g}%"
+    if key == "cost_bps":
+        return f"{value:g} basis points ({value / 100:.2f}%)"
+    if key in ("periods_per_year", "trading_days_per_year"):
+        return f"{value:g}"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(map(str, value))
+    return str(value)
 
 
 def company_names(coverage) -> dict:

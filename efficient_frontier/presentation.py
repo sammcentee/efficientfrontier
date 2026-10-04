@@ -273,7 +273,7 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
     source = str(details.get("source", "Unspecified source"))
     source_label = "Synthetic demonstration data" if any(word in source.lower() for word in ("demo", "synthetic")) else "Data source"
     metadata_rows = "".join(
-        f"<tr><th>{html.escape(str(key).replace('_', ' ').capitalize())}</th><td>{html.escape(str(value))}</td></tr>"
+        f"<tr><th>{html.escape(story.setting_label(key))}</th><td>{html.escape(story.setting_text(key, value))}</td></tr>"
         for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days", "latest_profiles", "benchmarks", "evidence", "universe_coverage")
     )
     coverage_html = ""
