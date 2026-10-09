@@ -59,8 +59,12 @@ def validate_prices(prices: pd.DataFrame) -> pd.DataFrame:
     if len(result) < 5:
         raise ValueError("Provide at least 5 price observations for every asset.")
     try:
-        if any(pd.api.types.is_bool_dtype(dtype) or pd.api.types.is_complex_dtype(dtype)
-               for dtype in result.dtypes):
+        if (
+            any(pd.api.types.is_bool_dtype(dtype) or pd.api.types.is_complex_dtype(dtype)
+                for dtype in result.dtypes)
+            or any(isinstance(value, (bool, np.bool_, complex, np.complexfloating))
+                   for value in result.select_dtypes(include="object", exclude="str").to_numpy().flat)
+        ):
             raise ValueError("Boolean or complex prices are invalid.")
         result = result.apply(pd.to_numeric, errors="raise").astype(float)
     except (ValueError, TypeError, OverflowError) as exc:
@@ -99,7 +103,7 @@ def load_csv(source) -> pd.DataFrame:
     return validate_prices(table.set_index(headers[0]))
 
 
-def _download_adjusted_close(tickers: list[str], start, end) -> pd.DataFrame:
+def _download_adjusted_close(tickers: list[str], start, end, *, allow_incomplete=False) -> pd.DataFrame:
     """Fetch Yahoo adjusted closes before date selection and price validation."""
     symbols = parse_tickers(" ".join(tickers))
     if not symbols:
@@ -133,12 +137,12 @@ def _download_adjusted_close(tickers: list[str], start, end) -> pd.DataFrame:
     if prices.columns.has_duplicates:
         raise ValueError("Yahoo returned duplicate asset columns. Retry or upload an adjusted-price CSV.")
     missing = [symbol for symbol in symbols if symbol not in prices.columns or prices[symbol].isna().all()]
-    if missing:
+    if missing and not allow_incomplete:
         raise ValueError(
             f"Yahoo returned no prices for: {', '.join(missing)}. Check these symbols "
             "and their available history, or upload a CSV."
         )
-    return prices.loc[:, symbols]
+    return prices.reindex(columns=symbols)
 
 
 def download_prices(tickers: list[str], start, end) -> pd.DataFrame:
@@ -159,12 +163,6 @@ def _validate_benchmark_dates(expected_dates: pd.DatetimeIndex) -> None:
 def validate_benchmark_prices(benchmarks: pd.DataFrame, expected_dates: pd.DatetimeIndex) -> pd.DataFrame:
     """Require complete SPY and QQQ prices for exactly the expected dates."""
     _validate_benchmark_dates(expected_dates)
-    if isinstance(benchmarks, pd.DataFrame):
-        values = benchmarks.to_numpy()
-        if values.dtype.kind == "O" and any(
-            isinstance(value, (bool, np.bool_, complex, np.complexfloating)) for value in values.flat
-        ):
-            raise ValueError("Benchmark prices must be numeric values, without boolean or complex values.")
     prices = validate_prices(benchmarks)
     prices.columns = [_normalize_ticker(symbol) for symbol in prices.columns]
     if prices.columns.has_duplicates or set(prices.columns) != set(BENCHMARK_SYMBOLS):

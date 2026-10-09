@@ -1,5 +1,7 @@
 # Public-source review · 2026-10-03
 
+This is a historical record of the publication checks on that date. API sources, app defaults, dependencies, and repository contents can differ today. See the [README](../README.md) and [validation record](VALIDATION.md) for later changes.
+
 Scope: publish the source of `sammcentee/efficientfrontier` on GitHub. This review does not approve a hosted application, commercial market-data service, or redistribution of generated market reports. The reviewed baseline was `1859595`, with four reachable commits; the publication-preparation changes were reviewed and scanned separately before changing visibility.
 
 ## Ownership and licensing

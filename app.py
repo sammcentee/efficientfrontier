@@ -381,10 +381,6 @@ def build(plan, mark, progress_slot):
                 else:
                     metadata["benchmarks_note"] = ("Add a market prices file, include SPY and QQQ columns, or turn on the Yahoo download. "
                                                    "Select Change, then Model assumptions.")
-                if benchmark_prices is not None:
-                    benchmarks, evidence, note = calculate_market(benchmark_prices, prices, result, latest, settings)
-                    if note:
-                        metadata["evidence_note"] = note
             except (ValueError, RuntimeError, OSError) as exc:
                 metadata["benchmarks_note"] = f"Market comparison unavailable: {exc}"
                 benchmark_prices = None
@@ -403,6 +399,14 @@ def build(plan, mark, progress_slot):
     if study is not None:
         apply_notes(metadata, notes)
         benchmarks, evidence = study_benchmarks, study_evidence
+    elif benchmark_prices is not None:
+        try:
+            benchmarks, evidence, note = calculate_market(benchmark_prices, prices, result, latest, settings)
+            if note:
+                metadata["evidence_note"] = note
+        except (ValueError, RuntimeError, OSError) as exc:
+            metadata["benchmarks_note"] = f"Market comparison unavailable: {exc}"
+            benchmark_prices = None
     st.session_state.update(
         result=(result, prices, metadata), applied_inputs=plan["input_choices"], latest_profiles=latest,
         benchmark_prices=benchmark_prices, coverage=loaded.coverage if loaded is not None else None,
@@ -694,11 +698,11 @@ def test_controls():
                         type="tertiary", icon=":material/tune:"):
             with st.form("comparison_settings", border=False):
                 options = st.session_state.get("backtest_options", DEFAULT_TEST)
-                st.number_input("Trade every (trading days)", 1, value=options["rebalance_every"], key="rebalance_every",
+                st.number_input("Trade every (price rows)", 1, value=options["rebalance_every"], key="rebalance_every",
                                 help="21 trading days is about one month. For a CSV file, this counts price rows.")
                 st.number_input("Trading cost (basis points)", 0.0, 9999.0, options["cost_bps"], key="cost_bps",
                                 help="10 basis points = 0.10% of each amount bought or sold. Entry counts. There is no final sale.")
-                st.number_input("Recent history for “Refit on recent prices” (price rows)", 0, value=options["rolling_window"],
+                st.number_input("Recent history for “Refit on recent prices” (return observations)", 0, value=options["rolling_window"],
                                 key="rolling_window", help="0 uses the same length as the first fit.")
                 st.caption("All four rules use the same dates and fees. Each trade uses information to the previous close "
                            "and trades at the next close.")
@@ -832,13 +836,13 @@ def evidence_section(study, matched, evidence, selected, metadata):
             windows = evidence.windows.loc[evidence.windows.strategy == selected].drop(columns="strategy")
             st.dataframe(windows.style.format({"relative_return": "{:+.2%}", "annual_advantage": lambda value: f"{value * 100:+.2f} pp"}),
                          hide_index=True, width="stretch", column_config={
-                             "benchmark": "Market", "window": "Stretch", "start": "From", "end": "To", "observations": "Days",
+                             "benchmark": "Market", "window": "Stretch", "start": "From", "end": "To", "observations": "Observations",
                              "relative_return": "Change vs market", "annual_advantage": "Average gap"})
             settings = evidence.settings
             strategies = evidence.summary.index.get_level_values("strategy").nunique()
             markets = evidence.summary.index.get_level_values(1).nunique()
             st.markdown(f"Ranges use Newey–West standard errors ({settings.get('hac_lags', 0)} lags) on "
-                        f"{settings.get('inference_observations', 0)} daily return pairs. The Holm adjustment covers all "
+                        f"{settings.get('inference_observations', 0)} return pairs. The Holm adjustment covers all "
                         f"{settings.get('multiple_testing_tests', 0)} tests: {strategies} rules and levels, {markets} markets and 2 measures. "
                         "A p-value is not the chance that the rule will win. Alpha adjusts for exposure to one market. "
                         "It does not prove skill. The average gap is an arithmetic difference. Growth compounds the whole path.")

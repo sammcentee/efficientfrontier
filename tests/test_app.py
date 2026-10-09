@@ -446,6 +446,36 @@ def test_market_test_runs_once_at_build_and_display_changes_keep_cached_results(
     assert app.session_state.backtests.metrics.total_cost.eq(0).all()
 
 
+@pytest.mark.parametrize("study_fails", [False, True])
+def test_build_computes_market_comparison_and_evidence_once(monkeypatch, market_prices, study_fails):
+    from efficient_frontier import backtest, benchmarks, evidence
+
+    benchmark_calls, evidence_calls = [], []
+    original_comparison, original_evidence = benchmarks.compare_benchmarks, evidence.analyze_evidence
+
+    def compare(benchmark_prices, prices, analysis, study=None, latest_profiles=None, **kwargs):
+        benchmark_calls.append(study is not None)
+        return original_comparison(benchmark_prices, prices, analysis, study, latest_profiles, **kwargs)
+
+    def estimate(*args, **kwargs):
+        evidence_calls.append(kwargs.get("delayed_entry", False))
+        return original_evidence(*args, **kwargs)
+
+    def failed_study(*args, **kwargs):
+        raise RuntimeError("Fixture market test failure.")
+
+    monkeypatch.setattr(benchmarks, "compare_benchmarks", compare)
+    monkeypatch.setattr(evidence, "analyze_evidence", estimate)
+    if study_fails:
+        monkeypatch.setattr(backtest, "run_backtests", failed_study)
+    app = market_app(monkeypatch, market_prices)
+    assert not app.exception
+    assert benchmark_calls == evidence_calls == [not study_fails]
+    assert app.session_state.benchmarks.holdout_equity is not None
+    assert (app.session_state.benchmarks.backtest_equity is None) == study_fails
+    assert app.session_state.evidence.settings["delayed_entry"] is not study_fails
+
+
 def test_failed_comparison_preserves_portfolios_and_clears_stale_derived_state(monkeypatch, market_prices):
     app = run_comparison(market_app(monkeypatch, market_prices))
     assert app.session_state.evidence.settings["multiple_testing_tests"] == 96
@@ -514,6 +544,26 @@ def test_csv_frequency_scales_estimates_without_resampling(monkeypatch, market_p
     assert not app.exception and not app.error
     assert app.session_state.backtests.settings["periods_per_year"] == periods
     assert app.session_state.evidence.settings["periods_per_year"] == periods
+
+
+def test_monthly_csv_labels_count_observations_and_do_not_claim_daily_returns(monkeypatch, market_prices):
+    prices = market_prices.iloc[:180].set_axis(pd.date_range("2010-01-31", periods=180, freq="ME", name="Date"))
+    upload = BytesIO(prices.to_csv().encode())
+    upload.name = "monthly.csv"
+    monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: upload if kwargs["key"] == "prices_upload" else None)
+    app = open_setup(app_start())
+    app.radio(key="market").set_value("Upload CSV").run()
+    app.selectbox(key="frequency").select("Monthly").run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert app.number_input(key="rebalance_every").label == "Trade every (price rows)"
+    assert app.number_input(key="rolling_window").label == "Recent history for “Refit on recent prices” (return observations)"
+    assert "The tests need at least 60 paired return observations." in html_text(app)
+    assert not any("daily return pairs" in item.value for item in app.markdown)
+    summary = next(item for item in app.dataframe if "Inference observations" in item.value.columns)
+    assert json.loads(summary.proto.columns)["Inference observations"]["label"] == "Paired observations"
+    windows = next(item for item in app.dataframe if "observations" in item.value.columns and "benchmark" in item.value.columns)
+    assert json.loads(windows.proto.columns)["observations"]["label"] == "Observations"
 
 
 def test_market_costs_charts_and_evidence_preserve_all_96_tests(monkeypatch, market_prices):
