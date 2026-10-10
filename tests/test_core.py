@@ -31,6 +31,30 @@ def test_analytic_minimum_variance_and_maximum_sharpe():
     assert frontier.iloc[-1].expected_return == pytest.approx(0.2, abs=1e-6)
 
 
+@pytest.mark.parametrize("inaccurate_calls", [{1}, {2}, {3}, {1, 2, 3, 4}])
+def test_approximate_solver_status_warns_once_without_discarding_results(monkeypatch, inaccurate_calls):
+    from efficient_frontier import core
+
+    original = core._solve
+    calls = 0
+
+    def approximate_solve(problem):
+        nonlocal calls
+        calls += 1
+        original(problem)
+        if calls in inaccurate_calls:
+            problem._status = "optimal_inaccurate"
+
+    monkeypatch.setattr(core, "_solve", approximate_solve)
+    portfolios, frontier, _, warnings = optimize(*model(), frontier_points=3)
+    messages = [message for message in warnings if "limited numerical accuracy" in message]
+    assert len(messages) == 1
+    assert "optimum can be approximate" in messages[0]
+    np.testing.assert_allclose(portfolios["Minimum volatility"].weights, [9 / 13, 4 / 13], atol=2e-5)
+    np.testing.assert_allclose(portfolios["Maximum Sharpe"].weights, [0.5, 0.5], atol=2e-5)
+    assert len(frontier) == 3
+
+
 def test_position_cap_and_frontier_are_feasible_and_efficient():
     mu, covariance = model()
     portfolios, frontier, weights, _ = optimize(mu, covariance, max_weight=0.6, frontier_points=9)
@@ -43,6 +67,45 @@ def test_position_cap_and_frontier_are_feasible_and_efficient():
     np.testing.assert_allclose(weights.B, expected_b, atol=1e-8)
     np.testing.assert_allclose(frontier.volatility, np.sqrt(0.04 * (1 - expected_b) ** 2 + 0.09 * expected_b ** 2))
     assert np.all(np.diff(frontier.volatility) >= -1e-8)
+
+
+@pytest.mark.parametrize("risk_free_rate", [0.02, 0.3])
+def test_single_point_frontier_preserves_portfolios_and_skips_an_endpoint_solve(monkeypatch, risk_free_rate):
+    from efficient_frontier import core
+
+    original = core._solve
+    calls = 0
+
+    def count_solve(problem):
+        nonlocal calls
+        calls += 1
+        original(problem)
+
+    monkeypatch.setattr(core, "_solve", count_solve)
+    single, frontier, weights, warnings = optimize(
+        *model(), risk_free_rate=risk_free_rate, max_weight=0.6, frontier_points=1,
+    )
+    single_calls = calls
+    calls = 0
+    full, full_frontier, full_weights, full_warnings = optimize(
+        *model(), risk_free_rate=risk_free_rate, max_weight=0.6, frontier_points=2,
+    )
+    assert calls == single_calls + 1
+    assert single.keys() == full.keys()
+    for name in single:
+        pd.testing.assert_series_equal(single[name].weights, full[name].weights)
+        assert single[name].expected_return == full[name].expected_return
+        assert single[name].volatility == full[name].volatility
+        assert single[name].sharpe == full[name].sharpe
+    pd.testing.assert_frame_equal(frontier, full_frontier.iloc[:1])
+    pd.testing.assert_frame_equal(weights, full_weights.iloc[:1])
+    assert warnings == full_warnings
+
+
+@pytest.mark.parametrize("frontier_points", [0, -1, True, 1.5])
+def test_frontier_requires_a_positive_integer(frontier_points):
+    with pytest.raises(ValueError, match="frontier_points must be a positive integer"):
+        optimize(*model(), frontier_points=frontier_points)
 
 
 def test_large_universe_uses_all_128_assets_with_analytic_optimal_weights():

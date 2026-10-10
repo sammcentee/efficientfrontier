@@ -39,7 +39,7 @@ SETTING_LABELS = {
     "training_end": "First fit to", "training_observations": "Returns in the first fit", "holdout_start": "Holdout from",
     "holdout_end": "Holdout to", "holdout_observations": "Returns in the holdout", "assets": "Assets",
     "holdout_strategy": "Holdout rule", "distributions": "Distributions", "estimation": "Estimates", "exclusions": "Not included",
-    "rebalance_every": "Trade every (price rows)", "rolling_window": "Recent history for refits (price rows)",
+    "rebalance_every": "Trade every (price rows)", "rolling_window": "Recent history for refits (return observations)",
     "cost_bps": "Trading cost", "split": "Last price row of the first fit", "include_profiles": "Risk levels tested",
     "trading_days_per_year": "Trading days per year", "cash_interest_rate": "Interest on cash", "train_start": "First fit from",
     "train_end": "First fit to", "test_start": "Test from", "test_end": "Test to", "initial_execution": "First trade",
@@ -48,13 +48,13 @@ SETTING_LABELS = {
 STAT_LABELS = {
     "CAGR difference": "Growth gap", "Annual mean advantage": "Average gap", "Mean CI lower": "95% range, low",
     "Mean CI upper": "95% range, high", "Mean p-value": "p (one test)", "Mean Holm p-value": "Adjusted p (Holm)",
-    "Benchmark beta": "Beta", "Annual alpha": "Alpha", "Windows ahead": "Stretches ahead", "Inference observations": "Paired days",
+    "Benchmark beta": "Beta", "Annual alpha": "Alpha", "Windows ahead": "Stretches ahead", "Inference observations": "Paired observations",
     "Historical evidence": "Result",
 }
 WORDS = {
     "95% range": "The band where the true yearly gap probably sits, given how much the returns moved. If the band crosses zero, "
                  "the data cannot rule out “no real difference”. The band is wider when returns cluster in time (Newey–West).",
-    "Average gap": "The average daily difference between your rule and the market, scaled to a year. "
+    "Average gap": "The average difference per return observation between your rule and the market, scaled to a year. "
                    "It differs from the growth gap, which compounds the whole path.",
     "Points": "Percentage points. If your rule grew 9.4% and the market grew 28.6%, the gap is 19.2 points, not 19.2%.",
 }
@@ -343,10 +343,10 @@ def callout_html(weights: pd.Series, universe: str, names: dict | None = None) -
     if weights.max() < 0.5:
         return ""
     name = (names or {}).get(largest, largest)
-    title = f"Almost all of it is {name}." if weights.max() >= 0.8 else f"More than half of it is {name}."
+    title = f"Almost all of it is {name}." if weights.max() >= 0.8 else f"At least half of it is {name}."
     kind = "company" if _noun(universe) == "stock" else "asset"
     return (f'<div class="pl-callout"><span class="pl-glyph" aria-hidden="true">!</span><p><b>{_e(title)}</b>'
-            f"The results of one {kind} would drive most gains and losses. To spread the risk, select Change, "
+            f"This is a large allocation to one {kind}. To spread the risk, select Change, "
             "then Model assumptions, and set a holding limit.</p></div>")
 
 
@@ -531,7 +531,7 @@ def evidence_lead(evidence: Any, selected: str, months: int, metadata: dict | No
     return {"behind": f"The gaps stay after we allow for chance and for all {tests} tests. They describe this sample only.",
             "ahead": f"The gaps stay after we allow for chance and for all {tests} tests. A past lead does not show future outperformance.",
             "alpha": "Alpha adjusts for exposure to one market. It does not prove skill.",
-            "insufficient": "The tests need at least 60 paired daily returns.",
+            "insufficient": "The tests need at least 60 paired return observations.",
             "unavailable": (metadata or {}).get("evidence_note", "")}[category]
 
 
@@ -662,15 +662,12 @@ def fine_print_items(metadata: dict, prices: pd.DataFrame, coverage_place: str =
         items.append("<b>Fixed list.</b> The study keeps the same assets for the whole period. That can favour survivors.")
     source = str(metadata.get("source", ""))
     if metadata.get("price_currency", "USD") != "USD":
-        currency = ("Prices are in the currency that you declared. Market comparisons are off, because they need USD prices. "
+        currency = ("You declared a common price currency. Market comparisons are off, because they need USD prices. "
                     "No currency conversion occurs.")
-    elif source == "Yahoo Finance":
-        currency = ("All prices are in US dollars, adjusted by Yahoo Finance. Market comparisons need USD prices. "
-                    "No currency conversion occurs.")
-    elif source == "Upload CSV":
-        currency = "You declared USD prices. The app does not check or convert currencies."
-    else:
+    elif "synthetic" in source.lower() or source == "Demo":
         currency = "The demo prices are simulated. No currency conversion occurs."
+    else:
+        currency = "You declared USD prices. The app does not check or convert currencies."
     items.append(f"<b>Currency.</b> {currency}")
     return items
 

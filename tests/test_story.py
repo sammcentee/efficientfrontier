@@ -198,6 +198,30 @@ def test_one_asset_reads_in_the_singular():
     assert "compare mixes of this one asset only" in items[1]
 
 
+@pytest.mark.parametrize("source", ["Yahoo Finance", "Upload CSV", "CSV: monthly-prices.csv", "Nasdaq-100 · Yahoo Finance"])
+def test_currency_note_describes_the_declaration_without_claiming_verification(source):
+    prices = pd.DataFrame(columns=["VOD.L", "AAPL"])
+    items = story.fine_print_items({"source": source, "universe": "My tickers", "price_currency": "USD"}, prices)
+    assert items[-1] == "<b>Currency.</b> You declared USD prices. The app does not check or convert currencies."
+    items = story.fine_print_items({"source": source, "universe": "My tickers", "price_currency": "Other currency"}, prices)
+    assert "You declared a common price currency." in items[-1]
+    assert "Market comparisons are off" in items[-1]
+
+
+@pytest.mark.parametrize("source", ["Demo · synthetic", "Demo"])
+def test_currency_note_identifies_actual_demo_prices(source):
+    items = story.fine_print_items({"source": source, "universe": "Demo", "price_currency": "USD"}, pd.DataFrame(columns=["A"]))
+    assert items[-1] == "<b>Currency.</b> The demo prices are simulated. No currency conversion occurs."
+
+
+def test_concentration_callout_describes_allocation_without_claiming_risk_or_profit_shares():
+    html = story.callout_html(pd.Series({"BONDS": .5, "STOCKS": .5}), "Upload CSV")
+    assert "At least half of it is BONDS." in html
+    assert "This is a large allocation to one asset." in html
+    assert "gains and losses" not in html
+    assert story.callout_html(pd.Series({"BONDS": .4, "STOCKS": .3, "CASH": .3}), "Upload CSV") == ""
+
+
 def test_result_tile_without_markets_does_not_repeat_the_answer_or_claim_a_failed_test():
     settings = {"test_start": "2025-04-03", "test_end": "2026-10-02", "initial_execution": "2025-04-03"}
     study = SimpleNamespace(settings=settings, equity=pd.DataFrame({SELECTED: [1.0, 1.073]}, index=pd.to_datetime(["2025-04-02", "2026-10-02"])),
