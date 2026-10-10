@@ -1,6 +1,8 @@
 # Backtesting methods and accounting
 
-The **Backtests & holdings** tab compares four methods. The original targets are minimum volatility, maximum Sharpe, and equal weight. With sufficient history, the app and CLI also include Low, Medium, and Extreme profiles. The CLI enables the comparison with `--backtests`. All supplied assets remain eligible. There is no fixed ticker-count or holdings-count cap.
+In the app, select **Compare → Run comparison** to calculate four methods. The CLI enables this comparison with `--backtests`. The original targets are minimum volatility, maximum Sharpe, and equal weight. With sufficient history, the app and CLI also include Low, Medium, and Extreme profiles. The app's **Risk level** control calls Extreme **Highest**.
+
+Every asset in the accepted price dataset remains eligible. Nasdaq-100 input first excludes members without complete prices for the selected period. The [coverage rules](../README.md#the-full-nasdaq-100-universe) explain this step and its historical selection bias. There is no fixed ticker-count or holdings-count cap.
 
 | Method | Target weights | Estimation sample |
 | --- | --- | --- |
@@ -9,7 +11,7 @@ The **Backtests & holdings** tab compares four methods. The original targets are
 | Expanding window | Estimate new targets every N observations | All returns available before the execution close |
 | Rolling window | Estimate new targets every N observations | Latest L returns available before the execution close |
 
-The original targets give 12 method/portfolio combinations. With the three profiles, the comparison contains 24 combinations. Equal-weight targets do not depend on estimated returns, so the fixed, expanding and rolling equal-weight paths intentionally coincide. This is not three independent pieces of evidence. The original **holdout** remains available as a separate, cost-free calculation with its original entry timing.
+The original targets give 12 method/portfolio combinations. With the three profiles, the comparison contains 24 combinations. Equal-weight targets do not depend on estimated returns, so the fixed, expanding and rolling equal-weight paths intentionally coincide. This is not three independent pieces of evidence. The original **holdout** remains a separate, cost-free calculation with its original entry timing. Find it under **Research → Efficient frontiers → Original holdout · no trading fees**.
 
 ## Timing and information
 
@@ -24,7 +26,7 @@ The engine delays execution by one observed interval. A signal cannot receive a 
 
 All schedules use the supplied price rows. With weekly data, `--rebalance-every 4` means four observed weekly intervals. With monthly data, it means four observed monthly intervals. Missing dates can make these intervals longer than the named calendar period.
 
-The `--periods-per-year` option controls annualization. Its default is 252, and it accepts positive, finite numbers. App presets include 252, 365, 52, and 12. Custom app values must be finite and at least 1. This setting does not resample prices or change trade dates. Yahoo downloads remain daily.
+The `--periods-per-year` option controls annualization. Its default is 252, and it accepts positive, finite numbers. For CSV input, **Fine-tune the model → Price frequency** provides app presets of 252, 365, 52, and 12. Custom app values must be finite and at least 1. This setting does not resample prices or change trade dates. Yahoo inputs use daily prices and 252 observations per year in the app.
 
 Both engines need at least two training returns and two holdout returns. The CSV reader accepts at least five price rows. The chosen split must still meet both return counts. Results include a warning for fewer than 30 training returns. They also include a warning when the asset count equals or exceeds the training return count.
 
@@ -134,6 +136,10 @@ A fixed list chosen later in history creates universe-selection and survivorship
 
 ## Reproduce and inspect
 
+In the app, choose **Compare → Comparison settings** to set trade intervals, costs, and rolling history. Select **Run comparison**, or **Update comparison** after you change these assumptions. Use **Research → All backtests** for every strategy, holding, and trade.
+
+Open **Export your research** and select **Prepare report**. Then select **Download report and data**. The bundle includes any completed comparison. A new portfolio calculation clears the previous comparison.
+
 ```bash
 .venv/bin/python -m efficient_frontier --csv data/holdings.csv \
   --backtests --train-fraction .5 --rolling-window 252 \
@@ -155,7 +161,7 @@ Latest profile exports contain:
 
 The backtest report includes `findings.md`, `backtest_metrics.csv`, `backtest_curve.csv` and one set of allocation, holdings and trade CSVs per combination under `backtests/`. `metadata.json` maps numbered file prefixes to strategy names. Trade logs record the exact estimation start/end dates as well as wealth, fees and turnover. All exports include the full input universe.
 
-App selections change only the curves on screen. They do not remove strategies or assets from the exports.
+The selected risk level, allocation rule, and chart change the displayed results. They do not remove calculated strategies or assets from the exports.
 
 Open `report.html` and use **Print / save PDF** to create a static report; the HTML charts remain interactive and work offline. Keep source data and generated reports local unless their redistribution is authorized.
 

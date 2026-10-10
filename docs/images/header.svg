@@ -1,24 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="252" viewBox="0 0 1120 252" role="img" aria-labelledby="title description">
   <title id="title">Portfolio Lab — Efficient Frontier</title>
-  <desc id="description">A dark navy wordmark with teal lettering and an abstract risk-and-return curve. The artwork is decorative and does not represent investment results.</desc>
+  <desc id="description">A dark wordmark on a light gray background with a blue curve for risk and return. This decorative artwork does not show investment results.</desc>
   <defs>
     <clipPath id="panel">
       <rect x="1" y="1" width="1118" height="250" rx="22"/>
     </clipPath>
   </defs>
   <g clip-path="url(#panel)">
-    <rect width="1120" height="252" fill="#0b1220"/>
-    <path d="M810 0H1120V252H682Z" fill="#131e30"/>
-    <path d="M851 0 723 252" fill="none" stroke="#20334a" stroke-width="1"/>
-    <path d="M924 0 796 252" fill="none" stroke="#20334a" stroke-width="1"/>
-    <path d="M997 0 869 252" fill="none" stroke="#20334a" stroke-width="1"/>
-    <path d="M1070 0 942 252" fill="none" stroke="#20334a" stroke-width="1"/>
-    <path d="M784 50H1120M758 101H1120M732 152H1120M706 203H1120" fill="none" stroke="#20334a" stroke-width="1"/>
+    <rect width="1120" height="252" fill="#f5f5f7"/>
+    <path d="M810 0H1120V252H682Z" fill="#ffffff"/>
+    <path d="M851 0 723 252" fill="none" stroke="#e6e7eb" stroke-width="1"/>
+    <path d="M924 0 796 252" fill="none" stroke="#e6e7eb" stroke-width="1"/>
+    <path d="M997 0 869 252" fill="none" stroke="#e6e7eb" stroke-width="1"/>
+    <path d="M1070 0 942 252" fill="none" stroke="#e6e7eb" stroke-width="1"/>
+    <path d="M784 50H1120M758 101H1120M732 152H1120M706 203H1120" fill="none" stroke="#e6e7eb" stroke-width="1"/>
 
-    <path d="M793 190C793 164 826 137 872 108S970 62 1063 41" fill="none" stroke="#1c504e" stroke-width="18" stroke-linecap="round"/>
-    <path d="M793 190C793 164 826 137 872 108S970 62 1063 41" fill="none" stroke="#40d4be" stroke-width="4" stroke-linecap="round"/>
-    <path d="M793 190C816 211 881 216 1024 211" fill="none" stroke="#63718d" stroke-width="2" stroke-dasharray="5 9" stroke-linecap="round"/>
-    <g fill="#aab7ff" fill-opacity=".5">
+    <path d="M793 190C793 164 826 137 872 108S970 62 1063 41" fill="none" stroke="#dfe8f6" stroke-width="18" stroke-linecap="round"/>
+    <path d="M793 190C793 164 826 137 872 108S970 62 1063 41" fill="none" stroke="#1764c0" stroke-width="4" stroke-linecap="round"/>
+    <path d="M793 190C816 211 881 216 1024 211" fill="none" stroke="#a9b4c4" stroke-width="2" stroke-dasharray="5 9" stroke-linecap="round"/>
+    <g fill="#62666e" fill-opacity=".5">
       <circle cx="842" cy="169" r="4"/>
       <circle cx="890" cy="151" r="4"/>
       <circle cx="934" cy="131" r="4"/>
@@ -26,14 +26,14 @@
       <circle cx="999" cy="114" r="4"/>
       <circle cx="1039" cy="148" r="4"/>
     </g>
-    <circle cx="872" cy="108" r="13" fill="#131e30" stroke="#40d4be" stroke-width="1"/>
-    <circle cx="872" cy="108" r="5" fill="#48dcc2"/>
-    <circle cx="1063" cy="41" r="6" fill="#ffcb77"/>
+    <circle cx="872" cy="108" r="13" fill="#ffffff" stroke="#1764c0" stroke-width="1"/>
+    <circle cx="872" cy="108" r="5" fill="#1764c0"/>
+    <circle cx="1063" cy="41" r="6" fill="#947245"/>
 
-    <rect x="48" y="43" width="5" height="17" rx="2.5" fill="#40d4be"/>
-    <text x="67" y="57" fill="#aab7ff" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="3.4">EFFICIENT FRONTIER</text>
-    <text x="43" y="155" fill="#f5f8ff" font-family="Arial, Helvetica, sans-serif" font-size="92" font-weight="700" letter-spacing="-4">Portfolio <tspan fill="#48dcc2">Lab</tspan></text>
-    <text x="49" y="202" fill="#a8b6ca" font-family="Arial, Helvetica, sans-serif" font-size="19" letter-spacing=".5">Explore allocations. Understand trade-offs.</text>
+    <rect x="48" y="43" width="5" height="17" rx="2.5" fill="#1764c0"/>
+    <text x="67" y="57" fill="#62666e" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="3.4">EFFICIENT FRONTIER</text>
+    <text x="43" y="155" fill="#1d1d1f" font-family="Arial, Helvetica, sans-serif" font-size="92" font-weight="700" letter-spacing="-4">Portfolio <tspan fill="#1764c0">Lab</tspan></text>
+    <text x="49" y="202" fill="#62666e" font-family="Arial, Helvetica, sans-serif" font-size="19" letter-spacing=".5">Explore allocations. Understand trade-offs.</text>
   </g>
-  <rect x=".5" y=".5" width="1119" height="251" rx="22.5" fill="none" stroke="#2b3c53"/>
+  <rect x=".5" y=".5" width="1119" height="251" rx="22.5" fill="none" stroke="#e6e7eb"/>
 </svg>

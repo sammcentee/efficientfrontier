@@ -9,8 +9,8 @@ from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 
+from .style import BENCHMARK_COLORS, style_chart
 
-BENCHMARK_COLORS = {"S&P 500 (SPY)": "#f4f5f7", "Nasdaq-100 (QQQ)": "#ff9759"}
 EVIDENCE_LABELS = {
     "total_return_difference": "Total return difference", "cagr_difference": "CAGR difference",
     "annual_advantage": "Annual mean advantage", "advantage_ci_low": "Mean CI lower", "advantage_ci_high": "Mean CI upper",
@@ -30,7 +30,7 @@ def add_benchmark_paths(figure: go.Figure, equity: pd.DataFrame | None, drawdown
         values = path / path.cummax() - 1 if drawdown else path * 10_000
         figure.add_trace(go.Scatter(
             x=equity.index, y=values, name=html.escape(str(name)), mode="lines",
-            line={"color": BENCHMARK_COLORS.get(name, "#ffffff"), "width": 3, "dash": "longdash"},
+            line={"color": BENCHMARK_COLORS.get(name, "#737b85"), "width": 2, "dash": "longdash"},
             hovertemplate="%{x|%Y-%m-%d}<br>" + ("Drawdown: %{y:.2%}" if drawdown else "Benchmark value: %{y:,.2f}")
             + "<extra>%{fullData.name}</extra>",
         ))
@@ -42,7 +42,7 @@ def add_benchmark_estimates(figure: go.Figure, estimates: pd.DataFrame | None, o
     for name, row in estimates.iterrows():
         figure.add_trace(go.Scatter(
             x=[row["volatility"]], y=[row[objective]], name=html.escape(str(name)), mode="markers",
-            marker={"symbol": "diamond", "size": 13, "color": BENCHMARK_COLORS.get(name, "#ffffff")},
+            marker={"symbol": "diamond", "size": 11, "color": BENCHMARK_COLORS.get(name, "#737b85")},
             hovertemplate="Annual volatility: %{x:.2%}<br>"
             + ("Lowest annual window mean" if objective == "worst_window_return" else "Historical expected annual return")
             + ": %{y:.2%}<extra>%{fullData.name}</extra>",
@@ -67,19 +67,13 @@ def evidence_chart(evidence: Any, strategy: str) -> go.Figure:
     for benchmark, path in paths.items():
         figure.add_trace(go.Scatter(
             x=paths.index, y=path, name=html.escape(str(benchmark)), mode="lines",
-            line={"color": BENCHMARK_COLORS.get(benchmark, "#aab7ff"), "width": 2.5},
+            line={"color": BENCHMARK_COLORS.get(benchmark, "#737b85"), "width": 2.5},
             hovertemplate="%{x|%Y-%m-%d}<br>Relative wealth: %{y:.3f}×<extra>%{fullData.name}</extra>",
         ))
-    figure.add_hline(y=1, line_dash="dot", line_color="#adbbce")
-    figure.update_layout(
-        title={"text": "Relative performance", "font": {"size": 19}}, template="plotly_dark",
-        paper_bgcolor="#111c2e", plot_bgcolor="#111c2e", height=490,
-        font={"family": "Arial, sans-serif", "color": "#e6edf7"},
-        margin={"l": 55, "r": 15, "t": 55, "b": 110},
-        legend={"orientation": "h", "y": -0.22, "maxheight": 90, "font": {"size": 11}}, hovermode="x unified",
-    )
-    figure.update_xaxes(title="Date", gridcolor="#26344a", automargin=True)
-    figure.update_yaxes(title="Portfolio / benchmark", tickformat=".2f", gridcolor="#26344a", automargin=True)
+    figure.add_hline(y=1, line_dash="dot", line_color="#b7bcc4")
+    style_chart(figure, "Relative performance", hovermode="x unified")
+    figure.update_xaxes(title="Date")
+    figure.update_yaxes(title="Portfolio / benchmark", tickformat=".2f")
     return figure
 
 

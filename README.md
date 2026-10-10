@@ -8,16 +8,28 @@ A local research app built from the original `Efficient Frontier v1.12.R` projec
 
 ## A portfolio lab for your own data
 
-Use adjusted prices for your own assets, from one ticker to a larger portfolio. The original 60-stock list is an optional example.
+The app starts with the current Nasdaq-100 universe and five years of daily history. You can also use your own tickers or adjusted-price CSV. The original 60-stock list and synthetic demo remain optional examples.
 
 - **Choose the data frequency.** Use daily, weekly, or monthly CSV prices and set the number of observations per year.
-- **Compare Low, Medium, and Extreme profiles.** Inspect the latest model holdings and their results across three historical windows.
+- **Compare Low, Medium, and Highest profiles.** Inspect the latest model holdings and their results across three historical windows.
 - **Inspect portfolio risk.** Compare concentration, effective holdings, diversification, and each asset's share of portfolio variance.
 - **Compare backtests.** Inspect costs, drawdown, Sortino, and Calmar alongside returns. Select the curves you want to compare.
 - **Compare with SPY and QQQ.** Inspect passive benchmark results, period consistency, and uncertainty in the historical return advantage.
 - **Keep the full results.** Chart selections do not remove data from the exports. Reports include the inputs, assumptions, allocations, and risk tables.
 
 The historical stock study below remains a separate example. It uses daily data and 252 observations per year.
+
+## The full Nasdaq-100 universe
+
+The default requests the full current list from [Nasdaq's official constituent API](https://api.nasdaq.com/api/quote/list-type/nasdaq100). It retains separate share classes. An index of 100 companies can contain 101 securities because a company can have multiple eligible share classes. [Nasdaq's index guide](https://www.nasdaq.com/articles/global-indexes/nasdaq-100-index)
+
+Each security needs complete positive adjusted prices on the fixed SPY/QQQ market dates for the selected history. The app excludes incomplete securities and records each reason. It does not fill missing prices or shorten everyone's history to admit a newer listing. Therefore, the default does not guarantee that every current member enters the model.
+
+Open **Research → Data & coverage** to inspect requested, included, and excluded counts, names, dates, and reasons. Reports include `universe_coverage.csv` and the source date and retrieval time in `metadata.json`. If Nasdaq's current list is unavailable or incomplete, the app reports an error. It has no frozen substitute.
+
+The optimizer chooses continuous weights across **every eligible asset**. It can assign zero weight to an asset. It does not rank and retain an arbitrary top-N group or enumerate the `2^N` possible subsets. The portfolio chart groups weights beyond the ten largest into **Other holdings**. **Every holding** and the exports retain all weights.
+
+**This is a historical study of current members.** It does not reconstruct index membership at each past date. Current membership and complete-history eligibility can favor survivors and distort backtests. A shorter history can admit more securities, but also changes the estimation sample.
 
 ## Latest model holdings
 
@@ -26,10 +38,10 @@ The latest model uses all supplied prices through the last available date. It ne
 | Profile | Position on the worst-window return frontier |
 | --- | --- |
 | Low | Minimum estimated volatility for the supplied assets and settings |
-| Medium | Halfway between the Low and Extreme worst-window return targets |
-| Extreme | Highest achievable worst-window mean return, with minimum variance among tied solutions |
+| Medium | Halfway between the Low and Highest worst-window return targets |
+| Highest | Highest achievable worst-window mean return, with minimum variance among tied solutions |
 
-These labels describe relative positions in this model. Low can still contain risky assets. Extreme does not use leverage or maximize all possible portfolio variance. Profiles can coincide when the frontier has no meaningful range.
+These labels describe relative positions in this model. Low can still contain risky assets. Highest does not use leverage or maximize all possible portfolio variance. Profiles can coincide when the frontier has no meaningful range. Reports, CSVs, and strategy names call Highest **Extreme**.
 
 The three windows give each profile a comparison across historical periods. The objective rewards consistency in their estimated means. It does not guarantee positive years, minimize drawdown, or provide a statistical lower bound on future returns. The optimized allocation depends on your assets, history, risk model, and constraints.
 
@@ -53,7 +65,7 @@ The app runs in Python with the compiled Rust [Clarabel optimizer](https://clara
 
 The [public-source review](docs/PUBLIC_RELEASE_REVIEW.md) records the security, licensing and API checks. Report security issues through the process in [SECURITY.md](SECURITY.md).
 
-![Portfolio Lab showing an efficient frontier for synthetic demonstration assets](docs/images/portfolio-lab.png)
+![Portfolio Lab showing a Medium risk allocation across eligible Nasdaq-100 securities](docs/images/portfolio-lab.png)
 
 ## Start here: no coding needed
 
@@ -75,24 +87,30 @@ Keep the launcher window open while using the app. To stop it, press **Ctrl+C** 
 
 ### Your first two minutes
 
-1. Leave **Price data** on **Yahoo Finance**. Enter your tickers or choose **Original 60 holdings**. The default tickers are example inputs.
-2. Set the date range. Select **Build frontier** to download prices and calculate the results.
-3. Open **Latest holdings**. Compare Low, Medium, and Extreme allocations, their fit date, and their three historical windows.
-4. Open **Market comparison** to compare historical results with SPY and QQQ. Inspect **Backtests & holdings** for trade details.
-5. Inspect the original **Efficient frontier** and **Portfolio risk** for the mean-return model. These estimates are not forecasts.
-6. Open **Portfolio settings explained** or **Backtest methods explained** for help. Select **Build frontier** after a change.
+1. Open **Market & settings**. Keep **Nasdaq-100** and **5 years**, or choose your own data.
+2. Select **Find portfolios** to download prices and calculate the latest allocations.
+3. In **Portfolio**, select **Low**, **Medium**, or **Highest**. Open **Every holding** for the complete allocation.
+4. Select **Compare**, inspect **Comparison settings**, then select **Run comparison**. Choose an **Allocation rule** to compare with SPY and QQQ.
+5. Select **Research** for frontiers, risk, coverage, all backtests, and methodology. These historical estimates are not forecasts.
+6. Open **Export your research**, then select **Prepare report** and **Download report and data**.
 
-Yahoo Finance needs an internet connection. The app waits for **Build frontier** before it requests Yahoo data. For an offline example, select **Demo · synthetic**. For your own price file, select **Upload CSV**. The [price-data guide](#price-data) explains the required format.
+Yahoo Finance and the Nasdaq list need an internet connection. The app waits for **Find portfolios** before it requests data. For an offline example, choose **Demo**. For your own price file, choose **Upload CSV**. The [price-data guide](#price-data) explains the format.
+
+Select **Update portfolios** after you change market or model settings. This clears the previous comparison. Then select **Run comparison** again if you need new backtests. A report includes the completed calculations at the time you prepare it.
 
 ### What the settings mean
 
+Open **Fine-tune the model** inside **Market & settings** for model assumptions. **Compare → Comparison settings** contains trade assumptions.
+
 | Setting | Effect |
 | --- | --- |
-| Weight limit | Limits each asset's target allocation. A 25% cap needs at least four assets. Prices can move weights above the cap between trades. |
-| Annual risk-free rate | Sets the comparison rate for Sharpe and Sortino. It affects maximum-Sharpe weights but does not add cash. |
-| Data used for training | Sets the earliest observations for the initial fit. A larger share leaves fewer later observations for evaluation. |
-| Covariance shrinkage | Reduces estimated relationships between assets while it keeps each asset's variance. |
-| Backtest comparison | Compares four allocation rules on the same later observations, with the selected trade interval and costs. |
+| Limit each holding / Maximum holding (%) | Limits each asset's target allocation. A 25% cap needs at least four assets. Prices can move weights above the cap between trades. |
+| Risk-free rate (%) | Sets the comparison rate for Sharpe and Sortino. It affects maximum-Sharpe weights but does not add cash. |
+| Initial training data (%) | Sets the initial estimation sample. A larger share leaves fewer later observations for evaluation. It does not change the latest full-history holdings. |
+| Covariance shrinkage (%) | Reduces estimated relationships between assets while it keeps each asset's variance. |
+| Observations between trades | Sets the interval between backtest trades. The default 21 daily observations approximate a trading month. |
+| Trading cost (basis points) | Charges each amount bought or sold. Ten basis points equal 0.10%. |
+| Rolling history (0 = initial training length) | Sets the number of past returns for rolling estimates. Zero uses the initial training length. |
 
 Covariance describes how asset returns move together. Historical estimates can be noisy, particularly with many assets or little data. At 0% shrinkage, the model uses sample covariance. At 100%, it sets covariance between different assets to zero. The default 10% reduces these covariances by 10% and leaves individual variances unchanged. This manual adjustment can reduce sensitivity to noisy estimates, but it does not guarantee better results.
 
@@ -134,10 +152,10 @@ The app binds to localhost. It needs no credentials or network connection for th
 
 ## What you can do
 
-- Inspect latest Low, Medium, and Extreme allocations on the worst-window return frontier.
-- View the original mean-return frontier and allocations at individual target returns.
+- Inspect latest Low, Medium, and Highest allocations on the worst-window return frontier.
+- View the original mean-return frontier and its portfolio allocations in **Research**.
 - Compare minimum volatility, maximum Sharpe, and equal-weight portfolios.
-- Analyze one ticker or a larger custom universe; the original 60-ticker list is an optional preset.
+- Analyze the current Nasdaq-100, one ticker, or a larger custom universe. The original 60-ticker list is an optional preset.
 - Optionally set a maximum starting position size, plus risk-free rate, training fraction, and covariance shrinkage. Position caps are off by default.
 - Use Yahoo adjusted daily prices, upload a daily, weekly, or monthly CSV, or explore a deterministic synthetic demo.
 - Select the 60 tickers from the original spreadsheet as a Yahoo universe.
@@ -155,7 +173,7 @@ SPY and QQQ provide passive ETF references for the S&P 500 and Nasdaq-100. Compa
 
 The evidence separates compound performance from annual mean advantage and benchmark alpha. It also shows three evaluation windows. Statistical tests account for serial dependence and all strategy/benchmark comparisons in the current run. A p-value is not the probability of future outperformance.
 
-The **Market comparison** tab shows the results. **Market benchmarks** in the sidebar controls sources and the USD declaration.
+Open **Compare** and select **Run comparison** for historical strategy results and benchmark evidence. **Market & settings → Fine-tune the model** contains the benchmark controls and USD declaration. The default view uses **Expanding window** and **Medium**. This choice does not depend on observed returns.
 
 Yahoo runs obtain the benchmark series automatically. CSV runs can use an offline benchmark file or existing SPY and QQQ columns. Downloads for CSV input require an explicit choice. Comparisons require a USD declaration and complete benchmark prices for every asset date. Synthetic demo results do not use actual market benchmarks.
 
@@ -181,7 +199,7 @@ For a practical review:
 4. Compare concentration, drawdown, and costs across several historical windows. Keep the evaluation rules fixed before each comparison. Backtests remain hypothetical. [SEC performance claims bulletin](https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-bulletins-47)
 5. Choose a rebalance rule in advance. Include trade costs when you compare it with buy and hold. Rebalancing restores an intended allocation after prices change. [SEC Investor.gov](https://www.investor.gov/introduction-investing/getting-started/asset-allocation)
 
-The app calculates allocations and covariance risk for the supplied price series. It does not infer sector membership or ETF holdings from ticker names. The review above requires separate classification and holdings data.
+The app calculates allocations and covariance risk for the supplied price series. Nasdaq coverage includes the provider's industry labels. The app does not infer ETF holdings or optimize sector weights from those labels. The review above requires suitable classification and holdings data.
 
 ## Stock-holdings comparison
 
@@ -214,7 +232,7 @@ The file needs at least five complete price rows and one asset. There is no fixe
 
 Supply adjusted prices in a common currency. The app does not convert currencies. The app rejects duplicate dates or columns, nonnumeric values, missing observations, and nonpositive prices. It sorts dates but does not remove assets or fill missing prices. It cannot confirm price adjustments, currency, or the interval between observations.
 
-Open **Observation frequency**. Select **Annualization basis** to match your data.
+For CSV input, open **Market & settings → Fine-tune the model**. Set **Price frequency** to match your data. Yahoo inputs use daily prices and 252 observations per year.
 
 | Price interval | Observations per year |
 | --- | ---: |
@@ -228,7 +246,9 @@ The CLI uses `--periods-per-year`, with a default of 252. The CLI accepts any po
 
 The app gives a warning when the training period contains fewer than 30 returns. It also gives a warning when the asset count equals or exceeds the number of training returns. These checks identify weak samples. They do not establish that a larger sample gives reliable forecasts.
 
-Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. Downloads are cached for one hour in the app. If a requested ticker is unavailable or its history is incomplete, change the ticker list or requested dates and rerun. A narrow common trading calendar works best; cross-market holidays can cause gaps.
+Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. The app caches price downloads for one hour. For **My tickers**, incomplete history stops the analysis. Change the symbols or requested dates and rerun. Nasdaq-100 input instead records and excludes incomplete members under the [coverage rules](#the-full-nasdaq-100-universe).
+
+A common trading calendar works best for custom tickers. Different market holidays can cause gaps.
 
 Yahoo symbols retain exchange suffixes such as `VOD.L`, `IWDA.AS`, `BMW.DE`, and `7203.T`. Explicit share-class aliases convert `BRK.B` to `BRK-B`, `BRK.A` to `BRK-A`, `BF.B` to `BF-B`, and `BF.A` to `BF-A`. The app does not replace other periods in ticker names. International symbols still require compatible dates and prices in a common currency.
 
@@ -254,11 +274,11 @@ The original holdout's weight cap applies when positions are established. Weight
 
 This original calculation excludes transaction costs, spreads, taxes, FX conversion and execution constraints. The separate backtest comparison deducts selected trading costs and delays execution by one observed interval. Its buy-and-hold result is therefore different. The asset universe is user-selected and fixed. Repeatedly selecting settings based on holdout performance contaminates that holdout. This is a research tool, not a trading system or an investment recommendation.
 
-The **Backtests & holdings** tab is enabled by default and compares all four methods. You can disable it when exploring a large frontier alone. No full frontier is reconstructed at each refit; only a small set of portfolio targets is needed. Repeated fits still add computational work.
+The app calculates all four backtest methods when you select **Compare → Run comparison**. With sufficient history, this produces 24 method/portfolio combinations. Each refit solves only the required portfolio targets. Repeated fits still add computational work.
 
-The **Strategies shown in charts** control affects the displayed curves only. All strategy results remain in the exports. See [the accounting and evaluation rules](docs/BACKTESTING.md).
+The risk level, allocation rule, and **Research → All backtests** chart selection change the displayed results. They preserve all calculated strategies in the exports and statistical test family. See [the accounting and evaluation rules](docs/BACKTESTING.md).
 
-The **Portfolio risk** tab uses the initial portfolio weights and the covariance estimate from the training period. It shows the largest weight, effective holdings, diversification ratio, and each asset's share of variance. These estimates describe the initial portfolio. They do not measure later changes in weights. See [the risk definitions](docs/BACKTESTING.md#portfolio-risk-and-diversification).
+**Research → Risk breakdown** uses the initial portfolio weights and the covariance estimate from the training period. It shows the largest weight, effective holdings, diversification ratio, and each asset's share of variance. These estimates describe the initial portfolio. They do not measure later changes in weights. See [the risk definitions](docs/BACKTESTING.md#portfolio-risk-and-diversification).
 
 With singular covariance, such as perfectly correlated assets and zero shrinkage, several allocations can tie for minimum variance at a target return. The curve may include equal-risk points with different returns; a unique allocation is not guaranteed.
 
@@ -266,7 +286,7 @@ With singular covariance, such as perfectly correlated assets and zero shrinkage
 
 The historical R simulation sampled only 5–40 holdings from a fixed list of 60 tickers. The Python app accepts any nonempty supplied universe and optimizes weights across the entire universe. It imposes no minimum number of selected holdings, no maximum holdings count, and no fixed input-ticker cap. Forty frontier points means forty target-return levels, not forty assets. A single asset naturally produces one frontier point.
 
-Position limits are optional. Enable **Limit weight per asset** in the app, or pass `--max-weight .01` for a 1% starting-weight cap. Caps below 5% are supported. A chosen cap must still allow the weights to sum to one; for example, a 1% cap needs at least 100 assets.
+Position limits are optional. Enable **Limit each holding** in the app, or pass `--max-weight .01` for a 1% starting-weight cap. Caps below 5% are supported. A chosen cap must still allow the weights to sum to one; for example, a 1% cap needs at least 100 assets.
 
 The computational work already runs in compiled numerical libraries and a Rust solver. The scaling improvements remove redundant bounds and replace a dense maximum-Sharpe constraint with a sparse equivalent; they preserve the same full covariance model. Rewriting the interface in C++ would not by itself change that model's computational cost.
 
@@ -281,6 +301,9 @@ For large inputs, the correlation chart initially displays a selectable subset t
 ```bash
 # Offline synthetic example
 .venv/bin/python -m efficient_frontier
+
+# Current Nasdaq-100 members, with complete history from the chosen start date
+.venv/bin/python -m efficient_frontier --nasdaq100 --start 2021-01-01 --backtests
 
 # Your adjusted prices, without an additional position cap
 .venv/bin/python -m efficient_frontier --csv prices.csv
@@ -310,6 +333,8 @@ For large inputs, the correlation chart initially displays a selectable subset t
 # Optional 1% starting-weight limit, using a universe with at least 100 assets
 .venv/bin/python -m efficient_frontier --csv data/prices.csv --max-weight .01
 ```
+
+The CLI without source flags uses the offline demo. `--nasdaq100` selects current members and applies the same coverage rules as the app. Its default start date is 2020-01-01. Set `--start` and `--end` for a different period.
 
 Yahoo runs include SPY/QQQ comparisons by default. CSV runs stay offline unless you pass `--download-benchmarks`. Use `--no-benchmarks` to skip the comparison. `--currency` defaults to `USD` and records your declaration without currency conversion. See the [benchmark guide](docs/BENCHMARKS.md#command-line-use) for data rules and options.
 

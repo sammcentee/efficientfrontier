@@ -16,24 +16,10 @@ from plotly.offline import get_plotlyjs
 from .backtest_report import backtest_html, findings_markdown
 from .benchmark_report import add_benchmark_estimates, add_benchmark_paths, benchmark_html
 from .risk import risk_contributions, risk_summary
+from .style import COLORS, style_chart
 
 
-COLORS = {"Minimum volatility": "#40d4be", "Maximum Sharpe": "#ffcb77", "Equal weight": "#aab7ff",
-          "Low": "#6cbaff", "Medium": "#edb1f1", "Extreme": "#ff8b87"}
 PLOTLY_JS_LICENSE = (Path(__file__).parent / "third_party" / "plotly.js.LICENSE.txt").read_text(encoding="utf-8")
-
-
-def _style(figure: go.Figure, title: str) -> go.Figure:
-    figure.update_layout(
-        title={"text": title, "font": {"size": 19}}, template="plotly_dark", paper_bgcolor="#111c2e", plot_bgcolor="#111c2e",
-        font={"family": "Arial, sans-serif", "color": "#e6edf7"},
-        margin={"l": 55, "r": 15, "t": 55, "b": 110},
-        legend={"orientation": "h", "y": -0.22, "font": {"size": 11}, "maxheight": 90}, height=490,
-        hovermode="closest",
-    )
-    figure.update_xaxes(gridcolor="#26344a", automargin=True)
-    figure.update_yaxes(gridcolor="#26344a", automargin=True)
-    return figure
 
 
 def frontier_chart(analysis: Any, benchmark_estimates=None) -> go.Figure:
@@ -41,17 +27,17 @@ def frontier_chart(analysis: Any, benchmark_estimates=None) -> go.Figure:
     figure = go.Figure()
     figure.add_trace(go.Scatter(
         x=analysis.frontier["volatility"], y=analysis.frontier["expected_return"],
-        mode="lines", name="Efficient frontier", line={"color": "#40d4be", "width": 3},
+        mode="lines", name="Efficient frontier", line={"color": "#7896b5", "width": 3},
         hovertemplate="Annual volatility: %{x:.2%}<br>Historical expected return: %{y:.2%}<extra>%{fullData.name}</extra>",
     ))
     for name, portfolio in analysis.portfolios.items():
         figure.add_trace(go.Scatter(
             x=[portfolio.volatility], y=[portfolio.expected_return], mode="markers", name=name,
-            marker={"size": 13, "color": COLORS.get(name, "#f3a7da"), "line": {"width": 2, "color": "#111c2e"}},
+            marker={"size": 13, "color": COLORS.get(name, "#737b85"), "line": {"width": 2, "color": "#ffffff"}},
             hovertemplate="Annual volatility: %{x:.2%}<br>Historical expected return: %{y:.2%}<extra>%{fullData.name}</extra>",
         ))
     add_benchmark_estimates(figure, benchmark_estimates, "expected_return")
-    _style(figure, "Efficient frontier")
+    style_chart(figure, "Efficient frontier")
     figure.update_xaxes(title="Annual volatility", tickformat=".1%", rangemode="tozero")
     figure.update_yaxes(title="Expected annual return", tickformat=".1%")
     return figure
@@ -63,11 +49,11 @@ def holdout_chart(analysis: Any, benchmark_equity=None) -> go.Figure:
     for name in analysis.equity.columns:
         figure.add_trace(go.Scatter(
             x=analysis.equity.index, y=analysis.equity[name] * 10_000, name=name,
-            mode="lines", line={"width": 2.5, "color": COLORS.get(name, "#f3a7da")},
+            mode="lines", line={"width": 2.5, "color": COLORS.get(name, "#737b85")},
             hovertemplate="%{x|%Y-%m-%d}<br>Portfolio value: %{y:,.2f}<extra>%{fullData.name}</extra>",
         ))
     add_benchmark_paths(figure, benchmark_equity)
-    _style(figure, "Holdout performance")
+    style_chart(figure, "Holdout performance", hovermode="x unified")
     figure.update_xaxes(title="Date")
     figure.update_yaxes(title="Value (initial 10,000)", tickformat=",.0f")
     return figure
@@ -77,17 +63,17 @@ def latest_profile_chart(profiles: Any, benchmark_estimates=None) -> go.Figure:
     """Plot the lowest historical window mean against estimated volatility."""
     figure = go.Figure(go.Scatter(
         x=profiles.frontier["volatility"], y=profiles.frontier["worst_window_return"],
-        mode="lines", name="Window frontier", line={"color": "#40d4be", "width": 3},
+        mode="lines", name="Window frontier", line={"color": "#7896b5", "width": 3},
         hovertemplate="Annual volatility: %{x:.2%}<br>Lowest annual window mean: %{y:.2%}<extra>%{fullData.name}</extra>",
     ))
     for name, row in profiles.summary.iterrows():
         figure.add_trace(go.Scatter(
             x=[row["volatility"]], y=[row["worst_window_return"]], mode="markers", name=html.escape(str(name)),
-            marker={"size": 13, "color": COLORS.get(name, "#f3a7da"), "line": {"width": 2, "color": "#111c2e"}},
+            marker={"size": 13, "color": COLORS.get(name, "#737b85"), "line": {"width": 2, "color": "#ffffff"}},
             hovertemplate="Annual volatility: %{x:.2%}<br>Lowest annual window mean: %{y:.2%}<extra>%{fullData.name}</extra>",
         ))
     add_benchmark_estimates(figure, benchmark_estimates, "worst_window_return")
-    _style(figure, "Latest risk profiles")
+    style_chart(figure, "Latest risk profiles")
     figure.update_xaxes(title="Annual volatility", tickformat=".1%", rangemode="tozero")
     figure.update_yaxes(title="Lowest annual window mean", tickformat=".1%")
     return figure
@@ -214,8 +200,14 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
     source_label = "Synthetic demonstration data" if any(word in source.lower() for word in ("demo", "synthetic")) else "Data source"
     metadata_rows = "".join(
         f"<tr><th>{html.escape(str(key).replace('_', ' ').capitalize())}</th><td>{html.escape(str(value))}</td></tr>"
-        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days", "latest_profiles", "benchmarks", "evidence")
+        for key, value in details.items() if key not in ("backtests", "backtest_warnings", "backtest_files", "annualization_days", "latest_profiles", "benchmarks", "evidence", "universe_coverage")
     )
+    coverage_html = ""
+    if details.get("universe_coverage"):
+        coverage = pd.DataFrame(details["universe_coverage"])
+        coverage_html = ('<details><summary>Universe coverage</summary><div class="scroll">'
+                         + coverage.to_html(index=False, escape=True, border=0, classes="data")
+                         + '</div></details>')
     warnings = "".join(f"<li>{html.escape(str(warning))}</li>" for warning in analysis.warnings)
     warnings_html = f'<aside><h2>Analysis notes</h2><ul>{warnings}</ul></aside>' if warnings else ""
     estimates = pd.DataFrame.from_dict({
@@ -257,13 +249,13 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Efficient Frontier · Research Report</title>
 <style>
-:root{{color-scheme:dark}}*{{box-sizing:border-box}}body{{margin:0;background:#091321;color:#e6edf7;font:16px/1.6 Arial,sans-serif}}
-main{{max-width:1150px;margin:auto;padding:40px 24px}}h1{{font-size:36px;line-height:1.2}}h2{{font-size:23px;margin-top:32px}}
-p{{max-width:950px}}.muted{{color:#adbbce}}.source,aside{{padding:16px 20px;background:#172a3b;border-left:4px solid #40d4be}}
-.chart{{background:#111c2e;border-radius:12px;margin:24px 0}}.scroll{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:14px}}
-th,td{{border-bottom:1px solid #26344a;padding:10px 12px;text-align:right}}th:first-child,td:first-child{{text-align:left}}
-.metadata th{{width:30%;text-align:left}}.metadata td{{text-align:left;overflow-wrap:anywhere}}footer{{margin-top:32px;color:#adbbce}}pre{{white-space:pre-wrap}}
-button{{padding:10px 16px;cursor:pointer}}@media print{{
+:root{{color-scheme:light}}*{{box-sizing:border-box}}body{{margin:0;background:#f5f5f7;color:#1d1d1f;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}
+main{{max-width:1150px;margin:auto;padding:48px 24px}}h1{{font-size:36px;line-height:1.2;letter-spacing:-.04em}}h2{{font-size:23px;margin-top:36px;letter-spacing:-.025em}}
+p{{max-width:950px}}.muted{{color:#62666e}}.source,aside{{padding:16px 20px;background:#fff;border:1px solid #e6e7eb;border-radius:12px}}
+.chart{{background:#fff;border:1px solid #e6e7eb;border-radius:16px;margin:24px 0;overflow:hidden}}.scroll{{overflow-x:auto}}table{{border-collapse:collapse;width:100%;font-size:14px}}
+th,td{{border-bottom:1px solid #e6e7eb;padding:10px 12px;text-align:right}}th:first-child,td:first-child{{text-align:left}}
+.metadata th{{width:30%;text-align:left}}.metadata td{{text-align:left;overflow-wrap:anywhere}}footer{{margin-top:32px;color:#62666e}}pre{{white-space:pre-wrap}}summary{{cursor:pointer;padding:12px 0}}
+button{{padding:10px 16px;cursor:pointer;background:#1764c0;color:white;border:0;border-radius:10px;font:inherit}}@media print{{
 @page{{size:A4 landscape;margin:12mm}}:root{{color-scheme:light}}body{{background:white;color:#172337;font-size:10pt}}
 main{{max-width:none;padding:0}}h1{{font-size:25pt}}h2{{break-after:avoid}}.source,aside{{background:#eef4f7}}
 .muted,footer{{color:#35445a}}.chart{{break-inside:avoid;background:white}}.scroll{{overflow:visible}}
@@ -303,7 +295,7 @@ CAGR and volatility use {analysis.periods_per_year:g} observations per year.</p>
 <p class="muted">Sortino measures excess return relative to downside deviation. Calmar divides CAGR by the absolute maximum drawdown.
 An em dash marks a ratio with a zero denominator.</p><div class="chart">{holdout_plot}</div>
 <div class="scroll">{_table(holdout, ["Total return", "CAGR", "Annual volatility", "Maximum drawdown"])}</div>
-<h2>Data and assumptions</h2><div class="scroll"><table class="metadata">{metadata_rows}</table></div>
+<h2>Data and assumptions</h2><div class="scroll"><table class="metadata">{metadata_rows}</table></div>{coverage_html}
 <footer>{cost_note} Taxes and currency conversion (FX) are excluded. Price series must share a consistent currency basis.
 This report is a historical research tool and does not predict investment outcomes. Charts work offline.
 <details><summary>Third-party notice: Plotly.js (MIT)</summary><pre>{html.escape(PLOTLY_JS_LICENSE)}</pre></details></footer>
@@ -319,6 +311,8 @@ def report_zip(analysis: Any, prices: pd.DataFrame, metadata: dict, study=None, 
         "holdout_curve.csv": analysis.equity, "prices.csv": prices,
         "risk_summary.csv": risk_summary(analysis), "risk_contributions.csv": risk_contributions(analysis),
     }
+    if metadata.get("universe_coverage"):
+        frames["universe_coverage.csv"] = pd.DataFrame(metadata["universe_coverage"])
     if study is not None:
         frames.update({"backtest_metrics.csv": study.metrics, "backtest_curve.csv": study.equity})
         for i, name in enumerate(study.equity.columns, 1):

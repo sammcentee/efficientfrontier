@@ -1,5 +1,33 @@
 # Validation record
 
+## Nasdaq-100 workspace: 4 October 2026
+
+**391 tests passed**, including **28 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65. The suite reports one existing pandas warning in the invalid-date rejection test.
+
+The app now starts with the current Nasdaq-100 and five years of history. The main views are **Portfolio**, **Compare**, and **Research**. The app and exported reports use a light theme. The Deploy control is absent in the local app.
+
+### Data and calculation checks
+
+- Nasdaq returned 101 current securities, with a source date of 1 October 2026. Separate share classes remain separate assets.
+- The default Yahoo request produced 1,255 market dates from 4 October 2021 through 2 October 2026. It included 92 securities and excluded nine. Every requested security appears in the coverage table with its status and reason.
+- An independent audit used the browser's exported ZIP. All 103 files matched the extracted files. Coverage, price columns, dates, and latest weight totals reconciled.
+- All 24 backtests reconciled holding profits less fees to net returns. The largest difference was `2e-15`.
+- Both benchmark paths matched the saved prices, common dates, delayed entry, and 10 basis-point entry fee. All 48 comparisons, 96 statistical tests, and 144 evaluation-window rows remained in the export.
+
+The default **Expanding window · Medium** test ran from 3 April 2025 through 2 October 2026. Its annualized growth was **9.36%**, versus **28.57% for SPY** and **41.07% for QQQ**. Both comparisons showed no clear statistical advantage after adjustment. This sample differs from the earlier six-asset checks below. It does not establish future performance.
+
+### App checks
+
+The interaction tests cover explicit calculation and export actions, pending inputs, applied settings, benchmark fees, and recovery after failures. They also cover repeated Nasdaq requests from the cache, replacement CSVs with the same filename, and removal of obsolete failure notes after a successful retry.
+
+The background T3 browser completed the live Nasdaq request, risk selection, benchmark comparison, and report preparation. Navigation between views returned to the top. Repeated portfolio updates completed without the former progress-display cache error.
+
+At 390 × 844, the navigation fit, metric cards stacked, and the comparison title remained inside its chart. The page had no horizontal overflow. Separate demo checks also covered 300-pixel width. The offline report rendered seven charts at 300 and 390 pixels without external resource requests. Its chart titles fit, and wide tables stayed in scroll areas.
+
+A synthetic 100-asset timing check completed the main analysis in 0.17 seconds and all 24 backtests in 2.05 seconds. This measures local calculation only. It excludes downloads and does not guarantee performance on another computer.
+
+These checks used Linux/WSL and a desktop browser. They do not establish physical-phone or native Windows/macOS support. Live data access was available during this run. Automated provider tests use mocked responses. Current membership and complete-history eligibility remain sources of historical selection bias. No new PDF was generated.
+
 ## Market benchmarks and historical evidence: 4 October 2026
 
 **359 tests passed**, including **25 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65 on Linux/WSL.
