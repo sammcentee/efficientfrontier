@@ -9,6 +9,7 @@ import pandas as pd
 from .metrics import performance_metrics, validate_periods_per_year
 
 TRADING_DAYS = 252
+CLASSIC_PROFILE_NAMES = ("Low", "Medium", "High")
 
 
 @dataclass
@@ -211,6 +212,10 @@ def optimize(
          for p in frontier_portfolios]
     )
     frontier_weights = pd.DataFrame([p.weights.to_numpy() for p in frontier_portfolios], columns=labels)
+    if len(frontier) > 1 and np.ptp(frontier.volatility.to_numpy()) <= 1e-8 * np.sqrt(covariance_scale):
+        # Equal-risk points with a lower return are dominated by the endpoint.
+        frontier = frontier.iloc[[-1]].reset_index(drop=True)
+        frontier_weights = frontier_weights.iloc[[-1]].reset_index(drop=True)
     return portfolios, frontier, frontier_weights, warnings
 
 
@@ -228,6 +233,7 @@ def analyze(
     Means and sample covariance use periods_per_year for annualization.
     Covariance shrinks toward its diagonal. Holdout Sharpe and Sortino use annual
     arithmetic excess returns. Calmar uses CAGR. No fees, tax or FX.
+    A multipoint frontier sample also supplies Low, Medium, and High risk levels.
     """
     prices = _validate_price_frame(prices)
     periods_per_year = validate_periods_per_year(periods_per_year)
@@ -247,6 +253,19 @@ def analyze(
     portfolios, frontier, frontier_weights, warnings = optimize(
         mean_returns, covariance, risk_free_rate, max_weight, frontier_points,
     )
+    if frontier_points > 1:
+        midpoint_volatility = (frontier.volatility.iloc[0] + frontier.volatility.iloc[-1]) / 2
+        middle = int(np.argmin(np.abs(frontier.volatility.to_numpy() - midpoint_volatility)))
+        for name, position in zip(CLASSIC_PROFILE_NAMES, (0, middle, len(frontier) - 1)):
+            row = frontier.iloc[position]
+            portfolios[name] = Portfolio(
+                name, frontier_weights.iloc[position].rename(name),
+                float(row.expected_return), float(row.volatility), float(row.sharpe),
+            )
+        if len(frontier) == 1:
+            warnings.append(
+                "The classic frontier provides no distinct risk levels. Low, Medium, and High use the same allocation."
+            )
     if split < 30:
         warnings.append(
             f"Only {split} training returns are available (fewer than 30). Return and risk estimates can be unstable."

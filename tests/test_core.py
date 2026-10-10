@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from efficient_frontier.core import analyze, optimize
+from efficient_frontier.core import CLASSIC_PROFILE_NAMES, analyze, optimize
 
 
 def model():
@@ -100,6 +100,22 @@ def test_single_point_frontier_preserves_portfolios_and_skips_an_endpoint_solve(
     pd.testing.assert_frame_equal(frontier, full_frontier.iloc[:1])
     pd.testing.assert_frame_equal(weights, full_weights.iloc[:1])
     assert warnings == full_warnings
+
+
+def test_single_point_analysis_preserves_legacy_holdouts_without_risk_level_aliases():
+    single = analyze(price_history(), train_fraction=2 / 3, frontier_points=1)
+    full = analyze(price_history(), train_fraction=2 / 3, frontier_points=5)
+    assert not set(CLASSIC_PROFILE_NAMES).intersection(single.portfolios)
+    assert not set(CLASSIC_PROFILE_NAMES).intersection(single.equity.columns)
+    assert not set(CLASSIC_PROFILE_NAMES).intersection(single.holdout_metrics.index)
+    for name, portfolio in single.portfolios.items():
+        pd.testing.assert_series_equal(portfolio.weights, full.portfolios[name].weights)
+        assert portfolio.expected_return == full.portfolios[name].expected_return
+        assert portfolio.volatility == full.portfolios[name].volatility
+        assert portfolio.sharpe == full.portfolios[name].sharpe
+    pd.testing.assert_frame_equal(single.equity, full.equity.loc[:, single.equity.columns])
+    pd.testing.assert_frame_equal(single.holdout_metrics, full.holdout_metrics.loc[single.holdout_metrics.index])
+    assert not any("no distinct risk levels" in message for message in single.warnings)
 
 
 @pytest.mark.parametrize("frontier_points", [0, -1, True, 1.5])
@@ -227,6 +243,87 @@ def test_zero_volatility_has_undefined_sharpe():
     assert any("undefined" in warning for warning in warnings)
 
 
+@pytest.mark.parametrize("covariance_scale", [0, 1e-8, 1, 1e8])
+def test_flat_risk_frontier_keeps_only_its_best_return_endpoint(covariance_scale):
+    mu, covariance = model()
+    covariance.loc[:, :] = 0.04 * covariance_scale
+    original, _, _, _ = optimize(mu, covariance, frontier_points=1)
+    portfolios, frontier, weights, _ = optimize(mu, covariance, frontier_points=5)
+    assert len(frontier) == len(weights) == 1
+    assert frontier.iloc[0].expected_return == pytest.approx(0.2, abs=1e-8)
+    assert frontier.iloc[0].volatility == pytest.approx(0.2 * np.sqrt(covariance_scale))
+    np.testing.assert_allclose(weights.iloc[0], [0, 1], atol=1e-7)
+    for name in original:
+        pd.testing.assert_series_equal(portfolios[name].weights, original[name].weights)
+
+
+@pytest.mark.parametrize("frontier_points", [4, 5])
+def test_classic_risk_levels_use_feasible_solved_points_and_nearest_midpoint_volatility(frontier_points):
+    result = analyze(price_history(), train_fraction=2 / 3, max_weight=0.6, frontier_points=frontier_points)
+    low, medium, high = [result.portfolios[name] for name in CLASSIC_PROFILE_NAMES]
+    assert low.volatility < medium.volatility < high.volatility
+    midpoint = (low.volatility + high.volatility) / 2
+    assert abs(medium.volatility - midpoint) == pytest.approx(np.abs(result.frontier.volatility - midpoint).min())
+    pd.testing.assert_series_equal(low.weights, result.frontier_weights.iloc[0].rename("Low"))
+    pd.testing.assert_series_equal(high.weights, result.frontier_weights.iloc[-1].rename("High"))
+    for name in CLASSIC_PROFILE_NAMES:
+        portfolio = result.portfolios[name]
+        assert portfolio.name == portfolio.weights.name == name
+        assert portfolio.weights.sum() == pytest.approx(1)
+        assert portfolio.weights.min() >= 0
+        assert portfolio.weights.max() <= 0.600001
+        matches = np.all(np.isclose(result.frontier_weights.to_numpy(), portfolio.weights.to_numpy()), axis=1)
+        assert matches.any()
+        assert portfolio.expected_return == pytest.approx(result.mean_returns @ portfolio.weights)
+        assert portfolio.volatility == pytest.approx(np.sqrt(portfolio.weights @ result.covariance @ portfolio.weights))
+
+
+def test_equal_return_classic_frontier_has_one_allocation_and_a_warning():
+    prices = price_history()[["A", "A"]].copy()
+    prices.columns = ["A", "B"]
+    result = analyze(prices, train_fraction=2 / 3, frontier_points=5)
+    assert len(result.frontier) == 1
+    for name in CLASSIC_PROFILE_NAMES:
+        pd.testing.assert_series_equal(result.portfolios[name].weights, result.frontier_weights.iloc[0].rename(name))
+    assert any("no distinct risk levels" in message for message in result.warnings)
+
+
+@pytest.mark.parametrize("zero_covariance", [False, True])
+def test_flat_classic_frontier_uses_its_best_return_mix_for_all_levels(zero_covariance):
+    values = [[1, 3], [1, 3]] if zero_covariance else [[0.01, 0.02], [0.03, 0.04]]
+    returns = np.tile(values, (6, 1))
+    prices = pd.DataFrame(
+        100 * np.vstack([np.ones(2), np.cumprod(1 + returns, axis=0)]),
+        index=pd.bdate_range("2020-01-01", periods=13), columns=["A", "B"],
+    )
+    result = analyze(prices, train_fraction=2 / 3, shrinkage=0, frontier_points=5, periods_per_year=12)
+    assert len(result.frontier) == 1
+    for name in CLASSIC_PROFILE_NAMES:
+        np.testing.assert_allclose(result.portfolios[name].weights, [0, 1], atol=1e-7)
+    assert any("no distinct risk levels" in message for message in result.warnings)
+
+
+def test_classic_levels_require_no_solver_calls_beyond_the_existing_frontier(monkeypatch):
+    from efficient_frontier import core
+
+    original = core._solve
+    calls = 0
+
+    def count_solve(problem):
+        nonlocal calls
+        calls += 1
+        original(problem)
+
+    monkeypatch.setattr(core, "_solve", count_solve)
+    result = analyze(price_history(), train_fraction=2 / 3, frontier_points=5)
+    analysis_calls = calls
+    calls = 0
+    portfolios, _, _, _ = optimize(result.mean_returns, result.covariance, frontier_points=5)
+    assert calls == analysis_calls
+    for name in portfolios:
+        pd.testing.assert_series_equal(result.portfolios[name].weights, portfolios[name].weights)
+
+
 def test_training_arithmetic_means_and_diagonal_shrinkage():
     prices = price_history()
     result = analyze(prices, train_fraction=2 / 3, shrinkage=0.25, frontier_points=3)
@@ -262,6 +359,18 @@ def test_holdout_is_buy_and_hold_and_includes_boundary_return():
     assert result.test_returns.iloc[0].A == pytest.approx(-0.2)
     assert result.holdout_metrics.loc["Equal weight", "total_return"] == pytest.approx(0)
     assert result.holdout_metrics.loc["Equal weight", "cagr"] == pytest.approx(0)
+
+
+def test_classic_risk_level_holdouts_use_their_training_weights_and_allow_drift():
+    prices = price_history()
+    result = analyze(prices, train_fraction=2 / 3, frontier_points=5)
+    for name in CLASSIC_PROFILE_NAMES:
+        portfolio = result.portfolios[name]
+        expected = (prices.iloc[4:].div(prices.iloc[4]) @ portfolio.weights).rename(name)
+        pd.testing.assert_series_equal(result.equity[name], expected)
+        assert result.holdout_metrics.loc[name, "total_return"] == pytest.approx(0)
+    daily_rebalanced_return = (1 + result.test_returns @ result.portfolios["Low"].weights).prod() - 1
+    assert daily_rebalanced_return > 0
 
 
 def test_drawdown_includes_initial_capital():

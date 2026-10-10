@@ -16,7 +16,7 @@ from efficient_frontier.backtest import run_backtests
 from efficient_frontier.backtest_report import HOLDINGS, METRICS, backtest_chart
 from efficient_frontier.benchmark_report import evidence_summary_frame
 from efficient_frontier.benchmarks import compare_benchmarks
-from efficient_frontier.core import analyze
+from efficient_frontier.core import CLASSIC_PROFILE_NAMES, analyze
 from efficient_frontier.data import BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, validate_benchmark_prices
 from efficient_frontier.evidence import analyze_evidence
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, latest_profile_chart, weights_frame
@@ -136,7 +136,8 @@ def calculate_market(benchmark_prices, prices, result, latest, settings, study=N
 
 def init_state():
     defaults = {"setup": dict(DEFAULT_SETUP), "setup_open": False, "view": "Portfolio", "risk_profile": "Medium",
-                "comparison_method": "Expanding window", "comparison_chart": "Growth", "research_topic": "Efficient frontiers"}
+                "comparison_method": "Expanding window", "comparison_chart": "Growth", "research_topic": "Efficient frontiers",
+                "classic_risk_profile": "Medium"}
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
 
@@ -880,22 +881,40 @@ def research():
                     st.dataframe(weights_frame(latest).style.format("{:.2%}"), column_config={"_index": "Symbol", "Extreme": "Highest"},
                                  width="stretch")
         with st.container(border=True, key="tile_r_classic"):
-            st.html(title_html("The classic model, for reference", "The app's first model. It fits average returns on the first "
-                               f"{metadata['train_fraction'] * 100:g}% of prices, to {day(result.train_returns.index[-1])}. "
-                               "Then it holds each mix unchanged on the rest. It stays here for comparison."))
-            with st.expander("Classic frontier"):
+            st.html(title_html("The classic model, for reference", "This model fits average returns on the first "
+                               f"{metadata['train_fraction'] * 100:g}% of return observations. It then buys each mix once and tests it on later prices. "
+                               "The overview uses a different rule: the weakest of three past stretches."))
+            classic_profile = st.segmented_control("Classic risk level", CLASSIC_PROFILE_NAMES, key="classic_risk_profile",
+                                                   required=True, persist_state="session")
+            st.caption("Low is the least volatile frontier mix. Medium is the frontier point nearest halfway between Low and High volatility. "
+                       "High has the highest average return in the fit. These are relative choices, not absolute risk limits.")
+            if len(result.frontier) == 1:
+                st.info("This fit has no distinct frontier risk levels. Low, Medium and High use the same mix.")
+            with st.expander("Classic frontier", expanded=True):
                 estimates = benchmarks.training_estimates if benchmarks is not None else None
-                research_chart(frontier_chart(result, estimates))
-                st.dataframe(weights_frame(result).style.format("{:.2%}"), column_config={"_index": "Symbol"}, width="stretch")
-                st.caption("This model uses only the first part of the history." + (
+                research_chart(frontier_chart(result, estimates, selected=classic_profile))
+                st.caption(f"Fit returns: {day(result.train_returns.index[0])} to {day(result.train_returns.index[-1])}. "
+                           "The vertical axis is the historical arithmetic mean, scaled to a year. It is not compounded growth or a forecast.")
+                st.markdown("**Why a point above an ETF may lose later.** At the same volatility, a higher point has a higher average return "
+                            "in this fit. It does not show which mix won on the later test dates. Low can also have a lower return than an ETF "
+                            "with more risk. The fit selects the weights using history; future returns can differ.")
+                st.caption("The frontier uses your selected assets and holding limit." + (
                     " The SPY and QQQ markers use the same dates. They do not follow your holding limit." if estimates is not None else ""))
-            with st.expander("Classic holdout, no trading costs"):
-                research_chart(holdout_chart(result, benchmarks.holdout_equity if benchmarks is not None else None))
-                metrics = result.holdout_metrics if benchmarks is None else pd.concat([result.holdout_metrics, benchmarks.holdout_metrics])
+                with st.expander(f"Initial weights · Classic {classic_profile}"):
+                    weights = weights_frame(result)[[classic_profile]].rename(columns={classic_profile: "Weight"})
+                    st.dataframe(weights.sort_values("Weight", ascending=False, kind="stable").style.format("{:.2%}"),
+                                 column_config={"_index": "Symbol"}, width="stretch")
+            with st.expander("Classic holdout, no trading costs", expanded=True):
+                research_chart(holdout_chart(result, benchmarks.holdout_equity if benchmarks is not None else None, selected=classic_profile))
+                st.caption(f"Later test returns: {day(result.test_returns.index[0])} to {day(result.test_returns.index[-1])}. "
+                           f"Classic {classic_profile} uses the same initial weights as its highlighted frontier point.")
+                metrics = result.holdout_metrics.loc[[classic_profile]]
+                if benchmarks is not None:
+                    metrics = pd.concat([metrics, benchmarks.holdout_metrics])
                 st.dataframe(metrics.style.format({name: ratio if name in ("sharpe", "sortino", "calmar") else "{:.2%}" for name in metrics}, na_rep="—"),
                              column_config={"_index": "Portfolio", **{name: label for name, (label, _) in METRICS.items()}}, width="stretch")
                 st.caption("Each mix is bought once at the split close and then left to drift. This check has no fees. "
-                           "Its entry date differs from the market test.")
+                           "SPY and QQQ use the same entry and test dates when available. The overview's market test uses different refits, fees and an entry one close later.")
     elif topic == "Risk breakdown":
         with st.container(border=True, key="tile_r_risk"):
             with st.container(key="r_lead"):
