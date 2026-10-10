@@ -1,6 +1,7 @@
 """Reproducible command-line analysis and report export."""
 
 import argparse
+from datetime import date
 from pathlib import Path
 import sys
 from zipfile import ZipFile
@@ -15,6 +16,7 @@ from .data import (BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download
 from .evidence import analyze_evidence
 from .presentation import report_zip
 from .profiles import build_profiles
+from .universe import download_universe_prices, fetch_nasdaq100
 
 
 def main():
@@ -23,6 +25,7 @@ def main():
     sources.add_argument("--csv", type=Path, help="Adjusted prices: Date,ASSET1,ASSET2,…")
     sources.add_argument("--tickers", help="Comma-separated Yahoo Finance symbols; no ticker-count cap")
     sources.add_argument("--original-holdings", action="store_true", help="Use the original 60 tickers from spy_holdings.ods")
+    sources.add_argument("--nasdaq100", action="store_true", help="Fetch current Nasdaq-100 members and retain securities with complete prices for the selected period")
     benchmark_sources = parser.add_mutually_exclusive_group()
     benchmark_sources.add_argument("--benchmark-csv", type=Path, help="Offline USD benchmark prices: Date,SPY,QQQ; must cover every asset date")
     benchmark_sources.add_argument("--download-benchmarks", action="store_true", help="Download SPY and QQQ from Yahoo, including for CSV portfolios; unavailable for synthetic demo data")
@@ -49,13 +52,21 @@ def main():
         currency = args.currency.strip().upper()
         if not currency:
             raise ValueError("currency must identify the common price currency, such as USD or EUR.")
-        synthetic = args.csv is None and args.tickers is None and not args.original_holdings
+        synthetic = args.csv is None and args.tickers is None and not args.original_holdings and not args.nasdaq100
         if synthetic and (args.benchmark_csv is not None or args.download_benchmarks):
             raise ValueError("Synthetic demo data cannot use real market benchmarks. Select --csv or --tickers first.")
-        if args.csv:
+        universe_prices = None
+        if args.nasdaq100:
+            universe_prices = download_universe_prices(fetch_nasdaq100(), args.start, args.end or date.today().isoformat())
+            prices, source = universe_prices.prices, "Nasdaq-100 · Yahoo Finance"
+            if len(prices.columns) < 2:
+                raise ValueError(
+                    f"Only {len(prices.columns)} of {len(universe_prices.coverage)} Nasdaq-100 securities have complete prices. "
+                    f"At least two are required. {len(universe_prices.coverage) - len(prices.columns)} securities were excluded."
+                )
+        elif args.csv:
             prices, source = load_csv(args.csv), "CSV: " + args.csv.name
         elif args.tickers is not None or args.original_holdings:
-            from datetime import date
             tickers = original_tickers(current_symbols=True) if args.original_holdings else parse_tickers(args.tickers)
             prices = download_prices(tickers, args.start, args.end or date.today().isoformat())
             source = "Yahoo Finance"
@@ -72,12 +83,15 @@ def main():
                               include_profiles=profile_backtests) if args.backtests else None
         if study is not None and not profile_backtests:
             study.warnings.append("Risk-profile backtests need at least six returns in both the initial and rolling fit windows. Only the original targets are shown.")
-        metadata = {"source": source, "price_currency": currency,
-                    "currency_assumption": f"The user declares all asset prices in {currency}. No currency conversion occurs. USD benchmark ETFs require the same currency basis.",
-                    **settings}
+        metadata = dict(universe_prices.metadata) if universe_prices is not None else {}
+        metadata.update(source=source, price_currency=currency,
+                        currency_assumption=f"The user declares all asset prices in {currency}. No currency conversion occurs. USD benchmark ETFs require the same currency basis.",
+                        **settings)
+        if universe_prices is not None:
+            metadata["universe_coverage"] = universe_prices.coverage.to_dict(orient="records")
         if latest_profiles is None:
             metadata["latest_profiles_note"] = "Latest profiles need at least seven prices for three windows with two returns each."
-        if source == "Yahoo Finance":
+        if source == "Yahoo Finance" or args.nasdaq100:
             metadata.update(requested_start=args.start, requested_end_exclusive=args.end or date.today().isoformat())
         benchmarks = evidence = None
         if args.no_benchmarks:
@@ -95,6 +109,9 @@ def main():
                 elif args.download_benchmarks:
                     metadata["benchmark_source"] = "Yahoo Finance"
                     benchmark_prices = download_benchmarks(prices.index)
+                elif universe_prices is not None:
+                    metadata["benchmark_source"] = "Yahoo Finance · Nasdaq-100 download"
+                    benchmark_prices = universe_prices.benchmarks
                 elif set(BENCHMARK_SYMBOLS).issubset(prices.columns):
                     metadata["benchmark_source"] = "Asset columns: " + ", ".join(BENCHMARK_SYMBOLS)
                     benchmark_prices = prices.loc[:, list(BENCHMARK_SYMBOLS)]
@@ -131,7 +148,8 @@ def main():
                                    "benchmark_prices.csv", "benchmark_holdout_metrics.csv", "benchmark_holdout_curve.csv",
                                    "benchmark_training_estimates.csv", "benchmark_latest_estimates.csv",
                                    "benchmark_backtest_metrics.csv", "benchmark_backtest_curve.csv",
-                                   "evidence_summary.csv", "evidence_windows.csv", "evidence_relative_curve.csv")]
+                                   "evidence_summary.csv", "evidence_windows.csv", "evidence_relative_curve.csv",
+                                   "universe_coverage.csv")]
             for kind in ("holdings", "allocations", "trades"):
                 previous_backtests.extend((args.output / "backtests").glob(f"[0-9][0-9]_{kind}.csv"))
             for path in previous_backtests:
@@ -143,6 +161,13 @@ def main():
         return 1
     print(f"Source: {source}")
     print(f"Declared price currency: {currency} (no currency conversion)")
+    if universe_prices is not None:
+        included, requested = len(prices.columns), len(universe_prices.coverage)
+        print(f"Nasdaq-100 coverage: {included} of {requested} securities included; {requested - included} excluded.")
+        print(f"Membership source date: {metadata['universe_source_date']}")
+        print(f"Membership source: {metadata['universe_source_url']}")
+        print(f"Note: {metadata['universe_limitation']}")
+        print(f"Coverage: {(args.output / 'universe_coverage.csv').resolve()}")
     if latest_profiles is not None:
         print(f"\nLatest model holdings as of {latest_profiles.as_of} (full-history fit, not an out-of-sample result):")
         print(latest_profiles.summary.round(4).to_string())

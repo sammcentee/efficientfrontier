@@ -160,6 +160,27 @@ def test_price_export_has_date_header_and_can_be_uploaded(report_analysis):
     assert prices.index.name is None
 
 
+def test_universe_coverage_exports_all_members_and_escapes_provider_text(report_analysis):
+    coverage = [
+        {"symbol": "AAA", "company": "Example", "status": "included", "observations": 1260},
+        {"symbol": "BBB", "company": '<script>alert("provider")</script>',
+         "status": "excluded", "observations": 8, "reason": "=untrusted text"},
+    ]
+    metadata = {"universe_coverage": coverage, "universe_members": 2, "universe_included": 1}
+    with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, pd.DataFrame(), metadata))) as bundle:
+        frame = pd.read_csv(bundle.open("universe_coverage.csv"), index_col=0)
+        assert frame.symbol.tolist() == ["AAA", "BBB"]
+        assert frame.status.tolist() == ["included", "excluded"]
+        assert frame.observations.tolist() == [1260, 8]
+        assert frame.loc[1, "reason"] == "'=untrusted text"
+        assert json.loads(bundle.read("metadata.json"))["universe_coverage"] == coverage
+        document = bundle.read("report.html").decode()
+        assert '<summary>Universe coverage</summary>' in document
+        assert '&lt;script&gt;alert("provider")&lt;/script&gt;' in document
+        assert '<script>alert("provider")</script>' not in document
+        assert '<th>Universe coverage</th>' not in document
+
+
 def test_report_uses_configured_annualization_and_preserves_risk_numbers(report_analysis):
     report_analysis.periods_per_year = 12.0
     with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, pd.DataFrame(), {"annualization_days": 252}))) as bundle:
