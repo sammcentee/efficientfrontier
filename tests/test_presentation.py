@@ -64,6 +64,22 @@ def test_zip_contains_reproducible_results_and_assumptions(report_analysis):
         assert bundle.read("report.html").startswith(b"<!doctype html>")
 
 
+def test_report_data_table_shows_plain_labels_and_percents_and_metadata_stays_raw(report_analysis):
+    prices = pd.DataFrame({"AAA": [100.0, 101.0], "BBB": [100.0, 100.5]}, index=pd.bdate_range("2024-01-01", periods=2))
+    settings = {"source": "Synthetic demo", "compare_market": True, "train_fraction": 0.7, "risk_free_rate": 0.02,
+                "max_weight": 1.0, "shrinkage": 0.1}
+    with zipfile.ZipFile(io.BytesIO(report_zip(report_analysis, prices, settings))) as bundle:
+        data = bundle.read("report.html").decode().split('<section id="data">')[1].split("</table>")[0]
+        for row in ("<th>Market comparison</th><td>Yes</td>", "<th>Prices for the first fit</th><td>70%</td>",
+                    "<th>Risk-free rate</th><td>2.00%</td>", "<th>Largest holding allowed</th><td>No limit</td>",
+                    "<th>Covariance shrinkage</th><td>10%</td>", "<th>Observations per year</th><td>252</td>",
+                    "<th>Assets</th><td>AAA, BBB</td>"):
+            assert row in data
+        assert "_" not in data and "Train fraction" not in data and "0.7<" not in data
+        metadata = json.loads(bundle.read("metadata.json"))
+        assert {key: metadata[key] for key in settings} == settings
+
+
 def test_standalone_report_and_archive_include_complete_plotly_license(report_analysis):
     license_text = (Path(__file__).resolve().parents[1] / "efficient_frontier" / "third_party" / "plotly.js.LICENSE.txt").read_text(encoding="utf-8")
     assert "Permission is hereby granted, free of charge" in license_text
@@ -248,7 +264,7 @@ def test_latest_profile_chart_uses_lowest_window_mean_not_full_history_mean(late
     chart = latest_profile_chart(latest_profiles)
     np.testing.assert_allclose(chart.data[0].x, [0.1, 0.15, 0.25])
     np.testing.assert_allclose(chart.data[0].y, [0.02, 0.04, 0.06])
-    assert [trace.name for trace in chart.data[1:]] == ["Low", "Medium", "Extreme"]
+    assert [trace.name for trace in chart.data[1:]] == ["Low", "Medium", "Highest"]
     for index, trace in enumerate(chart.data[1:]):
         assert trace.y[0] == pytest.approx([0.02, 0.04, 0.06][index])
     assert len({trace.marker.color for trace in chart.data[1:]}) == 3
@@ -261,7 +277,7 @@ def test_latest_profiles_are_prominent_separate_and_escape_report_content(report
     document = report_html(report_analysis, {}, latest_profiles=latest_profiles)
     assert document.index('id="latest-profiles"') < document.index("<h2>Training estimates</h2>")
     profile_section = document.split('<section id="latest-profiles">')[1].split("</section>")[0]
-    assert "Latest model holdings as of 2024-10-01" in profile_section
+    assert "Latest model holdings as of 1 Oct 2024" in profile_section
     assert "last price observation, not a live quote" in profile_section
     assert "not universal risk ratings" in profile_section
     assert "in-sample estimates, not forecasts or holdout results" in profile_section
@@ -303,3 +319,29 @@ def test_latest_profile_weights_escape_formula_asset_names(report_analysis, late
         weights = pd.read_csv(bundle.open("latest_profile_weights.csv"), index_col=0)
         assert weights.index[0] == "'=1+1"
         np.testing.assert_allclose(weights.loc["'=1+1"], [0.8, 0.5, 0.2])
+
+
+def test_report_summary_comes_first_and_names_the_selected_level(report_analysis, latest_profiles):
+    document = report_html(report_analysis, {"source": "Synthetic demo", "universe": "Demo"}, latest_profiles=latest_profiles,
+                           selected_profile="Extreme")
+    assert document.index('id="summary"') < document.index('id="latest-profiles"')
+    summary = document.split('<section id="summary">')[1].split("</section>")[0]
+    assert 'The <span class="pl-nb">highest-risk</span> portfolio puts 80.0% in one asset.' in summary
+    assert "Highest" in summary and "Extreme" not in summary
+    assert "Market benchmarks" not in summary and "Backtesting findings" not in summary
+    assert "Efficient Frontier · Research Report" not in document
+    assert "<title>Portfolio Lab · Research report</title>" in document
+    assert document.count("* plotly.js v") == 1
+
+
+def test_report_view_is_recorded_only_when_requested_and_files_keep_extreme(report_analysis, latest_profiles):
+    prices = pd.DataFrame({"AAA": [100.0, 101.0], "BBB": [100.0, 100.5]}, index=pd.bdate_range("2024-01-01", periods=2))
+    plain = report_zip(report_analysis, prices, {}, latest_profiles=latest_profiles)
+    chosen = report_zip(report_analysis, prices, {}, latest_profiles=latest_profiles, selected_profile="Extreme",
+                        selected_method="Buy and hold")
+    with zipfile.ZipFile(io.BytesIO(plain)) as bundle:
+        assert "report_view" not in json.loads(bundle.read("metadata.json"))
+    with zipfile.ZipFile(io.BytesIO(chosen)) as bundle:
+        assert json.loads(bundle.read("metadata.json"))["report_view"] == {"risk_level": "Extreme", "rule": "Buy and hold"}
+        assert list(pd.read_csv(bundle.open("latest_profile_weights.csv"), index_col=0).columns) == ["Low", "Medium", "Extreme"]
+        assert "Sorted by Highest." in bundle.read("report.html").decode()

@@ -1,13 +1,33 @@
 [theme]
 base = "light"
-primaryColor = "#1764c0"
-backgroundColor = "#f5f5f7"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#1d1d1f"
-font = "sans serif"
+primaryColor = "#1D1D1F"
+backgroundColor = "#F5F5F7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1D1D1F"
+font = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif"
+headingFont = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI Variable Display', 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif"
+headingFontWeights = [650, 650, 600, 600, 600, 600]
+baseFontSize = 16
+baseRadius = "12px"
+buttonRadius = "full"
+borderColor = "#D2D2D7"
+showWidgetBorder = true
+linkColor = "#1D1D1F"
+linkUnderline = false
+blueColor = "#0071E3"
+blueBackgroundColor = "#EDEDF0"
+blueTextColor = "#1D1D1F"
+yellowBackgroundColor = "#FFF5E6"
+yellowTextColor = "#7A4100"
+redBackgroundColor = "#FFF0F0"
+redTextColor = "#6E000E"
+dataframeHeaderBackgroundColor = "#F5F5F7"
+dataframeBorderColor = "#E8E8ED"
+chartCategoricalColors = ["#0071E3", "#545458", "#8E8E93"]
 
 [client]
-toolbarMode = "viewer"
+toolbarMode = "minimal"
+showSidebarNavigation = false
 
 [browser]
 gatherUsageStats = false

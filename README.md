@@ -25,9 +25,9 @@ The default requests the full current list from [Nasdaq's official constituent A
 
 Each security needs complete positive adjusted prices on the fixed SPY/QQQ market dates for the selected history. The app excludes incomplete securities and records each reason. It does not fill missing prices or shorten everyone's history to admit a newer listing. Therefore, the default does not guarantee that every current member enters the model.
 
-Open **Research → Data & coverage** to inspect requested, included, and excluded counts, names, dates, and reasons. Reports include `universe_coverage.csv` and the source date and retrieval time in `metadata.json`. If Nasdaq's current list is unavailable or incomplete, the app reports an error. It has no frozen substitute.
+Open **Research → Data** to inspect requested, included, and excluded counts, names, dates, and reasons. Reports include `universe_coverage.csv` and the source date and retrieval time in `metadata.json`. If Nasdaq's current list is unavailable or incomplete, the app reports an error. It has no frozen substitute.
 
-The optimizer chooses continuous weights across **every eligible asset**. It can assign zero weight to an asset. It does not rank and retain an arbitrary top-N group or enumerate the `2^N` possible subsets. The portfolio chart groups weights beyond the ten largest into **Other holdings**. **Every holding** and the exports retain all weights.
+The optimizer chooses continuous weights across **every eligible asset**. It can assign zero weight to an asset. It does not rank and retain an arbitrary top-N group or enumerate the `2^N` possible subsets. The holdings list shows the ten largest and one **more holdings** row when more than 12 positions are held. **Every stock and its exact weight** and the exports retain all weights.
 
 **This is a historical study of current members.** It does not reconstruct index membership at each past date. Current membership and complete-history eligibility can favor survivors and distort backtests. A shorter history can admit more securities, but also changes the estimation sample.
 
@@ -41,7 +41,7 @@ The latest model uses all supplied prices through the last available date. It ne
 | Medium | Halfway between the Low and Highest worst-window return targets |
 | Highest | Highest achievable worst-window mean return, with minimum variance among tied solutions |
 
-These labels describe relative positions in this model. Low can still contain risky assets. Highest does not use leverage or maximize all possible portfolio variance. Profiles can coincide when the frontier has no meaningful range. Reports, CSVs, and strategy names call Highest **Extreme**.
+These labels describe relative positions in this model. Low can still contain risky assets. Highest does not use leverage or maximize all possible portfolio variance. Profiles can coincide when the frontier has no meaningful range. CSV and JSON files call Highest **Extreme**. The app and the HTML report say Highest.
 
 The three windows give each profile a comparison across historical periods. The objective rewards consistency in their estimated means. It does not guarantee positive years, minimize drawdown, or provide a statistical lower bound on future returns. The optimized allocation depends on your assets, history, risk model, and constraints.
 
@@ -65,7 +65,7 @@ The app runs in Python with the compiled Rust [Clarabel optimizer](https://clara
 
 The [public-source review](docs/PUBLIC_RELEASE_REVIEW.md) records the security, licensing and API checks. Report security issues through the process in [SECURITY.md](SECURITY.md).
 
-![Portfolio Lab showing a Medium risk allocation across eligible Nasdaq-100 securities](docs/images/portfolio-lab.png)
+![Portfolio Lab showing a medium-risk portfolio of 11 Nasdaq-100 stocks](docs/images/portfolio-lab.png)
 
 ## Start here: no coding needed
 
@@ -87,30 +87,30 @@ Keep the launcher window open while using the app. To stop it, press **Ctrl+C** 
 
 ### Your first two minutes
 
-1. Open **Market & settings**. Keep **Nasdaq-100** and **5 years**, or choose your own data.
-2. Select **Find portfolios** to download prices and calculate the latest allocations.
-3. In **Portfolio**, select **Low**, **Medium**, or **Highest**. Open **Every holding** for the complete allocation.
-4. Select **Compare**, inspect **Comparison settings**, then select **Run comparison**. Choose an **Allocation rule** to compare with SPY and QQQ.
-5. Select **Research** for frontiers, risk, coverage, all backtests, and methodology. These historical estimates are not forecasts.
-6. Open **Export your research**, then select **Prepare report** and **Download report and data**.
+1. Keep **Nasdaq-100** and **5 years**, or select **Change** to choose your own data.
+2. Select **Show portfolios** (or press Ctrl+Enter). The app downloads prices, finds the three portfolios and runs the market test.
+3. Select **Low**, **Medium** or **Highest** (or press L, M or H). Open **Every stock and its exact weight** for the complete allocation.
+4. Scroll to **Would this rule have beaten the market?** (or press 2). Choose a **Rule**. **Test settings** changes the trade assumptions.
+5. Select **Research** (or press 4) for frontiers, risk, data, all tests and the method. These historical estimates are not forecasts.
+6. Select **Export** (or press E) to download the report and data.
 
-Yahoo Finance and the Nasdaq list need an internet connection. The app waits for **Find portfolios** before it requests data. For an offline example, choose **Demo**. For your own price file, choose **Upload CSV**. The [price-data guide](#price-data) explains the format.
+Yahoo Finance and the Nasdaq list need an internet connection. The app waits for **Show portfolios** before it requests data. For an offline example, select **Try the offline demo**. For your own price file, choose **Upload CSV**. The [price-data guide](#price-data) explains the format.
 
-Select **Update portfolios** after you change market or model settings. This clears the previous comparison. Then select **Run comparison** again if you need new backtests. A report includes the completed calculations at the time you prepare it.
+Select **Change**, edit the setup, then select **Show portfolios**. This runs a new study and a new market test. The report includes the results on screen when you select Export.
 
 ### What the settings mean
 
-Open **Fine-tune the model** inside **Market & settings** for model assumptions. **Compare → Comparison settings** contains trade assumptions.
+**Change → Model assumptions** contains the model assumptions. **Test settings** in the market test contains the trade assumptions.
 
 | Setting | Effect |
 | --- | --- |
-| Limit each holding / Maximum holding (%) | Limits each asset's target allocation. A 25% cap needs at least four assets. Prices can move weights above the cap between trades. |
+| Limit each holding / Largest holding allowed (%) | Limits each asset's target allocation. A 25% cap needs at least four assets. Prices can move weights above the cap between trades. |
 | Risk-free rate (%) | Sets the comparison rate for Sharpe and Sortino. It affects maximum-Sharpe weights but does not add cash. |
-| Initial training data (%) | Sets the initial estimation sample. A larger share leaves fewer later observations for evaluation. It does not change the latest full-history holdings. |
+| Prices for the first fit (%) | Sets the initial estimation sample. A larger share leaves fewer later observations for evaluation. It does not change the latest full-history holdings. |
 | Covariance shrinkage (%) | Reduces estimated relationships between assets while it keeps each asset's variance. |
-| Observations between trades | Sets the interval between backtest trades. The default 21 daily observations approximate a trading month. |
+| Trade every (trading days) | Sets the interval between backtest trades. The default 21 daily observations approximate a trading month. |
 | Trading cost (basis points) | Charges each amount bought or sold. Ten basis points equal 0.10%. |
-| Rolling history (0 = initial training length) | Sets the number of past returns for rolling estimates. Zero uses the initial training length. |
+| Recent history for “Refit on recent prices” (price rows) | Sets the number of past returns for rolling estimates. Zero uses the initial training length. |
 
 Covariance describes how asset returns move together. Historical estimates can be noisy, particularly with many assets or little data. At 0% shrinkage, the model uses sample covariance. At 100%, it sets covariance between different assets to zero. The default 10% reduces these covariances by 10% and leaves individual variances unchanged. This manual adjustment can reduce sensitivity to noisy estimates, but it does not guarantee better results.
 
@@ -173,7 +173,7 @@ SPY and QQQ provide passive ETF references for the S&P 500 and Nasdaq-100. Compa
 
 The evidence separates compound performance from annual mean advantage and benchmark alpha. It also shows three evaluation windows. Statistical tests account for serial dependence and all strategy/benchmark comparisons in the current run. A p-value is not the probability of future outperformance.
 
-Open **Compare** and select **Run comparison** for historical strategy results and benchmark evidence. **Market & settings → Fine-tune the model** contains the benchmark controls and USD declaration. The default view uses **Expanding window** and **Medium**. This choice does not depend on observed returns.
+The market test runs as part of **Show portfolios**. **Change → Model assumptions** contains the benchmark controls and the USD declaration. The default view uses **Refit on all past prices** (Expanding window) and **Medium**. This choice does not depend on observed returns.
 
 Yahoo runs obtain the benchmark series automatically. CSV runs can use an offline benchmark file or existing SPY and QQQ columns. Downloads for CSV input require an explicit choice. Comparisons require a USD declaration and complete benchmark prices for every asset date. Synthetic demo results do not use actual market benchmarks.
 
@@ -232,7 +232,7 @@ The file needs at least five complete price rows and one asset. There is no fixe
 
 Supply adjusted prices in a common currency. The app does not convert currencies. The app rejects duplicate dates or columns, nonnumeric values, missing observations, and nonpositive prices. It sorts dates but does not remove assets or fill missing prices. It cannot confirm price adjustments, currency, or the interval between observations.
 
-For CSV input, open **Market & settings → Fine-tune the model**. Set **Price frequency** to match your data. Yahoo inputs use daily prices and 252 observations per year.
+For CSV input, select **Change → Model assumptions** and set **Price frequency** to match your data. Yahoo inputs use daily prices and 252 observations per year.
 
 | Price interval | Observations per year |
 | --- | ---: |
@@ -274,11 +274,11 @@ The original holdout's weight cap applies when positions are established. Weight
 
 This original calculation excludes transaction costs, spreads, taxes, FX conversion and execution constraints. The separate backtest comparison deducts selected trading costs and delays execution by one observed interval. Its buy-and-hold result is therefore different. The asset universe is user-selected and fixed. Repeatedly selecting settings based on holdout performance contaminates that holdout. This is a research tool, not a trading system or an investment recommendation.
 
-The app calculates all four backtest methods when you select **Compare → Run comparison**. With sufficient history, this produces 24 method/portfolio combinations. Each refit solves only the required portfolio targets. Repeated fits still add computational work.
+The app runs all four backtest methods when you select **Show portfolios**, and again when you select **Test settings → Run the test again**. With sufficient history, this produces 24 method/portfolio combinations. Each refit solves only the required portfolio targets. Repeated fits still add computational work.
 
-The risk level, allocation rule, and **Research → All backtests** chart selection change the displayed results. They preserve all calculated strategies in the exports and statistical test family. See [the accounting and evaluation rules](docs/BACKTESTING.md).
+The risk level, the rule and the **Research → All tests** chart selection change only the displayed results. They preserve all calculated strategies in the exports and statistical test family. See [the accounting and evaluation rules](docs/BACKTESTING.md).
 
-**Research → Risk breakdown** uses the initial portfolio weights and the covariance estimate from the training period. It shows the largest weight, effective holdings, diversification ratio, and each asset's share of variance. These estimates describe the initial portfolio. They do not measure later changes in weights. See [the risk definitions](docs/BACKTESTING.md#portfolio-risk-and-diversification).
+**Research → Risk** uses the initial portfolio weights and the covariance estimate from the training period. It shows the largest weight, effective holdings, diversification ratio, and each asset's share of variance. These estimates describe the initial portfolio. They do not measure later changes in weights. See [the risk definitions](docs/BACKTESTING.md#portfolio-risk-and-diversification).
 
 With singular covariance, such as perfectly correlated assets and zero shrinkage, several allocations can tie for minimum variance at a target return. The curve may include equal-risk points with different returns; a unique allocation is not guaranteed.
 

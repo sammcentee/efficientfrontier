@@ -37,14 +37,14 @@ The Nasdaq-100 loader also needs SPY and QQQ dates to check constituent history.
 
 ## App use
 
-1. Open **Market & settings**, then **Fine-tune the model**.
-2. Enable **Include S&P 500 and Nasdaq-100 benchmarks**.
+1. Select **Change**, then open **Model assumptions**.
+2. Enable **Compare with the S&P 500 and the Nasdaq-100**.
 3. Set **Price currency** to **USD** only when every asset price uses USD. Otherwise, select **Other currency**.
-4. Select **Find portfolios** for a new analysis, or **Update portfolios** to replace the result.
-5. Select **Compare**. Inspect **Comparison settings**, then select **Run comparison**.
-6. Choose an **Allocation rule** and **Risk level**. Open **Consistency and uncertainty** for period results and statistical evidence.
+4. Select **Show portfolios**. The app runs the market test as part of the study.
+5. Scroll to **Would this rule have beaten the market?** (or press 2). **Test settings → Run the test again** runs the test with new trade assumptions.
+6. Choose a **Rule** and a **Risk level**. **How sure can we be?** (or press 3) shows period results. Open **Show the statistics** for the statistical evidence.
 
-The app displays the Highest profile as **Extreme** in strategy names and exports. All comparison strategies remain in the statistical test family when you change the displayed rule or risk level.
+CSV and JSON exports call the Highest profile **Extreme**. All comparison strategies remain in the statistical test family when you change the displayed rule or risk level.
 
 For an offline CSV comparison, use **Benchmark prices (optional)** to supply the separate benchmark file. For a download, select **Download Yahoo benchmarks for this CSV**. An uploaded file takes precedence over the download choice. If both benchmark columns already exist in the asset file, the app can reuse them without a separate file.
 
@@ -169,7 +169,7 @@ These labels summarize statistical results. They do not rank future prospects. A
 
 ## Exports
 
-In the app, open **Export your research**. Select **Prepare report**, then **Download report and data**. The bundle contains the completed calculations. Run the comparison first if you need its backtests and statistical evidence.
+In the app, select **Export** (or press E). The bundle contains the results on screen, including the market test and its statistical evidence.
 
 | File | Contents |
 | --- | --- |
