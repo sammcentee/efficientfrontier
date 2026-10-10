@@ -99,15 +99,91 @@ def price_table(symbols, dates=None):
     return pd.DataFrame({s: np.arange(len(dates), dtype=float) + 100 + i for i, s in enumerate(symbols)}, index=dates)
 
 
+def test_incomplete_members_do_not_redownload_complete_batch_peers(monkeypatch):
+    symbols = [f"STOCK{i}" for i in range(100)]
+    excluded = [symbols[i] for i in (0, 25, 50, 75)]
+    calls = []
+
+    def download(requested, **kwargs):
+        calls.append(requested)
+        prices = price_table(requested)
+        if excluded[0] in requested:
+            prices.loc[prices.index[:3], excluded[0]] = np.nan
+        if excluded[1] in requested:
+            prices.loc[prices.index[4], excluded[1]] = np.nan
+        if excluded[2] in requested:
+            prices = prices.drop(columns=excluded[2])
+        if excluded[3] in requested:
+            prices.loc[prices.index[4], excluded[3]] = 0
+        return pd.concat({"Close": prices}, axis=1)
+
+    monkeypatch.setattr("efficient_frontier.data.yf.download", download)
+    result = download_universe_prices(snapshot(symbols), "2020-01-01", "2021-01-01")
+    assert calls == [["SPY", "QQQ"], *[symbols[i:i + 25] for i in range(0, 100, 25)]]
+    assert result.prices.columns.tolist() == [symbol for symbol in symbols if symbol not in excluded]
+    pd.testing.assert_index_equal(result.prices.index, result.benchmarks.index)
+    coverage = result.coverage.set_index("symbol")
+    assert coverage.loc[excluded, "status"].eq("excluded").all()
+    assert coverage.loc[excluded[0], "reason"] == "Price dates differ from market dates: 3 missing, 0 extra."
+    assert coverage.loc[excluded[1], "reason"] == "Price dates differ from market dates: 1 missing, 0 extra."
+    assert "no prices" in coverage.loc[excluded[2], "reason"]
+    assert "positive" in coverage.loc[excluded[3], "reason"]
+    assert coverage.loc[excluded[0], "observations"] == 7
+    assert coverage.loc[excluded[0], "first_date"] == "2020-01-06"
+    assert result.metadata["universe_included"] == 96
+    assert result.metadata["universe_excluded"] == 4
+
+
+def test_all_missing_member_is_excluded_without_an_individual_request(monkeypatch):
+    calls = []
+
+    def download(requested, **kwargs):
+        calls.append(requested)
+        prices = price_table(requested)
+        if "MISSING" in requested:
+            prices["MISSING"] = np.nan
+        return pd.concat({"Close": prices}, axis=1)
+
+    monkeypatch.setattr("efficient_frontier.data.yf.download", download)
+    result = download_universe_prices(snapshot(["COMPLETE", "MISSING"]), "2020-01-01", "2021-01-01")
+    assert calls == [["SPY", "QQQ"], ["COMPLETE", "MISSING"]]
+    assert result.prices.columns.tolist() == ["COMPLETE"]
+    coverage = result.coverage.set_index("symbol")
+    assert coverage.loc["MISSING", "status"] == "excluded"
+    assert "no prices" in coverage.loc["MISSING", "reason"]
+
+
+@pytest.mark.parametrize("failure", ["network", "format"])
+def test_whole_batch_failure_retries_individual_requests(monkeypatch, failure):
+    symbols = ["AAA", "BBB", "CCC"]
+    calls = []
+
+    def download(requested, **kwargs):
+        calls.append(requested)
+        prices = price_table(requested)
+        if requested == symbols:
+            if failure == "network":
+                raise RuntimeError("Batch request failed.")
+            return prices
+        return pd.concat({"Close": prices}, axis=1)
+
+    monkeypatch.setattr("efficient_frontier.data.yf.download", download)
+    result = download_universe_prices(snapshot(symbols), "2020-01-01", "2021-01-01")
+    assert calls == [["SPY", "QQQ"], symbols, *[[symbol] for symbol in symbols]]
+    assert result.prices.columns.tolist() == symbols
+    assert result.coverage["status"].eq("included").all()
+
+
 def test_download_batches_all_securities_in_order_without_ranking(monkeypatch):
     symbols = [f"STOCK{i}" for i in range(101)]
     calls, updates = [], []
 
-    def download(symbols, start, end):
+    def download(symbols, start, end, **kwargs):
         calls.append(symbols)
         return price_table(symbols)
 
     monkeypatch.setattr(universe, "download_prices", download)
+    monkeypatch.setattr(universe, "_download_adjusted_close", download)
     result = download_universe_prices(snapshot(symbols), "2020-01-01", "2021-01-01", progress=lambda *x: updates.append(x))
     assert calls[0] == ["SPY", "QQQ"]
     assert [len(batch) for batch in calls[1:]] == [25, 25, 25, 25, 1]
@@ -127,7 +203,7 @@ def test_failed_batch_retries_each_member_and_keeps_coverage(monkeypatch):
     symbols = ["COMPLETE", "SHORT", "GAP", "UNAVAILABLE", "EXTRA"]
     calls = []
 
-    def download(symbols, start, end):
+    def download(symbols, start, end, **kwargs):
         calls.append(symbols)
         if symbols == ["SPY", "QQQ"]:
             return price_table(symbols)
@@ -146,6 +222,7 @@ def test_failed_batch_retries_each_member_and_keeps_coverage(monkeypatch):
         return prices
 
     monkeypatch.setattr(universe, "download_prices", download)
+    monkeypatch.setattr(universe, "_download_adjusted_close", download)
     result = download_universe_prices(snapshot(symbols), "2020-01-01", "2021-01-01")
     coverage = result.coverage.set_index("symbol")
     assert calls[2:] == [[s] for s in symbols]
@@ -164,12 +241,13 @@ def test_failed_batch_retries_each_member_and_keeps_coverage(monkeypatch):
 
 
 def test_unavailable_universe_preserves_exclusion_details(monkeypatch):
-    def download(symbols, start, end):
+    def download(symbols, start, end, **kwargs):
         if symbols == ["SPY", "QQQ"]:
             return price_table(symbols)
         raise ValueError("Yahoo returned no prices.")
 
     monkeypatch.setattr(universe, "download_prices", download)
+    monkeypatch.setattr(universe, "_download_adjusted_close", download)
     result = download_universe_prices(snapshot(["AAA", "BBB"]), "2020-01-01", "2021-01-01")
     assert result.prices.shape == (10, 0)
     assert result.coverage["status"].tolist() == ["excluded", "excluded"]

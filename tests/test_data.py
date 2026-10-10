@@ -46,6 +46,14 @@ def test_validation_rejects_text(prices):
         validate_prices(prices)
 
 
+@pytest.mark.parametrize("bad_value", [True, np.bool_(True), 100 + 1j, np.complex128(100 + 1j)])
+def test_validation_rejects_boolean_or_complex_values_in_object_columns(prices, bad_value):
+    prices = prices.astype(object)
+    prices.iloc[3, 0] = bad_value
+    with pytest.raises(ValueError, match="numeric"):
+        validate_prices(prices)
+
+
 def test_validation_rejects_duplicate_days_after_normalization(prices):
     duplicate = prices.iloc[[0]].copy()
     duplicate.index += pd.Timedelta(hours=8)

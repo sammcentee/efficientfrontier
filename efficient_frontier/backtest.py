@@ -110,7 +110,7 @@ def run_backtests(
             covariance = (1 - shrinkage) * covariance + shrinkage * diagonal
             portfolios, _, _, messages = optimize(
                 sample.mean() * periods_per_year, covariance, risk_free_rate, max_weight,
-                frontier_points=2,
+                frontier_points=1,
             )
             fallback = "Maximum Sharpe" not in portfolios
             targets = {

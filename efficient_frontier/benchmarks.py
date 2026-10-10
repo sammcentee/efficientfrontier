@@ -74,6 +74,8 @@ def compare_benchmarks(
     """
     if not np.isfinite(risk_free_rate):
         raise ValueError("risk_free_rate must be finite.")
+    if analysis.risk_free_rate != risk_free_rate:
+        raise ValueError("Analysis and benchmarks must use the same risk_free_rate.")
     asset_prices = _validate_price_frame(asset_prices)
     expected_returns = analysis.train_returns.index.append(analysis.test_returns.index)
     if (

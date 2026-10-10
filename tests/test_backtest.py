@@ -104,7 +104,7 @@ def test_training_windows_end_before_execution_and_rolling_is_bounded(monkeypatc
 
     def recording_optimizer(mean, covariance, *args, **kwargs):
         calls.append((mean.copy(), covariance.copy()))
-        assert kwargs["frontier_points"] == 2
+        assert kwargs["frontier_points"] == 1
         weights = pd.Series([0.5, 0.5], index=mean.index)
         portfolios = {name: SimpleNamespace(weights=weights) for name in backtest.PORTFOLIO_NAMES}
         return portfolios, pd.DataFrame(), pd.DataFrame(), []

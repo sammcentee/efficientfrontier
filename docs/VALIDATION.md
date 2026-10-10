@@ -1,5 +1,30 @@
 # Validation record
 
+## Review and simplification: 10 October 2026
+
+**485 tests passed** in a fresh local environment with Python 3.14.7 and the pinned dependencies. `pip check` passed.
+The suite reports one existing pandas warning from the invalid-date rejection test.
+
+Regression tests cover boolean and complex values in object columns, incomplete Nasdaq batches, approximate solver warnings, and risk-free-rate consistency.
+App tests cover one market calculation per successful build and the original holdout fallback after a failed backtest.
+Shared app/report tests check currency declarations, monthly observation labels, rolling return counts, and concentration text.
+
+A fixed synthetic backtest used 64 assets and 360 price rows. All results for 24 strategies stayed exactly equal.
+Solver calls fell from 91 to 78. This count does not establish a general runtime guarantee.
+
+A mocked 100-stock request with four incomplete members fell from 105 requests to five. The same 96 assets remained eligible.
+Whole-batch download failures still trigger individual retries. Every exclusion retains a reason.
+
+The offline demo and a synthetic monthly CSV both completed CLI exports. The monthly fixture includes synthetic SPY/QQQ-labelled series.
+Its 102 archive files matched the extracted files. The HTML rendered eight charts at 390 × 844 without external requests, uncaught JavaScript errors, or page overflow.
+The report correctly states the currency declaration and the rolling count of return observations.
+
+The background T3 preview completed the demo and the Highest keyboard shortcut before its desktop host disconnected.
+Headless Chromium then completed monthly CSV input, changed test settings, the 102-file export, and Research navigation without uncaught app errors.
+The app had no page overflow at 1440 × 900 or 390 × 844. The frequency-menu check waits for the drawer animation before interaction.
+Native Windows, macOS, and physical-phone checks remain incomplete.
+This review made no live Nasdaq or Yahoo data request. See the [review findings](REVIEW.md) for scope and remaining limits.
+
 ## Nasdaq-100 workspace: 4 October 2026
 
 **391 tests passed**, including **28 Streamlit AppTest cases**. Dependency checks passed on Python 3.14 and Streamlit 1.65. The suite reports one existing pandas warning in the invalid-date rejection test.

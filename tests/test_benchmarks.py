@@ -166,6 +166,24 @@ def test_benchmark_comparison_rejects_inconsistent_annualization():
         compare_benchmarks(prices, assets, analysis, study, risk_free_rate=0.02)
 
 
+def test_standalone_benchmarks_reject_a_rate_that_differs_from_analysis():
+    assets, prices = histories()
+    analysis = analyze(assets, risk_free_rate=0.07)
+    assert analysis.risk_free_rate == 0.07
+    with pytest.raises(ValueError, match="Analysis and benchmarks must use the same risk_free_rate"):
+        compare_benchmarks(prices, assets, analysis, risk_free_rate=0.02)
+
+
+def test_standalone_benchmarks_match_portfolio_metrics_with_a_nondefault_rate():
+    _, prices = histories()
+    assets = prices[["SPY"]].rename(columns={"SPY": "A"})
+    analysis = analyze(assets, risk_free_rate=0.07, periods_per_year=12)
+    result = compare_benchmarks(prices, assets, analysis, risk_free_rate=0.07)
+    np.testing.assert_allclose(
+        result.holdout_metrics.loc[NAMES[0]], analysis.holdout_metrics.loc["Equal weight"], equal_nan=True,
+    )
+
+
 @pytest.mark.parametrize("result_type", ["study", "latest_profiles"])
 def test_benchmark_comparison_rejects_inconsistent_risk_free_rates(result_type):
     assets, prices = histories()

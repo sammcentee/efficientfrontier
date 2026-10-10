@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-from .data import BENCHMARK_SYMBOLS, download_prices, parse_tickers
+from .data import BENCHMARK_SYMBOLS, _download_adjusted_close, download_prices, parse_tickers, validate_prices
 
 
 NASDAQ100_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
@@ -100,7 +100,15 @@ def download_universe_prices(snapshot: UniverseSnapshot, start, end, *, progress
         reason = str(error) if error is not None else ""
         observations, first_date, last_date = None, None, None
         if prices is not None:
+            # Inspect each member's actual dates, then require the full market calendar below.
+            prices = prices.dropna(how="all")
             observations = len(prices)
+            try:
+                prices = validate_prices(prices)
+            except ValueError as exc:
+                reason = f"Yahoo returned no prices for: {symbol}." if prices.empty else str(exc)
+                prices = None
+        if prices is not None:
             first_date, last_date = prices.index[0].date().isoformat(), prices.index[-1].date().isoformat()
             if not prices.index.equals(expected_dates):
                 missing = len(expected_dates.difference(prices.index))
@@ -121,12 +129,12 @@ def download_universe_prices(snapshot: UniverseSnapshot, start, end, *, progress
         if progress is not None:
             progress(offset, total, f"Download securities {offset + 1} to {offset + len(batch)} of {total}.")
         try:
-            prices = download_prices(batch, start, end)
+            prices = _download_adjusted_close(batch, start, end, allow_incomplete=True)
         except ValueError:
-            # An unavailable member must not exclude complete peers in its batch.
+            # Retry whole-batch download failures separately from member coverage.
             for symbol in batch:
                 try:
-                    individual = download_prices([symbol], start, end)
+                    individual = _download_adjusted_close([symbol], start, end, allow_incomplete=True)
                 except ValueError as exc:
                     record(symbol, error=exc)
                 else:

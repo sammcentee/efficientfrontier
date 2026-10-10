@@ -33,6 +33,7 @@ class Analysis:
     covariance: pd.DataFrame
     warnings: list[str]
     periods_per_year: float = TRADING_DAYS
+    risk_free_rate: float = 0.02
 
 
 def _validate_price_frame(prices: pd.DataFrame) -> pd.DataFrame:
@@ -82,6 +83,7 @@ def optimize(
 
     Sharpe uses the supplied annual risk-free rate. Its convex formulation requires
     a feasible positive excess return; otherwise that portfolio is omitted.
+    A single frontier point retains only minimum volatility, without extra solves.
     """
     if not isinstance(mean_returns, pd.Series) or mean_returns.empty:
         raise ValueError("mean_returns must be a nonempty pandas Series.")
@@ -104,8 +106,8 @@ def optimize(
         raise ValueError("max_weight must be greater than zero and at most one.")
     if len(mu) * max_weight < 1 - 1e-12:
         raise ValueError("The position cap is infeasible: asset count * max_weight < 1.")
-    if isinstance(frontier_points, bool) or not isinstance(frontier_points, (int, np.integer)) or frontier_points < 2:
-        raise ValueError("frontier_points must be an integer of at least two.")
+    if isinstance(frontier_points, bool) or not isinstance(frontier_points, (int, np.integer)) or frontier_points < 1:
+        raise ValueError("frontier_points must be a positive integer.")
     if not np.allclose(sigma, sigma.T, rtol=1e-10, atol=1e-12):
         raise ValueError("Covariance must be symmetric.")
     sigma = (sigma + sigma.T) / 2
@@ -122,6 +124,15 @@ def optimize(
     solver_covariance = sigma / covariance_scale if covariance_scale else sigma
 
     warnings: list[str] = []
+
+    def solve(problem: cp.Problem) -> None:
+        _solve(problem)
+        message = (
+            "The portfolio solver reported limited numerical accuracy. "
+            "Weight and return checks passed, but the optimum can be approximate."
+        )
+        if problem.status == cp.OPTIMAL_INACCURATE and message not in warnings:
+            warnings.append(message)
 
     def portfolio(name: str, values: np.ndarray) -> Portfolio:
         weights = np.asarray(values, dtype=float).reshape(-1)
@@ -142,7 +153,7 @@ def optimize(
     if max_weight < 1:
         constraints.append(weights <= max_weight)
     objective = cp.Minimize(cp.quad_form(weights, cp.psd_wrap(solver_covariance)))
-    _solve(cp.Problem(objective, constraints))
+    solve(cp.Problem(objective, constraints))
     minimum = portfolio("Minimum volatility", weights.value)
     portfolios = {minimum.name: minimum}
 
@@ -170,7 +181,7 @@ def optimize(
             cp.Minimize(cp.quad_form(scaled, cp.psd_wrap(solver_covariance))),
             sharpe_constraints,
         )
-        _solve(sharpe_problem)
+        solve(sharpe_problem)
         raw = np.asarray(scaled.value).reshape(-1)
         maximum = portfolio("Maximum Sharpe", raw / raw.sum())
         portfolios[maximum.name] = maximum
@@ -185,12 +196,12 @@ def optimize(
         warnings.append("Sharpe is undefined for portfolios with zero estimated volatility.")
 
     frontier_portfolios = [minimum]
-    if highest_return > minimum.expected_return + 1e-10:
+    if frontier_points > 1 and highest_return > minimum.expected_return + 1e-10:
         target = cp.Parameter()
         frontier_problem = cp.Problem(objective, constraints + [mu @ weights >= target])
         for required in np.linspace(minimum.expected_return, highest_return, frontier_points)[1:]:
             target.value = required
-            _solve(frontier_problem)
+            solve(frontier_problem)
             point = portfolio("Frontier", weights.value)
             if point.expected_return < required - 1e-6:
                 raise RuntimeError("Frontier solution missed its required return.")
@@ -254,5 +265,5 @@ def analyze(
     holdout_metrics = pd.DataFrame(metrics).set_index("portfolio")
     return Analysis(
         portfolios, frontier, frontier_weights, train_returns, test_returns,
-        equity, holdout_metrics, mean_returns, covariance, warnings, periods_per_year,
+        equity, holdout_metrics, mean_returns, covariance, warnings, periods_per_year, risk_free_rate,
     )
