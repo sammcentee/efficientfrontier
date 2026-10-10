@@ -1,5 +1,24 @@
 # Validation record
 
+## Classic frontier risk choices: 10 October 2026
+
+**504 tests passed** with Python 3.14.7 and the pinned dependencies. `pip check` and `git diff --check` passed.
+The suite reports the existing pandas warning from the invalid-date rejection test.
+
+Tests verify actual Low, Medium, and High frontier weights, holding limits, and the nearest sampled midpoint of volatility.
+The same initial weights produce each classic holdout path. A fixed regime-change example has higher fitted returns but lower later returns than both ETFs.
+App tests verify that selecting a classic level changes its point, weights, and holdout results without solver calls or downloads.
+The overview risk selection stays separate. ETF estimates and holdouts retain matched dates.
+
+Flat-risk tests cover singular and zero covariance, equal and distinct means, and changes in covariance scale.
+Explicit single-point analysis retains its original portfolios without false High or flat-risk labels.
+Report tests verify the definitions, dates, and all classic weights and results in the existing CSV exports.
+The synthetic monthly CLI fixture also completed its offline report and archive.
+
+The background T3 browser checked all three classic choices at 1440 × 900 and 390 × 844.
+The selected point and holdout curve agreed, with no page overflow or app exceptions.
+No live Yahoo or Nasdaq request was made. These checks do not establish physical-phone or native Windows/macOS support.
+
 ## Review and simplification: 10 October 2026
 
 **485 tests passed** in a fresh local environment with Python 3.14.7 and the pinned dependencies. `pip check` passed.

@@ -60,6 +60,22 @@ The app evaluates four allocation rules: buy and hold, fixed rebalance, expandin
 
 **Research → Risk breakdown** uses the initial model weights and the covariance from the training period. It describes the initial model, rather than later weight drift. Latest-profile estimates use all supplied history. These are different fits. See the [risk definitions](BACKTESTING.md#portfolio-risk-and-diversification).
 
+## Classic frontier and risk choices
+
+Use **Research → Efficient frontiers → Classic risk level** to select Low, Medium, or High. This choice updates the highlighted frontier point, its initial weights, and its later holdout result. It does not refit the model or change the overview's risk level.
+
+| Classic level | Definition |
+| --- | --- |
+| Low | The frontier point with the least estimated volatility. |
+| Medium | The sampled frontier point nearest halfway between Low and High volatility. |
+| High | The frontier endpoint with the highest fitted arithmetic mean return. |
+
+These levels compare the selected assets under the holding limit. They are not absolute risk ratings. A flat frontier gives the same mix for all three levels. High can put all its weight in one asset when there is no holding limit.
+
+The frontier describes the first fit. At the same estimated volatility, a higher point has a higher fitted mean return. A Low point can have less return than an ETF with more risk. The chart uses annualized arithmetic means, not compounded growth. ETF points use the same fit dates, but the ETFs are separate references unless they are among the selected assets. See the [CVXPY portfolio model](https://www.cvxgrp.org/cvx_short_course/docs/applications/notebooks/portfolio_optimization.html) for the mean and variance definition.
+
+The classic holdout tests the same initial weights on later prices, beside SPY and QQQ when available. It buys once, lets weights drift, and excludes trading costs. A mix above an ETF during fitting can lose to it in this later period. Return estimates can change, and compound growth differs from an arithmetic mean. The overview uses a separate weakest-window model, with the selected refit rule and fees. Its results do not test the classic frontier point.
+
 ## Price data
 
 Upload a CSV with `Date` first and one asset per column. Use adjusted prices in a common currency. The file needs at least five complete price rows and one asset. Latest profiles need at least seven rows.
