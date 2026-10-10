@@ -868,6 +868,72 @@ def test_research_holdout_ratios_are_not_formatted_as_percentages():
     assert display.total_return.str.contains("%", regex=False).all()
 
 
+def test_classic_risk_choice_links_frontier_weights_and_holdout_without_refitting(monkeypatch, offline_app):
+    from efficient_frontier import core, profiles
+
+    app = research_view(demo_app(), "Efficient frontiers")
+    analysis = app.session_state.result[0]
+    assert app.segmented_control(key="classic_risk_profile").options == ["Low", "Medium", "High"]
+    assert app.segmented_control(key="classic_risk_profile").value == "Medium"
+
+    def no_solve(*args, **kwargs):
+        raise AssertionError("Changing the classic risk level must not refit any model.")
+
+    monkeypatch.setattr(core, "_solve", no_solve)
+    monkeypatch.setattr(profiles, "_solve", no_solve)
+    for level in ("Low", "High", "Medium"):
+        app.segmented_control(key="classic_risk_profile").set_value(level).run()
+        assert not app.exception and not app.error
+        assert app.session_state.risk_profile == "Medium"
+        charts = {figure["layout"]["title"]["text"]: figure for figure in figures(app)}
+        points = {trace["name"]: trace for trace in charts["Classic frontier"]["data"]}
+        assert points[level]["marker"]["size"] > points[next(name for name in ("Low", "Medium", "High") if name != level)]["marker"]["size"]
+        np.testing.assert_allclose(chart_values(points[level]["x"]), [analysis.portfolios[level].volatility])
+        np.testing.assert_allclose(chart_values(points[level]["y"]), [analysis.portfolios[level].expected_return])
+        path = charts["Classic holdout"]["data"]
+        assert [trace["name"] for trace in path] == [level]
+        np.testing.assert_allclose(chart_values(path[0]["y"]), analysis.equity[level] * 10_000)
+        weights = next(item.value for item in app.dataframe if list(item.value.columns) == ["Weight"])
+        np.testing.assert_allclose(weights.Weight, analysis.portfolios[level].weights.loc[weights.index])
+        assert len(weights) == len(analysis.mean_returns)
+        metrics = next(item.value for item in app.dataframe if "sortino" in item.value.columns)
+        pd.testing.assert_frame_equal(metrics, analysis.holdout_metrics.loc[[level]])
+    assert offline_app == []
+    captions = " ".join(item.value for item in app.caption)
+    assert "not compounded growth or a forecast" in captions
+    assert "same initial weights" in captions
+    assert "weakest of three past stretches" in html_text(app)
+
+
+def test_classic_higher_fit_return_can_lose_to_etfs_on_the_later_dates(monkeypatch):
+    rng = np.random.default_rng(712)
+    returns = rng.normal([.003, .0005, .001], [.015, .009, .012], (90, 3))
+    returns[:63] -= returns[:63].mean(axis=0)
+    returns[:63] += [.003, .0005, .001]
+    returns[63:] -= returns[63:].mean(axis=0)
+    returns[63:] += [-.006, .001, .002]
+    prices = pd.DataFrame(np.vstack([np.ones(3), np.cumprod(1 + returns, axis=0)]) * 100,
+                          index=pd.bdate_range("2024-01-01", periods=91, name="Date"), columns=["FUND_X", "SPY", "QQQ"])
+    app = research_view(market_app(monkeypatch, prices), "Efficient frontiers")
+    app.segmented_control(key="classic_risk_profile").set_value("High").run()
+    assert not app.exception and not app.error
+    analysis, benchmarks = app.session_state.result[0], app.session_state.benchmarks
+    assert analysis.portfolios["High"].expected_return > benchmarks.training_estimates.expected_return.max()
+    assert analysis.holdout_metrics.loc["High", "total_return"] < benchmarks.holdout_metrics.total_return.min()
+    charts = {figure["layout"]["title"]["text"]: figure for figure in figures(app)}
+    paths = {html.unescape(trace["name"]): trace for trace in charts["Classic holdout"]["data"]}
+    assert set(paths) == {"High", "S&P 500 (SPY)", "Nasdaq-100 (QQQ)"}
+    for name, equity in pd.concat([analysis.equity[["High"]], benchmarks.holdout_equity], axis=1).items():
+        np.testing.assert_allclose(chart_values(paths[name]["y"]), equity * 10_000)
+        assert pd.DatetimeIndex(paths[name]["x"]).equals(equity.index)
+        assert chart_values(paths[name]["y"])[0] == 10_000
+    captions = " ".join(item.value for item in app.caption)
+    for date_value in (analysis.train_returns.index[0], analysis.train_returns.index[-1],
+                       analysis.test_returns.index[0], analysis.test_returns.index[-1]):
+        assert f"{date_value.day} {date_value:%b %Y}" in captions
+    assert any("does not show which mix won on the later test dates" in item.value for item in app.markdown)
+
+
 def test_large_universe_chart_limit_does_not_change_holdings(monkeypatch):
     from efficient_frontier import data
 

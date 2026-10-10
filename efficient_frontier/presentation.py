@@ -16,6 +16,7 @@ from plotly.offline import get_plotlyjs
 from . import story
 from .backtest_report import backtest_html, findings_markdown
 from .benchmark_report import add_benchmark_estimates, add_benchmark_paths, benchmark_html
+from .core import CLASSIC_PROFILE_NAMES
 from .risk import risk_contributions, risk_summary
 from .style import COLORS, INK, INK_2, PLOTLY_CONFIG, REPORT_CSS, REST, display_label, style_chart
 
@@ -34,28 +35,31 @@ def _point(name, x, y, hover, selected=False) -> go.Scatter:
     )
 
 
-def frontier_chart(analysis: Any, benchmark_estimates=None) -> go.Figure:
+def frontier_chart(analysis: Any, benchmark_estimates=None, selected=None) -> go.Figure:
     """Show annualized historical training estimates, not future returns."""
-    hover = "Annual volatility: %{x:.2%}<br>Historical expected return: %{y:.2%}<extra>%{fullData.name}</extra>"
+    hover = "Historical fit volatility, yearly: %{x:.2%}<br>Fit arithmetic mean, yearly: %{y:.2%}<extra>%{fullData.name}</extra>"
     figure = go.Figure()
     figure.add_trace(go.Scatter(
         x=analysis.frontier["volatility"], y=analysis.frontier["expected_return"],
         mode="lines", name="Efficient frontier", line={"color": REST, "width": 2.5}, hovertemplate=hover,
     ))
-    for name, portfolio in analysis.portfolios.items():
-        figure.add_trace(_point(name, portfolio.volatility, portfolio.expected_return, hover))
+    names = CLASSIC_PROFILE_NAMES if all(name in analysis.portfolios for name in CLASSIC_PROFILE_NAMES) else analysis.portfolios
+    for name in names:
+        portfolio = analysis.portfolios[name]
+        figure.add_trace(_point(name, portfolio.volatility, portfolio.expected_return, hover, selected=name == selected))
     add_benchmark_estimates(figure, benchmark_estimates, "expected_return")
+    figure.update_traces(hovertemplate=hover)
     style_chart(figure, "Classic frontier")
     figure.update_layout(legend_y=-0.24)
-    figure.update_xaxes(title="Volatility, yearly", tickformat=".0%", rangemode="tozero")
-    figure.update_yaxes(title="Average return, yearly (first fit)", tickformat=".0%")
+    figure.update_xaxes(title="Fit volatility, yearly", tickformat=".0%", rangemode="tozero")
+    figure.update_yaxes(title="Arithmetic mean, yearly (first fit)", tickformat=".0%")
     return figure
 
 
-def holdout_chart(analysis: Any, benchmark_equity=None) -> go.Figure:
+def holdout_chart(analysis: Any, benchmark_equity=None, selected=None) -> go.Figure:
     """Plot the realized buy-and-hold value of an initial 10,000 units."""
     figure = go.Figure()
-    for name in analysis.equity.columns:
+    for name in analysis.equity.columns if selected is None else [selected]:
         figure.add_trace(go.Scatter(
             x=analysis.equity.index, y=analysis.equity[name] * 10_000, name=name,
             mode="lines", line={"width": 2, "color": COLORS.get(name, REST)},
@@ -285,7 +289,7 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
     warnings = "".join(f"<li>{html.escape(str(warning))}</li>" for warning in analysis.warnings)
     warnings_html = f'<aside><h2>Analysis notes</h2><ul>{warnings}</ul></aside>' if warnings else ""
     estimates = pd.DataFrame.from_dict({
-        name: {"Historical expected annual return": p.expected_return, "Annual volatility": p.volatility, "Estimated Sharpe": p.sharpe}
+        name: {"Fit arithmetic mean, yearly": p.expected_return, "Annual volatility": p.volatility, "Estimated Sharpe": p.sharpe}
         for name, p in analysis.portfolios.items()
     }, orient="index")
     holdout = analysis.holdout_metrics.rename(columns={
@@ -323,6 +327,13 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
     introduction = ("The backtest comparison updates portfolios using only information available before each trade. "
                     "The original fixed-allocation holdout is shown separately."
                     if study is not None else "The original holdout selects weights from the training period, then evaluates them on later observations.")
+    classic_definitions = (
+        '<p class="muted"><strong>Classic Low, Medium and High.</strong> These levels belong to the first-fit mean-variance frontier. '
+        'Low uses the point with the least fitted volatility. Medium uses the sampled frontier point nearest to the midpoint '
+        'of Low and High volatility. High uses the endpoint with the highest fitted arithmetic mean return. '
+        'When the frontier has no volatility range, all three use the same highest-return mix. '
+        'These levels differ from the full-history profiles, which optimize the weakest of three past windows.</p>'
+    ) if all(name in analysis.portfolios for name in CLASSIC_PROFILE_NAMES) else ""
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Portfolio Lab · Research report</title>
@@ -340,8 +351,12 @@ Training estimates describe historical data. They are not predictions or guarant
 {comparison_html}
 <section id="training"><h2>Training estimates</h2><p class="muted">Arithmetic mean returns and covariance use {analysis.periods_per_year:g} observations per year.
 The analysis applies covariance shrinkage to training data only. Sharpe ratios use the configured risk-free rate.</p>
+<p class="muted">Fit return dates: {details['training_start']} to {details['training_end']}.
+A higher point means a higher average return during this fit. It does not show which mix won on the later holdout dates.
+The arithmetic mean is not compound growth (CAGR) or a forecast.</p>
+{classic_definitions}
 <div class="chart">{frontier}</div>
-<div class="scroll">{_table(estimates, ["Historical expected annual return", "Annual volatility"])}</div></section>
+<div class="scroll">{_table(estimates, ["Fit arithmetic mean, yearly", "Annual volatility"])}</div></section>
 <section id="allocations"><h2>Portfolio allocations</h2><p class="muted">These are the initial weights at the training/holdout split.</p>
 <div class="scroll">{_table(weights_frame(analysis))}</div></section>
 <section id="risk"><h2>Concentration and risk</h2><p class="muted">These measures use the initial weights and the estimated training covariance.
@@ -356,6 +371,9 @@ An em dash marks undefined risk shares and diversification ratios when portfolio
 and then holds adjusted-price exposures. There is no subsequent trading between assets; portfolio weights drift with prices.
 Distributions follow the provider's price adjustments rather than accumulating as separate cash.
 CAGR and volatility use {analysis.periods_per_year:g} observations per year.</p>
+<p class="muted">Holdout return dates: {details['holdout_start']} to {details['holdout_end']}.
+The initial allocation uses the close on {analysis.equity.index[0].date()}.
+These later returns did not select the classic weights.</p>
 <p class="muted">Sortino measures excess return relative to downside deviation. Calmar divides CAGR by the absolute maximum drawdown.
 An em dash marks a ratio with a zero denominator.</p><div class="chart">{holdout_plot}</div>
 <div class="scroll">{_table(holdout, ["Total return", "CAGR", "Annual volatility", "Maximum drawdown"])}</div></section>

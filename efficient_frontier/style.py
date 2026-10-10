@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif'
 INK, INK_2, INK_3, INK_4 = "#1d1d1f", "#424245", "#6e6e73", "#86868b"
 GRID, REST, ACCENT, FILL, CANVAS = "#e8e8ed", "#c7c7cc", "#0071e3", "#f2f2f4", "#f5f5f7"
-COLORS = {"Low": "#5e9eea", "Medium": "#0071e3", "Extreme": "#0a3f8f",
+COLORS = {"Low": "#5e9eea", "Medium": "#0071e3", "High": "#0a3f8f", "Extreme": "#0a3f8f",
           "Minimum volatility": "#5e9eea", "Equal weight": "#0071e3", "Maximum Sharpe": "#0a3f8f"}
 BENCHMARK_COLORS = {"S&P 500 (SPY)": "#8e8e93", "Nasdaq-100 (QQQ)": "#545458"}
 PLOTLY_CONFIG = {"displayModeBar": False, "displaylogo": False, "scrollZoom": False,

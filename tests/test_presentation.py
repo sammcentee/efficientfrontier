@@ -106,6 +106,88 @@ def test_charts_preserve_training_estimates_and_holdout_baseline(report_analysis
         assert chart.layout.legend.maxheight <= chart.layout.margin.b
 
 
+@pytest.fixture
+def classic_prices():
+    from efficient_frontier.data import demo_prices
+
+    return demo_prices().iloc[:120, :2].copy()
+
+
+@pytest.fixture
+def classic_analysis(classic_prices):
+    from efficient_frontier.core import analyze
+
+    return analyze(classic_prices, max_weight=.7)
+
+
+def test_classic_frontier_shows_actual_risk_points_and_fit_benchmarks(classic_analysis):
+    benchmarks = pd.DataFrame({"volatility": [.04, .13], "expected_return": [.03, .09]},
+                              index=["S&P 500 (SPY)", "Nasdaq-100 (QQQ)"])
+    chart = frontier_chart(classic_analysis, benchmarks, selected="Medium")
+    assert [html.unescape(trace.name) for trace in chart.data] == ["Efficient frontier", "Low", "Medium", "High", *benchmarks.index]
+    np.testing.assert_array_equal(chart.data[0].x, classic_analysis.frontier.volatility)
+    np.testing.assert_array_equal(chart.data[0].y, classic_analysis.frontier.expected_return)
+    for trace in chart.data[1:4]:
+        portfolio = classic_analysis.portfolios[trace.name]
+        np.testing.assert_allclose(trace.x, [portfolio.volatility])
+        np.testing.assert_allclose(trace.y, [portfolio.expected_return])
+    assert chart.data[2].marker.size > chart.data[1].marker.size == chart.data[3].marker.size
+    assert len({trace.marker.color for trace in chart.data[1:4]}) == 3
+    for trace in chart.data[4:]:
+        np.testing.assert_allclose(trace.x, [benchmarks.loc[html.unescape(trace.name), "volatility"]])
+        np.testing.assert_allclose(trace.y, [benchmarks.loc[html.unescape(trace.name), "expected_return"]])
+    assert all("Fit arithmetic mean" in trace.hovertemplate and "expected" not in trace.hovertemplate for trace in chart.data)
+    assert "Arithmetic mean" in chart.layout.yaxis.title.text and "first fit" in chart.layout.yaxis.title.text
+    assert "Minimum volatility" in classic_analysis.portfolios
+
+
+@pytest.mark.parametrize("selected", ["Low", "Medium", "High"])
+def test_selected_classic_holdout_uses_same_initial_weights_and_matching_benchmark_dates(classic_analysis, selected):
+    before = classic_analysis.equity.copy()
+    benchmarks = pd.DataFrame({"S&P 500 (SPY)": np.linspace(1, .8, len(before)),
+                               "Nasdaq-100 (QQQ)": np.linspace(1, 1.3, len(before))}, index=before.index)
+    chart = holdout_chart(classic_analysis, benchmarks, selected=selected)
+    assert [html.unescape(trace.name) for trace in chart.data] == [selected, *benchmarks.columns]
+    for trace in chart.data:
+        pd.testing.assert_index_equal(pd.DatetimeIndex(trace.x), before.index, check_names=False)
+        expected = before[selected] if trace.name == selected else benchmarks[html.unescape(trace.name)]
+        np.testing.assert_allclose(trace.y, expected * 10_000)
+        assert trace.y[0] == pytest.approx(10_000)
+    all_paths = holdout_chart(classic_analysis, benchmarks)
+    assert [html.unescape(trace.name) for trace in all_paths.data] == [*before.columns, *benchmarks.columns]
+    pd.testing.assert_frame_equal(classic_analysis.equity, before)
+
+
+def test_classic_risk_exports_and_report_keep_first_fit_separate_from_full_history(classic_analysis, classic_prices):
+    from efficient_frontier.profiles import build_profiles
+
+    latest = build_profiles(classic_prices, max_weight=.7)
+    archive = report_zip(classic_analysis, classic_prices, {"source": "Demo · synthetic", "universe": "Demo"}, latest_profiles=latest)
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        weights = pd.read_csv(bundle.open("weights.csv"), index_col=0)
+        pd.testing.assert_frame_equal(weights, weights_frame(classic_analysis))
+        assert {"Low", "Medium", "High", "Minimum volatility", "Equal weight"} <= set(weights.columns)
+        pd.testing.assert_frame_equal(pd.read_csv(bundle.open("holdout_metrics.csv"), index_col=0), classic_analysis.holdout_metrics)
+        curves = pd.read_csv(bundle.open("holdout_curve.csv"), index_col=0, parse_dates=True)
+        pd.testing.assert_frame_equal(curves, classic_analysis.equity, check_freq=False)
+        latest_weights = pd.read_csv(bundle.open("latest_profile_weights.csv"), index_col=0)
+        pd.testing.assert_frame_equal(latest_weights, weights_frame(latest))
+        assert list(latest_weights.columns) == ["Low", "Medium", "Extreme"]
+        document = bundle.read("report.html").decode()
+        fit = document.split('<section id="training">')[1].split('</section>')[0]
+        holdout = document.split('<section id="holdout">')[1].split('</section>')[0]
+        assert "Classic Low, Medium and High" in fit
+        assert "midpoint of Low and High volatility" in fit
+        assert "When the frontier has no volatility range, all three use the same highest-return mix" in fit
+        assert "These levels differ from the full-history profiles" in fit
+        assert f"Fit return dates: {classic_analysis.train_returns.index[0].date()} to {classic_analysis.train_returns.index[-1].date()}" in fit
+        assert "It does not show which mix won on the later holdout dates" in fit
+        assert "The arithmetic mean is not compound growth (CAGR) or a forecast" in fit
+        assert f"Holdout return dates: {classic_analysis.test_returns.index[0].date()} to {classic_analysis.test_returns.index[-1].date()}" in holdout
+        assert f"The initial allocation uses the close on {classic_analysis.equity.index[0].date()}" in holdout
+        assert "These later returns did not select the classic weights" in holdout
+
+
 def test_csv_labels_cannot_be_spreadsheet_formulas_and_numbers_are_unchanged():
     labels = ['=HYPERLINK("https://example.invalid","example")', "\t+1+1", " -1+1", "\r@SUM(A1)", "BRK-B"]
     values = np.arange(25, dtype=float).reshape(5, 5) / 4 - 1
