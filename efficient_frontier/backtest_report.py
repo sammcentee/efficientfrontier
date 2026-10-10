@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .benchmark_report import add_benchmark_paths, benchmark_html, benchmark_markdown
-from .style import COLORS, style_chart
+from .style import ACCENT, COLORS, GRID, INK_2, PLOTLY_CONFIG, REST, display_label, style_chart
 
 
 METRICS = {
@@ -34,6 +34,7 @@ HOLDINGS = {
     "max_target_weight": ("Maximum target weight", "percent"),
     "max_realized_weight": ("Maximum realized weight", "percent"),
 }
+BEST_IN_HINDSIGHT = "Best in hindsight. These results were picked after the test. They are not a recommendation."
 ASSUMPTIONS = (
     "Buy and hold allocates once. Fixed rebalance restores the original fitted targets at "
     "each scheduled trade. Expanding window refits using all prior observations; rolling "
@@ -65,7 +66,7 @@ ASSUMPTIONS = (
 def _assumptions(study: Any) -> tuple[str, ...]:
     periods = study.settings.get("periods_per_year", 252)
     profile_notes = (
-        "Low, Medium, and Extreme use a frontier with a return target in each of three historical windows. "
+        "Low, Medium, and Highest use a frontier with a return target in each of three historical windows. "
         "These are relative risk levels within each fit, not universal risk ratings. "
         "Profile backtests fit only the history available before each allocation. "
         "The latest model holdings use all supplied history and remain separate from these backtests and the original holdout.",
@@ -158,30 +159,46 @@ def findings(study: Any) -> list[str]:
     return result
 
 
-def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None, benchmark_equity=None) -> go.Figure:
-    """Plot selected paths without changes to the complete study data."""
-    dashes = {"Buy and hold": "solid", "Fixed rebalance": "dash", "Expanding window": "dot", "Rolling window": "dashdot"}
+def backtest_chart(study: Any, drawdown: bool = False, strategies: list[str] | None = None, benchmark_equity=None,
+                   focus: str | None = None, label=display_label) -> go.Figure:
+    """Plot selected paths without changes to the complete study data.
+
+    With a focus strategy, that path is blue and every other strategy is a thin grey line without a legend entry.
+    ``label`` names each strategy trace.
+    """
     figure = go.Figure()
     names = study.equity.columns if strategies is None else strategies
     unknown = [name for name in names if name not in study.equity.columns]
     if unknown:
         raise ValueError("Unknown backtest strategies: " + ", ".join(map(str, unknown)))
     for name in names:
-        method, _, policy = str(name).partition(" · ")
+        policy = str(name).partition(" · ")[2]
         path = study.equity[name]
         values = path / path.cummax() - 1 if drawdown else path * 10_000
+        if focus is None:
+            line, legend = {"color": COLORS.get(policy, REST), "width": 2}, True
+        elif name == focus:
+            line, legend = {"color": ACCENT, "width": 2.5}, True
+        else:
+            line, legend = {"color": REST, "width": 1.25}, False
         figure.add_trace(go.Scatter(
-            x=study.equity.index, y=values, name=html.escape(str(name)), mode="lines",
-            line={"color": COLORS.get(policy, "#737b85"), "dash": dashes.get(method, "solid"), "width": 2},
+            x=study.equity.index, y=values, name=html.escape(label(name)), mode="lines", line=line, showlegend=legend,
             hovertemplate="%{x|%Y-%m-%d}<br>" + ("Drawdown: %{y:.2%}" if drawdown else "Net portfolio value: %{y:,.2f}")
             + "<extra>%{fullData.name}</extra>",
         ))
     add_benchmark_paths(figure, benchmark_equity, drawdown)
-    style_chart(figure, "Backtest drawdowns" if drawdown else "Backtest performance", hovermode="x unified")
-    figure.update_xaxes(title="Date")
-    figure.update_yaxes(title="Drawdown" if drawdown else "Value (initial 10,000)",
-                        tickformat=".1%" if drawdown else ",.0f")
+    style_chart(figure, "Falls from peak" if drawdown else "Growth of 10,000", height=360 if drawdown else 420,
+                hovermode="x unified")
+    figure.update_yaxes(tickformat=".0%" if drawdown else "~s")
     return figure
+
+
+def _focus(study: Any, focus: str | None) -> str:
+    """Use the requested strategy, else the fixed default that does not depend on results."""
+    if focus in study.equity.columns:
+        return focus
+    defaults = ("Expanding window · Medium", "Minimum volatility", "Expanding window · Minimum volatility")
+    return next((name for name in defaults if name in study.equity.columns), study.equity.columns[0])
 
 
 def _markdown(value: Any) -> str:
@@ -213,10 +230,12 @@ def findings_markdown(study: Any, source: str, benchmarks=None, evidence=None) -
         f"Portfolio baseline: {dates[0].date()}. Evaluation returns: {dates[1].date()} to {dates[-1].date()} "
         f"({len(dates) - 1} observations).\n\n"
         + comparison
-        + "## Observed findings\n\n" + "\n".join(f"- {_markdown(note)}" for note in findings(study)) + "\n\n"
+        + "## Observed findings\n\n" + BEST_IN_HINDSIGHT + "\n\n"
+        + "\n".join(f"- {_markdown(display_label(note))}" for note in findings(study)) + "\n\n"
         "These are retrospective comparisons; the selected strategy is not a forecast.\n\n"
-        "## All method and portfolio combinations\n\n" + _markdown_table(_formatted(study.metrics, METRICS)) + "\n\n"
-        f"## Holdings for {_markdown(best)}\n\n"
+        "## All method and portfolio combinations\n\n"
+        + _markdown_table(_formatted(study.metrics, METRICS).rename(index=display_label)) + "\n\n"
+        f"## Holdings for {_markdown(display_label(best))}\n\n"
         "Up to 10 largest absolute P&L contributions are shown, restricted to assets targeted above 0.0001%. "
         "Contributions use initial capital "
         "as the denominator, with trading fees accounted for separately. The CSV export contains all holdings.\n\n"
@@ -227,39 +246,46 @@ def findings_markdown(study: Any, source: str, benchmarks=None, evidence=None) -
     )
 
 
-def backtest_html(study: Any, benchmarks=None, evidence=None) -> str:
+def backtest_html(study: Any, benchmarks=None, evidence=None, focus: str | None = None) -> str:
     """Return escaped report sections; the parent document supplies Plotly.js."""
+    from .story import setting_label, setting_text  # story imports this module, so the import waits for the call.
+
     best = study.metrics["total_return"].idxmax()
+    focus = _focus(study, focus)
     holdings = _top_holdings(study, best)
     holding_table = _formatted(holdings, HOLDINGS)
     holding_table.index.name = "Asset"
     bar_rows = holdings.sort_values("pnl_contribution")
     bars = go.Figure(go.Bar(
         x=bar_rows["pnl_contribution"], y=[html.escape(str(asset)) for asset in bar_rows.index],
-        orientation="h", marker_color=["#3977b8" if value >= 0 else "#ad5b57" for value in bar_rows["pnl_contribution"]],
+        orientation="h", marker_color=[ACCENT if value >= 0 else "#86868b" for value in bar_rows["pnl_contribution"]],
+        marker_line_width=0, text=bar_rows["pnl_contribution"], texttemplate="%{x:+.1%}", textposition="outside",
+        textfont={"size": 12, "color": INK_2}, cliponaxis=False,
         hovertemplate="%{y}<br>P&L / initial capital: %{x:.2%}<extra></extra>",
     ))
     style_chart(bars, "Holding contributions", height=430)
-    bars.update_layout(margin={"l": 65, "r": 18, "t": 55, "b": 65})
-    bars.update_xaxes(title="P&L / initial capital", tickformat=".1%", automargin=True)
-    chart_options = {"full_html": False, "include_plotlyjs": False,
-                     "config": {"responsive": True, "displaylogo": False}}
-    bullets = "".join(f"<li>{html.escape(note)}</li>" for note in findings(study))
+    bars.update_layout(showlegend=False, margin={"l": 8, "r": 56, "t": 44, "b": 24})
+    bars.update_xaxes(tickformat=".1%", showgrid=True, gridcolor=GRID)
+    bars.update_yaxes(showgrid=False, dtick=1)
+    chart_options = {"full_html": False, "include_plotlyjs": False, "config": PLOTLY_CONFIG}
+    bullets = "".join(f"<li>{html.escape(display_label(note))}</li>" for note in findings(study))
     warnings = "".join(f"<li>{html.escape(str(note))}</li>" for note in study.warnings)
     assumptions = "".join(f"<p>{html.escape(note)}</p>" for note in _assumptions(study))
-    settings = "".join(f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
+    settings = "".join(f"<tr><th>{html.escape(setting_label(key))}</th><td>{html.escape(setting_text(key, value))}</td></tr>"
                        for key, value in study.settings.items())
     benchmark_equity = benchmarks.backtest_equity if benchmarks is not None else None
     comparison = benchmark_html(benchmarks, evidence, backtest=True) if benchmarks is not None else ""
     return (
         '<section id="backtesting">' + comparison + '<h2>Backtesting findings</h2>'
+        f"<p>{BEST_IN_HINDSIGHT}</p>"
         f"<ul>{bullets}</ul><p class=\"muted\">These are retrospective comparisons; "
         "the selected strategy is not a forecast.</p>"
-        f'<div class="chart">{backtest_chart(study, benchmark_equity=benchmark_equity).to_html(**chart_options)}</div>'
-        f'<div class="chart">{backtest_chart(study, drawdown=True, benchmark_equity=benchmark_equity).to_html(**chart_options)}</div>'
+        f'<p class="muted">Blue: {html.escape(display_label(focus))}. Grey: the other strategies.</p>'
+        f'<div class="chart">{backtest_chart(study, benchmark_equity=benchmark_equity, focus=focus).to_html(**chart_options)}</div>'
+        f'<div class="chart">{backtest_chart(study, drawdown=True, benchmark_equity=benchmark_equity, focus=focus).to_html(**chart_options)}</div>'
         "<h2>All method and portfolio combinations</h2>"
-        f'<div class="scroll">{_formatted(study.metrics, METRICS).to_html(escape=True, border=0, classes="data")}</div>'
-        f"<h2>Holdings for {html.escape(str(best))}</h2><p>Up to 10 largest absolute P&amp;L contributions "
+        f'<div class="scroll">{_formatted(study.metrics, METRICS).rename(index=display_label).to_html(escape=True, border=0, classes="data")}</div>'
+        f"<h2>Holdings for {html.escape(display_label(best))}</h2><p>Up to 10 largest absolute P&amp;L contributions "
         "are shown, restricted to assets targeted above 0.0001%. "
         "Contributions use initial capital as the denominator; fees are accounted for separately. "
         "The CSV export contains all holdings.</p>"

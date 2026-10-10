@@ -92,10 +92,7 @@ def test_charts_preserve_all_paths_and_initial_drawdown(study):
     assert len(comparison.data) == len(drawdown.data) == 12
     np.testing.assert_allclose(comparison.data[0].y, study.equity.iloc[:, 0] * 10_000)
     np.testing.assert_allclose(drawdown.data[0].y, [0.0, -0.01, -0.02, 0.0])
-    assert comparison.data[0].line.dash == "solid"
-    assert comparison.data[3].line.dash == "dash"
-    assert comparison.data[6].line.dash == "dot"
-    assert comparison.data[9].line.dash == "dashdot"
+    assert {trace.line.dash for trace in comparison.data} <= {None, "solid"}
     assert len(comparison.layout.title.text) <= 22
     assert comparison.layout.legend.maxheight <= comparison.layout.margin.b
 
@@ -125,10 +122,19 @@ def test_chart_styles_new_profiles_and_keeps_all_existing_paths(study):
     chart = backtest_chart(study)
     assert len(chart.data) == 24
     assert len({trace.line.color for trace in chart.data[12:15]}) == 3
-    assert chart.data[12].line.dash == "solid"
-    assert chart.data[15].line.dash == "dash"
-    assert chart.data[18].line.dash == "dot"
-    assert chart.data[21].line.dash == "dashdot"
+    assert {trace.line.dash for trace in chart.data} <= {None, "solid"}
+
+
+def test_focus_mode_highlights_one_strategy_and_keeps_every_path(study):
+    focus = "Expanding window · Equal weight"
+    chart = backtest_chart(study, focus=focus)
+    assert len(chart.data) == len(backtest_chart(study).data) == 12
+    assert [trace.name for trace in chart.data] == list(study.equity.columns)
+    for trace in chart.data:
+        if trace.name == focus:
+            assert trace.line.color == "#0071e3" and trace.line.width == 2.5 and trace.showlegend is not False
+        else:
+            assert trace.line.color == "#c7c7cc" and trace.showlegend is False
 
 
 def test_profile_backtest_reports_explain_separate_past_only_fits(study):
@@ -159,6 +165,16 @@ def test_html_escapes_asset_names_settings_and_warnings_without_bundle(study):
     assert "Allocation events (incl. entry)" in document
     assert document.count("<td>1.75</td>") == 12
     assert document.count("<td>1.50</td>") == 12
+
+
+def test_backtest_settings_table_shows_plain_labels_and_percents(study):
+    study.settings.update(train_fraction=0.7, risk_free_rate=0.02, include_profiles=True, test_start="2024-01-03")
+    settings = backtest_html(study).split("<h2>Backtest settings</h2>")[1].split("</table>")[0]
+    for row in ("<th>Trading cost</th><td>10 basis points (0.10%)</td>", "<th>Trade every (price rows)</th><td>21</td>",
+                "<th>Recent history for refits (price rows)</th><td>252</td>", "<th>Prices for the first fit</th><td>70%</td>",
+                "<th>Risk-free rate</th><td>2.00%</td>", "<th>Risk levels tested</th><td>Yes</td>", "<th>Test from</th><td>2024-01-03</td>"):
+        assert row in settings
+    assert "_" not in settings
 
 
 @pytest.mark.parametrize("periods", [12.0, 52, 365])
