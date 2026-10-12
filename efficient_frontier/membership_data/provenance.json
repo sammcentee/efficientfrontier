@@ -1,0 +1,114 @@
+{
+  "source": "https://github.com/jmccarrell/n100tickers",
+  "source_commit": "cf7c89419941316ff8523726ccba136125f2c11c",
+  "license": "MIT; see LICENSE.n100tickers",
+  "source_provenance": "Community reconstruction from Wikipedia component-change records, including upstream historical ticker corrections. Not Nasdaq-certified.",
+  "retrieved_on": "2026-10-03",
+  "coverage_start": "2010-01-01",
+  "coverage_end": "2026-09-30",
+  "last_snapshot": "2026-09-14",
+  "snapshot_sha256": "d7250e58e5941320ea1fa5dbcad8cf11676445a21514c7b9c4685ee134d28ded",
+  "date_convention": "Each complete roster takes effect on its date, inclusively. Snapshots contain effective dates, not publication timestamps.",
+  "limitations": [
+    "This community reconstruction has known omissions. It is not a certified Nasdaq-100 history.",
+    "CMCSK and LVNTA are missing. LILA and LILAK reentries from December 2016 to early 2018 are missing.",
+    "Effective dates are present, but publication timestamps are absent. Availability before the execution close is a modeling assumption.",
+    "Historical ticker labels are not stable security identifiers. Known unsafe date ranges are excluded, and ticker renames are not mapped automatically.",
+    "The identity exclusion list covers known hazards only. It does not certify every price series or corporate action.",
+    "Missing prices for renamed or delisted securities can still favor survivors. Membership data alone does not remove survivorship bias.",
+    "The dataset supplies neither index weights nor merger, spinoff, liquidation or cash-consideration terms."
+  ],
+  "identity_exclusions": [
+    {
+      "symbol": "GOOG",
+      "start": null,
+      "end": "2014-04-03",
+      "reason": "Before 2014-04-03 GOOG denotes the Class A security now labeled GOOGL, not the present GOOG Class C line."
+    },
+    {
+      "symbol": "DELL",
+      "start": null,
+      "end": "2018-12-28",
+      "reason": "Before 2018-12-28 DELL does not identify the present Dell Technologies Class C listing."
+    },
+    {
+      "symbol": "ALTR",
+      "start": null,
+      "end": null,
+      "reason": "Historical Altera and later issuers reuse ALTR. The historical price identity is not verified."
+    },
+    {
+      "symbol": "LIFE",
+      "start": null,
+      "end": null,
+      "reason": "Historical Life Technologies and later issuers reuse LIFE. The historical price identity is not verified."
+    },
+    {
+      "symbol": "SNDK",
+      "start": null,
+      "end": "2025-02-24",
+      "reason": "Before 2025-02-24 SNDK does not identify the present Sandisk spinoff security."
+    },
+    {
+      "symbol": "FOX",
+      "start": null,
+      "end": "2019-03-19",
+      "reason": "Before 2019-03-19 FOX refers to Twenty-First Century Fox, not the later Fox Corporation security."
+    },
+    {
+      "symbol": "FOXA",
+      "start": null,
+      "end": "2019-03-19",
+      "reason": "Before 2019-03-19 FOXA refers to Twenty-First Century Fox, not the later Fox Corporation security."
+    },
+    {
+      "symbol": "NWSA",
+      "start": null,
+      "end": "2013-07-01",
+      "reason": "Before the 2013 split NWSA refers to the old News Corporation, not the separate new News Corp security."
+    },
+    {
+      "symbol": "GOLD",
+      "start": null,
+      "end": null,
+      "reason": "The historical Nasdaq constituent Randgold and later issuers reuse GOLD. The historical price identity is not verified."
+    },
+    {
+      "symbol": "BBBY",
+      "start": null,
+      "end": null,
+      "reason": "The former Bed Bath & Beyond and a later issuer reuse BBBY. The historical price identity is not verified."
+    },
+    {
+      "symbol": "LMCA",
+      "start": null,
+      "end": null,
+      "reason": "The Liberty recapitalization changes the security identity behind this label. Historical price continuity is not independently verified."
+    },
+    {
+      "symbol": "LMCK",
+      "start": null,
+      "end": null,
+      "reason": "The Liberty recapitalization changes the security identity behind this label. Historical price continuity is not independently verified."
+    }
+  ],
+  "identity_primary_sources": {
+    "GOOG": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ETA2014-24",
+    "DELL": "https://investors.delltechnologies.com/news-releases/news-release-details/dell-technologies-completes-class-v-transaction",
+    "ALTR": "https://www.intc.com/news-events/press-releases/detail/302/intel-completes-acquisition-of-altera",
+    "LIFE": "https://www.sec.gov/Archives/edgar/data/1073431/000119312514033495/d655804d8k.htm",
+    "SNDK": "https://www.sec.gov/Archives/edgar/data/106040/000119312525033383/d847507d8k.htm",
+    "FOX_and_FOXA": "https://investor.foxcorporation.com/news/corp-press-releases/2019/fox-corporation-announces-first-day-as-standalone/",
+    "NWSA": "https://newscorp.com/2013/06/28/the-new-news-corp-launches-as-global-media-and-information-services-company/",
+    "GOLD": "https://www.barrick.com/English/news/news-details/2019/barrick-randgold-merger-consummated-as-trading-starts-in-new-companys-shares/default.aspx",
+    "BBBY": "https://www.sec.gov/Archives/edgar/data/1130713/000113071325000078/R9.htm"
+  },
+  "sample_primary_sources": [
+    "https://ir.nasdaq.com/node/69796",
+    "https://ir.nasdaq.com/static-files/d92a5d2e-9eda-467e-831f-25db4e9ff1a6",
+    "https://ir.nasdaq.com/static-files/07d71061-d890-419b-ba4e-3ed37b6b9495",
+    "https://ir.nasdaq.com/node/81631"
+  ],
+  "upstream_export_sha256": "d0ff5d5b5c5ebb04d952b953cf14ef5f3823ab4aa0852ce04932d2ddde38d9ee",
+  "export_note": "Full-roster CSV exported from the pinned source. Only line endings change from CRLF to LF in this bundle."
+}
