@@ -19,6 +19,7 @@ from efficient_frontier.benchmarks import compare_benchmarks
 from efficient_frontier.core import CLASSIC_PROFILE_NAMES, analyze
 from efficient_frontier.data import BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, validate_benchmark_prices
 from efficient_frontier.evidence import analyze_evidence
+from efficient_frontier.historical_app import render_historical
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, latest_profile_chart, weights_frame
 from efficient_frontier.profiles import build_profiles
 from efficient_frontier.risk import risk_contributions, risk_summary
@@ -588,6 +589,8 @@ def welcome_or_error():
             st.html(f'<p class="pl-note">{note}</p>')
             if market != "Demo":
                 st.button("Try the offline demo", key="try_demo", type="tertiary", icon=":material/science:", on_click=try_demo)
+            st.button("Explore historical membership", key="open_historical", type="tertiary",
+                      on_click=set_state, args=("view", "Historical membership"))
             st.html(PREVIEW_HTML + '<p class="pl-foot pl-center" style="margin-top:32px">Historical research, not a forecast or financial advice.</p>')
             return
         kind = st.session_state.get("build_error_kind", "other")
@@ -1026,11 +1029,15 @@ busy = bool(st.session_state.get("pending_build") or st.session_state.get("pendi
 with st.container(key="localnav", horizontal=True, vertical_alignment="center", gap="medium"):
     st.html('<span class="pl-wordmark">Portfolio Lab</span>', width="stretch")
     if ready:
-        st.segmented_control("View", ["Portfolio", "Research"], key="view", required=True, format_func=story.VIEW_LABELS.get,
+        st.segmented_control("View", ["Portfolio", "Research", "Historical membership"], key="view", required=True,
+                             format_func=lambda name: story.VIEW_LABELS.get(name, name),
                              label_visibility="collapsed", disabled=busy)
-        st.download_button("Export", data=make_report_callable(), file_name="portfolio-lab.zip", mime="application/zip",
-                           key="export", type="primary", icon=":material/ios_share:", on_click="ignore", shortcut="E",
-                           disabled=busy, help="One zip file. The report opens offline and prints to PDF.")
+        if st.session_state.view != "Historical membership":
+            st.download_button("Export", data=make_report_callable(), file_name="portfolio-lab.zip", mime="application/zip",
+                               key="export", type="primary", icon=":material/ios_share:", on_click="ignore", shortcut="E",
+                               disabled=busy, help="One zip file. The report opens offline and prints to PDF.")
+    elif st.session_state.view == "Historical membership":
+        st.button("Back to portfolios", key="close_historical", on_click=set_state, args=("view", "Portfolio"))
 
 KEYS = (("key_holdings", "Holdings", "1", jump, ("Portfolio", "top")),
         ("key_market", "Market test", "2", jump, ("Portfolio", "pl-market")),
@@ -1039,15 +1046,17 @@ KEYS = (("key_holdings", "Holdings", "1", jump, ("Portfolio", "top")),
         ("key_low", "Low", "L", set_state, ("risk_profile", "Low")),
         ("key_medium", "Medium", "M", set_state, ("risk_profile", "Medium")),
         ("key_highest", "Highest", "H", set_state, ("risk_profile", "Extreme")))
-if ready:
+if ready and st.session_state.view != "Historical membership":
     with st.container(key="keys"):
         for key, label, shortcut, callback, args in KEYS:
             st.button(label, key=key, shortcut=shortcut, on_click=callback, args=args, disabled=busy)
 
-if st.session_state.setup_open:
+if st.session_state.setup_open and st.session_state.view != "Historical membership":
     setup_sheet()
 
-if st.session_state.get("pending_build"):
+if st.session_state.view == "Historical membership":
+    render_historical()
+elif st.session_state.get("pending_build"):
     hero_work()
 elif not ready:
     welcome_or_error()
