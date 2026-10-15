@@ -71,6 +71,45 @@ Every eligible asset enters the optimization. Weights can be zero. There is no f
 
 **This is historical analysis of current members.** It does not reconstruct past index membership. Current membership and complete-history eligibility introduce selection bias. A shorter history can admit more assets and also changes the estimation sample.
 
+## Historical membership
+
+Select **Explore historical membership** on the welcome screen, or **Historical membership** in the navigation after a study. Select **Run historical study** to try the offline example. It contains member additions, removals, re-entry, and missing price history.
+
+For real data, upload an adjusted-price CSV and choose the bundled Nasdaq-100 membership or your own membership CSV. This mode stays offline. The bundled community reconstruction covers **2010-01-01 through 2026-09-30**. Its provenance and known gaps appear in the app and report. It is not a certified complete index history. No paid service is required; you must supply suitable historical prices.
+
+Historical prices use the same `Date,ASSET_A,ASSET_B,…` layout, but unavailable prices can be blank. Each identifier must refer to one security throughout its history. Use separate labels for reused tickers. The bundled data blocks known unsafe identities; it does not verify all other price histories. It does not automatically join old membership labels to today's Yahoo symbols.
+
+A custom membership CSV has exactly two columns. Each row is the **full roster** effective on that date, not a list of changes:
+
+```csv
+date,tickers
+2020-01-01,"ASSET_A,ASSET_B"
+2020-06-01,"ASSET_B,ASSET_C"
+```
+
+Declare the final date covered by your source. The last roster remains effective through that date. Coverage must include the portfolio baseline date through the final valuation date. Training prices can predate membership coverage; evaluation outside the declared coverage stops the test.
+
+The study compares minimum volatility, maximum Sharpe, and equal weight. Each scheduled trade selects from membership effective on the trade date, using a full rolling window of returns through the prior close. New targets trade at the next close. The model assumes that effective membership is known before execution; it does not model announcement timestamps. Removed members leave at the next scheduled rebalance, so the study is not an exact index tracker. A company can become eligible later when it has enough history. Missing prices for a held asset stop the test; the engine does not fill gaps or silently drop that holding. If no eligible portfolio meets the weight cap, it holds cash until the next allocation. Cash earns zero interest.
+
+The historical report includes membership snapshots, sparse input prices, eligibility reasons at every trade, cash weights, allocations, trades, holdings, and fees. These records help inspect selection bias; they do not prove a complete survivorship-free result. This mode does not run the fixed-universe risk profiles or market benchmark comparisons.
+
+```bash
+# Fully offline example; rolling window defaults to 126 returns
+.venv/bin/python -m efficient_frontier --historical-demo --output results/historical-demo
+
+# Bundled historical membership with your supplied price history
+.venv/bin/python -m efficient_frontier --historical-membership \
+  --csv private/historical-prices.csv --output results/historical
+
+# Your own full membership snapshots and explicit final covered date
+.venv/bin/python -m efficient_frontier --membership-csv private/membership.csv \
+  --membership-end 2024-12-31 --csv private/prices.csv \
+  --rolling-window 126 --rebalance-every 21 --cost-bps 10 \
+  --output results/custom-historical
+```
+
+Use enough initial training history for the selected rolling window. The demo export can be reproduced with its `prices.csv`, `membership.csv`, coverage end from `metadata.json`, and matching settings. For the bundled source, keep `--historical-membership` when reproducing a run so its security-identity exclusions still apply.
+
 ## Your own prices
 
 Select **Change → Upload CSV**. Put `Date` first, followed by one column per asset:

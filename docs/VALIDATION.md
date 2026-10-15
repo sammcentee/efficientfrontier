@@ -1,5 +1,25 @@
 # Validation record
 
+## Historical membership: 12 October 2026
+
+**620 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
+The suite reports the existing pandas warning from the invalid-date rejection test.
+
+New tests cover effective-date entry, departure, reentry, short price histories, source coverage bounds, and known reused ticker identities.
+Price or roster changes in the future cannot change earlier targets. A missing execution or held-asset price stops the study.
+Cash transitions, fees, and holding contributions reconcile. A constant complete roster matches the existing rolling-window engine.
+An independent share-accounting check also matched NAV through repeated cash exits and reentries.
+
+CLI and Streamlit tests cover offline inputs, custom coverage dates, pending settings, error recovery, and preservation of the current study.
+The synthetic CLI export completed. Reloaded inputs reproduced equity, cash, coverage, and metrics.
+Report tests check HTML escaping, embedded chart resources, input snapshots, numeric exports, and source licenses.
+The bundled history records 119 snapshots, known omissions, explicit coverage through 30 September 2026, and identity exclusions.
+
+The background T3 preview ran the historical demo and displayed all three chart traces.
+The historical page had no page overflow at 1440 × 900 and 390 × 844, and no Streamlit exception appeared.
+The preview emitted Electron startup errors and disconnected during follow-up navigation, so the remaining navigation checks use AppTest.
+No live historical market prices were downloaded. These checks do not establish data completeness, investment performance, or physical-device support.
+
 ## Classic frontier risk choices: 10 October 2026
 
 **504 tests passed** with Python 3.14.7 and the pinned dependencies. `pip check` and `git diff --check` passed.

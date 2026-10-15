@@ -14,9 +14,82 @@ from .benchmarks import compare_benchmarks
 from .data import (BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices,
                    load_csv, original_tickers, parse_tickers, validate_benchmark_prices)
 from .evidence import analyze_evidence
+from .historical import historical_demo, load_historical_prices, run_historical_backtests
+from .historical_report import build_historical_report, historical_report_zip
+from .membership import bundled_membership, load_membership_csv
 from .presentation import report_zip
 from .profiles import build_profiles
 from .universe import download_universe_prices, fetch_nasdaq100
+
+
+def write_report_bundle(bundle, output):
+    """Replace generated results, including files from the other study mode."""
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "report.zip").write_bytes(bundle)
+    with ZipFile(BytesIO(bundle)) as archive:
+        current_files = set(archive.namelist())
+        previous_backtests = [output / name for name in
+                              ("weights.csv", "frontier.csv", "frontier_weights.csv", "holdout_metrics.csv",
+                               "holdout_curve.csv", "risk_summary.csv", "risk_contributions.csv",
+                               "membership.csv", "equity.csv", "metrics.csv", "cash_weights.csv", "coverage.csv", "LICENSE.n100tickers",
+                               "findings.md", "backtest_metrics.csv", "backtest_curve.csv",
+                               "latest_profile_summary.csv", "latest_profile_weights.csv", "latest_profile_windows.csv",
+                               "latest_profile_window_returns.csv", "latest_profile_frontier.csv", "latest_profile_frontier_weights.csv",
+                               "benchmark_prices.csv", "benchmark_holdout_metrics.csv", "benchmark_holdout_curve.csv",
+                               "benchmark_training_estimates.csv", "benchmark_latest_estimates.csv",
+                               "benchmark_backtest_metrics.csv", "benchmark_backtest_curve.csv",
+                               "evidence_summary.csv", "evidence_windows.csv", "evidence_relative_curve.csv",
+                               "universe_coverage.csv")]
+        for kind in ("holdings", "allocations", "trades"):
+            previous_backtests.extend((output / "backtests").glob(f"[0-9][0-9]_{kind}.csv"))
+        for path in previous_backtests:
+            if path.is_file() and path.relative_to(output).as_posix() not in current_files:
+                path.unlink()
+        archive.extractall(output)
+
+
+def historical_cli(args, settings):
+    """Run the separate, offline study without imposing a fixed price universe."""
+    if args.tickers is not None or args.original_holdings or args.nasdaq100:
+        raise ValueError("Historical membership uses supplied --csv prices or --historical-demo; automatic price downloads are unavailable.")
+    if args.benchmark_csv is not None or args.download_benchmarks:
+        raise ValueError("Historical membership does not support market benchmark comparisons.")
+    if args.historical_demo:
+        if args.csv is not None or args.membership_end is not None:
+            raise ValueError("--historical-demo supplies both prices and membership; omit --csv and --membership-end.")
+        prices, membership = historical_demo()
+        source = "Historical membership demo · synthetic"
+    else:
+        if args.csv is None:
+            raise ValueError("Historical membership requires --csv with adjusted prices for stable security identities.")
+        if args.membership_csv is not None:
+            if args.membership_end is None:
+                raise ValueError("--membership-csv requires --membership-end to declare the final covered date.")
+            membership = load_membership_csv(args.membership_csv, coverage_end=args.membership_end,
+                                             source="CSV: " + args.membership_csv.name)
+        else:
+            if args.membership_end is not None:
+                raise ValueError("--membership-end applies only to --membership-csv.")
+            membership = bundled_membership()
+        prices = load_historical_prices(args.csv)
+        source = "CSV: " + args.csv.name
+    study = run_historical_backtests(prices, membership, **settings,
+                                    rolling_window=args.rolling_window if args.rolling_window is not None else 126,
+                                    rebalance_every=args.rebalance_every, cost_bps=args.cost_bps)
+    study.settings.update(source=source, price_currency=args.currency.strip().upper(),
+                          currency_assumption="All prices must share the declared currency. No currency conversion occurs.")
+    files = build_historical_report(prices, membership, study)
+    write_report_bundle(historical_report_zip(files), args.output)
+    print(f"Source: {source}")
+    print(f"Declared price currency: {args.currency.strip().upper()} (no currency conversion)")
+    print(f"Membership coverage: {membership.coverage_start.date()} to {membership.coverage_end.date()}")
+    for warning in study.warnings:
+        print(f"Note: {warning}")
+    print("\nHistorical membership · rolling-window portfolios after trading costs:")
+    print(study.metrics.round(4).to_string())
+    print(f"Eligibility decisions: {(args.output / 'coverage.csv').resolve()}")
+    print(f"Report: {(args.output / 'report.html').resolve()}")
+    return 0
 
 
 def main():
@@ -26,6 +99,11 @@ def main():
     sources.add_argument("--tickers", help="Comma-separated Yahoo Finance symbols; no ticker-count cap")
     sources.add_argument("--original-holdings", action="store_true", help="Use the original 60 tickers from spy_holdings.ods")
     sources.add_argument("--nasdaq100", action="store_true", help="Fetch current Nasdaq-100 members and retain securities with complete prices for the selected period")
+    membership_sources = parser.add_mutually_exclusive_group()
+    membership_sources.add_argument("--historical-membership", action="store_true", help="Use bundled historical Nasdaq-100 membership with supplied --csv prices; stays offline")
+    membership_sources.add_argument("--membership-csv", type=Path, help="Complete dated membership snapshots; requires --csv prices and --membership-end")
+    membership_sources.add_argument("--historical-demo", action="store_true", help="Offline synthetic study with changing membership and sparse price history")
+    parser.add_argument("--membership-end", help="Final covered date for a custom membership CSV, YYYY-MM-DD")
     benchmark_sources = parser.add_mutually_exclusive_group()
     benchmark_sources.add_argument("--benchmark-csv", type=Path, help="Offline USD benchmark prices: Date,SPY,QQQ; must cover every asset date")
     benchmark_sources.add_argument("--download-benchmarks", action="store_true", help="Download SPY and QQQ from Yahoo, including for CSV portfolios; unavailable for synthetic demo data")
@@ -43,7 +121,7 @@ def main():
                         help="Observations per year: 252 trading days, 365 calendar days, 52 weeks, or 12 months; no resampling")
     parser.add_argument("--backtests", action="store_true", help="Compare buy-and-hold, fixed rebalancing, expanding and rolling windows")
     parser.add_argument("--rebalance-every", type=int, default=21, help="Backtest trading interval in observations (not calendar months)")
-    parser.add_argument("--rolling-window", type=int, help="Rolling estimation returns; default is the initial training length")
+    parser.add_argument("--rolling-window", type=int, help="Rolling estimation returns; default is 126 for historical membership, otherwise the initial training length")
     parser.add_argument("--cost-bps", type=float, default=10., help="Backtest fee per unit of bought or sold notional, in basis points")
     parser.add_argument("--output", type=Path, default=Path("results/latest"))
     args = parser.parse_args()
@@ -52,6 +130,10 @@ def main():
         currency = args.currency.strip().upper()
         if not currency:
             raise ValueError("currency must identify the common price currency, such as USD or EUR.")
+        if args.historical_demo or args.historical_membership or args.membership_csv is not None:
+            return historical_cli(args, settings)
+        if args.membership_end is not None:
+            raise ValueError("--membership-end requires --membership-csv.")
         synthetic = args.csv is None and args.tickers is None and not args.original_holdings and not args.nasdaq100
         if synthetic and (args.benchmark_csv is not None or args.download_benchmarks):
             raise ValueError("Synthetic demo data cannot use real market benchmarks. Select --csv or --tickers first.")
@@ -137,25 +219,7 @@ def main():
             except (ValueError, RuntimeError, OSError) as exc:
                 metadata["evidence_note"] = f"Historical evidence is unavailable: {exc}"
         bundle = report_zip(analysis, prices, metadata, study, latest_profiles, benchmarks, evidence)
-        args.output.mkdir(parents=True, exist_ok=True)
-        (args.output / "report.zip").write_bytes(bundle)
-        with ZipFile(BytesIO(bundle)) as archive:
-            current_files = set(archive.namelist())
-            previous_backtests = [args.output / name for name in
-                                  ("findings.md", "backtest_metrics.csv", "backtest_curve.csv",
-                                   "latest_profile_summary.csv", "latest_profile_weights.csv", "latest_profile_windows.csv",
-                                   "latest_profile_window_returns.csv", "latest_profile_frontier.csv", "latest_profile_frontier_weights.csv",
-                                   "benchmark_prices.csv", "benchmark_holdout_metrics.csv", "benchmark_holdout_curve.csv",
-                                   "benchmark_training_estimates.csv", "benchmark_latest_estimates.csv",
-                                   "benchmark_backtest_metrics.csv", "benchmark_backtest_curve.csv",
-                                   "evidence_summary.csv", "evidence_windows.csv", "evidence_relative_curve.csv",
-                                   "universe_coverage.csv")]
-            for kind in ("holdings", "allocations", "trades"):
-                previous_backtests.extend((args.output / "backtests").glob(f"[0-9][0-9]_{kind}.csv"))
-            for path in previous_backtests:
-                if path.is_file() and path.relative_to(args.output).as_posix() not in current_files:
-                    path.unlink()
-            archive.extractall(args.output)
+        write_report_bundle(bundle, args.output)
     except (ValueError, RuntimeError, OSError) as exc:
         print(f"Analysis failed: {exc}", file=sys.stderr)
         return 1
