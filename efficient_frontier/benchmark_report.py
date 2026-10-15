@@ -51,7 +51,7 @@ def add_benchmark_estimates(figure: go.Figure, estimates: pd.DataFrame | None, o
             marker={"symbol": "diamond", "size": 11, "color": BENCHMARK_COLORS.get(name, "#737b85")},
             text=[html.escape(_ticker(name))], textposition="bottom center", textfont={"size": 12, "color": INK_2},
             hovertemplate="Annual volatility: %{x:.2%}<br>"
-            + ("Lowest annual window mean" if objective == "worst_window_return" else "Historical expected annual return")
+            + ("Lowest annual window mean" if objective == "worst_window_return" else "Historical arithmetic mean, yearly")
             + ": %{y:.2%}<extra>%{fullData.name}</extra>",
         ))
 

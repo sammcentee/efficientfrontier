@@ -273,6 +273,8 @@ def test_optional_profiles_preserve_original_strategies_and_reconcile_costs():
     assert len(extended.equity.columns) == 24
     assert original.settings["include_profiles"] is False
     assert extended.settings["include_profiles"] is True
+    assert original.settings["profile_return_objective"] is None
+    assert extended.settings["profile_return_objective"] == "historical_mean"
     pd.testing.assert_frame_equal(original.equity, extended.equity.loc[:, original.equity.columns])
     pd.testing.assert_frame_equal(original.metrics, extended.metrics.loc[original.metrics.index])
     for method in METHOD_NAMES:
@@ -303,6 +305,29 @@ def test_profile_refits_never_observe_execution_day_or_future_prices():
                                           second.allocations[key].loc[:prices.index[15]])
 
 
+def test_profile_backtests_use_the_prior_mean_frontier_and_same_medium_grid():
+    steady = 0.01 + np.tile([-0.015, 0.015], 9)
+    transient = np.repeat([0.03, -0.02, 0.04], 6) + np.tile([-0.001, 0.001], 9)
+    training = np.column_stack([steady, transient])
+    returns = np.vstack([training, np.tile([0.1, -0.1], (6, 1))])
+    prices = pd.DataFrame(
+        100 * np.vstack([np.ones(2), np.cumprod(1 + returns, axis=0)]),
+        columns=["Steady", "Transient"], index=pd.date_range("2020-01-01", periods=25, freq="MS"),
+    )
+    assert returns.mean(axis=0)[0] > returns.mean(axis=0)[1]  # The future reverses the mean ranking.
+    study = run_backtests(prices, train_fraction=0.75, shrinkage=1, periods_per_year=12,
+                          include_profiles=True, rebalance_every=2)
+    variance = training.var(axis=0, ddof=1)
+    low = variance[::-1] / variance.sum()
+    frontier_weights = np.array([low + t * (np.array([0, 1]) - low) for t in np.linspace(0, 1, 21)])
+    volatility = np.sqrt(np.sum(frontier_weights ** 2 * variance * 12, axis=1))
+    middle = np.argmin(np.abs(volatility - (volatility[0] + volatility[-1]) / 2))
+    for method in METHOD_NAMES:
+        np.testing.assert_allclose(study.allocations[f"{method} · Extreme"].iloc[0], [0, 1], atol=2e-6)
+        np.testing.assert_allclose(study.allocations[f"{method} · Medium"].iloc[0],
+                                   frontier_weights[middle], atol=2e-6)
+
+
 def test_profile_fit_slices_match_expanding_and_rolling_return_windows(monkeypatch):
     prices = profile_history()
     calls = []
@@ -324,7 +349,7 @@ def test_profile_fit_slices_match_expanding_and_rolling_return_windows(monkeypat
     for (window, kwargs), (start, end) in zip(calls, expected_windows):
         pd.testing.assert_frame_equal(window, prices.iloc[start:end + 1])
         assert kwargs == dict(risk_free_rate=0.03, periods_per_year=12, max_weight=0.7,
-                              shrinkage=0.2, frontier_points=3)
+                              shrinkage=0.2)
     assert len([message for message in study.warnings if "less than one year" in message]) == 1
     for trades in study.trades.values():
         assert (pd.to_datetime(trades.train_end).to_numpy() < trades.index.to_numpy()).all()

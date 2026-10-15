@@ -38,6 +38,7 @@ FREQUENCIES = {"Daily market prices": 252, "Daily calendar prices": 365, "Weekly
 METHODS = ["Expanding window", "Rolling window", "Fixed rebalance", "Buy and hold"]
 TOPICS = ["Efficient frontiers", "Risk breakdown", "Data & coverage", "All backtests", "Methodology"]
 DEFAULT_TEST = {"rebalance_every": 21, "rolling_window": 0, "cost_bps": 10.0}
+PROFILE_MODEL_REVISION = "historical_mean_v1"
 DEFAULT_SETUP = {
     "market": "Nasdaq-100", "history": "5 years", "ticker_text": "AAPL, MSFT, AMZN, GOOGL, NVDA, META",
     "start": date(2020, 1, 1), "end": date.today(), "use_cap": False, "cap": 40.0, "risk_free": 2.0,
@@ -108,12 +109,14 @@ def calculate(prices, settings):
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
-def calculate_latest(prices, settings):
-    return build_profiles(prices, **{key: value for key, value in settings.items() if key != "train_fraction"})
+def calculate_latest(prices, settings, return_objective="historical_mean"):
+    return build_profiles(prices, **{key: value for key, value in settings.items() if key != "train_fraction"},
+                          return_objective=return_objective)
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
 def compare_backtests(prices, settings, options):
+    """Run the historical-mean profile rules from prior prices."""
     return run_backtests(prices, **settings, **options)
 
 
@@ -167,6 +170,10 @@ def try_demo():
 def cancel_work():
     st.session_state.pop("pending_build", None)
     st.session_state.pop("pending_study", None)
+
+
+def retry_profile_refresh():
+    st.session_state.pop("profile_refresh_error", None)
 
 
 def open_setup():
@@ -274,7 +281,7 @@ def make_report_callable():
 def settings_frame(metadata):
     """Study settings with plain labels. The metadata does not change."""
     return pd.DataFrame([{"Setting": story.setting_label(key), "Value": story.setting_text(key, value)}
-                         for key, value in metadata.items() if key != "universe_coverage"])
+                         for key, value in metadata.items() if key not in ("universe_coverage", "profile_model_revision")])
 
 
 def day(value):
@@ -305,6 +312,35 @@ def run_study(prices, result, latest, metadata, settings, options, benchmark_pri
         except (ValueError, RuntimeError, OSError) as exc:
             notes["benchmarks_note"] = f"Market comparison unavailable: {exc}"
     return study, benchmarks, evidence, notes, None
+
+
+def refresh_profile_model():
+    """Rebuild an old open study from its retained prices, without another download."""
+    if "result" not in st.session_state or st.session_state.get("pending_build") or st.session_state.get("profile_refresh_error"):
+        return
+    result, prices, metadata = st.session_state.result
+    if metadata.get("profile_model_revision") == PROFILE_MODEL_REVISION:
+        return
+    if len(prices) < 7:
+        metadata["profile_model_revision"] = PROFILE_MODEL_REVISION
+        return
+    settings = {key: metadata[key] for key in SETTING_KEYS}
+    try:
+        with st.spinner("Update the portfolio rule from the saved prices"):
+            latest = calculate_latest(prices, settings)
+            options = st.session_state.get("backtest_options", DEFAULT_TEST)
+            study, benchmarks, evidence, notes, error = run_study(
+                prices, result, latest, metadata, settings, options, st.session_state.get("benchmark_prices"))
+            if error is not None:
+                raise RuntimeError(error)
+    except (ValueError, RuntimeError, OSError) as exc:
+        for key in ("latest_profiles", "backtests", "benchmarks", "evidence"):
+            st.session_state.pop(key, None)
+        st.session_state.profile_refresh_error = str(exc)
+        return
+    apply_notes(metadata, notes)
+    metadata["profile_model_revision"] = PROFILE_MODEL_REVISION
+    st.session_state.update(latest_profiles=latest, backtests=study, benchmarks=benchmarks, evidence=evidence, study_error=None)
 
 
 def error_kind(exc):
@@ -414,6 +450,8 @@ def build(plan, mark, progress_slot):
         benchmark_prices=benchmark_prices, coverage=loaded.coverage if loaded is not None else None,
         benchmarks=benchmarks, evidence=evidence, backtest_options=options, study_error=study_error, build_error=None,
         scroll_to="top")
+    metadata["profile_model_revision"] = PROFILE_MODEL_REVISION
+    st.session_state.pop("profile_refresh_error", None)
     if study is None:
         st.session_state.pop("backtests", None)
     else:
@@ -636,7 +674,7 @@ def overview():
                                  format_func=story.LEVEL_LABELS.get, label_visibility="collapsed", width="stretch",
                                  persist_state="session", disabled=busy)
             st.html(f'<p class="pl-note">Risk is relative to {story.these_assets(len(prices.columns), universe)}. '
-                    "Built from past prices. Not a forecast.</p>")
+                    "Historical mean and volatility set the levels. They do not forecast future returns.</p>")
 
     if latest is not None:
         holdings_tiles(latest, prices, profile, universe, noun, names, coverage)
@@ -678,12 +716,14 @@ def holdings_tiles(latest, prices, profile, universe, noun, names, coverage):
         with st.expander(f"Why these {noun}s?  :gray[how the model chose them]"):
             for paragraph in story.why_text(latest, profile, universe):
                 st.write(paragraph)
-            percent = {name: st.column_config.NumberColumn(story.LEVEL_LABELS.get(name, name), format="percent")
-                       for name in latest.window_returns.columns}
-            st.dataframe(latest.window_returns, width="stretch", column_config={"_index": "Stretch", **percent})
-            st.dataframe(latest.windows, hide_index=True, width="stretch", column_config={
-                "start": "From", "end": "To", "observations": "Price rows",
-                "years": st.column_config.NumberColumn("Years", format="%.1f")})
+            st.caption("The three past stretches below are diagnostics. They do not set these portfolio weights.")
+            with st.expander("Average return in each historical stretch"):
+                percent = {name: st.column_config.NumberColumn(story.LEVEL_LABELS.get(name, name), format="percent")
+                           for name in latest.window_returns.columns}
+                st.dataframe(latest.window_returns, width="stretch", column_config={"_index": "Stretch", **percent})
+                st.dataframe(latest.windows, hide_index=True, width="stretch", column_config={
+                    "start": "From", "end": "To", "observations": "Return observations",
+                    "years": st.column_config.NumberColumn("Years", format="%.1f")})
     st.caption(f"Weights fitted on all prices from {day(prices.index[0])} to {day(prices.index[-1])}. "
                "Very small weights can show as 0.0%.")
     for note in latest.warnings:
@@ -831,8 +871,9 @@ def evidence_section(study, matched, evidence, selected, metadata):
                     st.markdown(story.WORDS[label])
     with right.container(border=True, key="tile_stretch"):
         st.html(title_html("Stretch by stretch") + story.stretch_summary_html(evidence, selected)
-                + '<p class="pl-sub">The test period, split into three equal stretches. These differ from the three stretches '
-                "that fitted today's holdings.</p>" + story.stretch_table_html(evidence, selected))
+                + '<p class="pl-sub">The test period, split into three equal stretches. The historical stretches shown with '
+                "today's holdings are separate diagnostics. They do not set the historical-mean weights.</p>"
+                + story.stretch_table_html(evidence, selected))
     with st.container(border=True, key="tile_stats"):
         with st.expander("Show the statistics  :gray[alpha, beta, p-values, method notes]"):
             st.dataframe(evidence_summary_frame(evidence).xs(selected, level="strategy"), column_config={"_index": "Market", **story.STAT_LABELS},
@@ -877,16 +918,17 @@ def research():
             with st.container(border=True, key="tile_r_frontier"):
                 estimates = benchmarks.latest_estimates if benchmarks is not None else None
                 research_chart(latest_profile_chart(latest, estimates, profile))
-                st.caption("Full-history fit. The vertical axis is the return in the weakest of three past stretches. "
-                           "It is in-sample, not a forecast." + (" Diamonds are SPY and QQQ on the same dates." if estimates is not None else ""))
+                st.caption("Full-history fit. The vertical axis is the historical arithmetic mean, scaled to a year. "
+                           "It is an in-sample estimate, not realized CAGR or a forecast."
+                           + (" Diamonds are SPY and QQQ on the same dates." if estimates is not None else ""))
                 st.caption(f"Highlighted: {story.LEVEL_LABELS[profile]}. Change the level on the overview, or press L, M or H.")
                 with st.expander("All three portfolios' weights"):
                     st.dataframe(weights_frame(latest).style.format("{:.2%}"), column_config={"_index": "Symbol", "Extreme": "Highest"},
                                  width="stretch")
         with st.container(border=True, key="tile_r_classic"):
-            st.html(title_html("The classic model, for reference", "This model fits average returns on the first "
+            st.html(title_html("The historical-mean rule: initial fit and later test", "This model fits average returns on the first "
                                f"{metadata['train_fraction'] * 100:g}% of return observations. It then buys each mix once and tests it on later prices. "
-                               "The overview uses a different rule: the weakest of three past stretches."))
+                               "It uses the same historical-mean objective as the overview, with an earlier fit period and a separate trade convention."))
             classic_profile = st.segmented_control("Classic risk level", CLASSIC_PROFILE_NAMES, key="classic_risk_profile",
                                                    required=True, persist_state="session")
             st.caption("Low is the least volatile frontier mix. Medium is the frontier point nearest halfway between Low and High volatility. "
@@ -918,11 +960,32 @@ def research():
                              column_config={"_index": "Portfolio", **{name: label for name, (label, _) in METRICS.items()}}, width="stretch")
                 st.caption("Each mix is bought once at the split close and then left to drift. This check has no fees. "
                            "SPY and QQQ use the same entry and test dates when available. The overview's market test uses different refits, fees and an entry one close later.")
+        if latest is not None:
+            with st.container(border=True, key="tile_r_optional"):
+                st.html(title_html("Optional comparison: weakest historical stretch"))
+                st.caption("This separate model maximizes the weakest of three historical mean returns. "
+                           "It does not change the overview, its historical-mean portfolios, or their market tests.")
+                if st.checkbox("Show the weakest-window comparison", key="compare_worst_window"):
+                    settings = {key: metadata[key] for key in SETTING_KEYS}
+                    try:
+                        alternative = calculate_latest(prices, settings, return_objective="worst_window")
+                    except (ValueError, RuntimeError, OSError) as exc:
+                        st.error(f"The optional comparison could not run: {exc}")
+                    else:
+                        estimates = benchmarks.latest_estimates if benchmarks is not None else None
+                        research_chart(latest_profile_chart(alternative, estimates, profile))
+                        st.caption("Full-history fit. The vertical axis is the lowest annual arithmetic mean across the three stretches. "
+                                   "Medium is the midpoint return target in this model, rather than the midpoint volatility choice."
+                                   + (" SPY and QQQ use those same three stretches." if estimates is not None else ""))
+                        with st.expander("Weakest-window weights and historical stretches"):
+                            st.dataframe(weights_frame(alternative).style.format("{:.2%}"), column_config={"_index": "Symbol", "Extreme": "Highest"},
+                                         width="stretch")
+                            st.dataframe(alternative.window_returns.style.format("{:.2%}"), width="stretch")
     elif topic == "Risk breakdown":
         with st.container(border=True, key="tile_r_risk"):
             with st.container(key="r_lead"):
-                st.caption("Where the risk comes from. These checks use the classic model's mixes and its training-period covariance. "
-                           "The risk level does not apply here.")
+                st.caption("Where the risk comes from. These checks use portfolios fitted on the initial training period and its covariance. "
+                           "The overview's risk selection does not apply here.")
             st.dataframe(risk_summary(result).style.format({"max_weight": "{:.2%}", "effective_holdings": "{:.2f}", "diversification_ratio": "{:.2f}"}, na_rep="—"),
                          column_config={"_index": "Portfolio", "max_weight": "Largest weight", "effective_holdings": "Effective holdings",
                                         "diversification_ratio": "Diversification ratio"}, width="stretch")
@@ -1023,6 +1086,7 @@ def research():
 # ----------------------------------------------------------------------------- page
 
 init_state()
+refresh_profile_model()
 ready = "result" in st.session_state
 busy = bool(st.session_state.get("pending_build") or st.session_state.get("pending_study"))
 
@@ -1032,7 +1096,7 @@ with st.container(key="localnav", horizontal=True, vertical_alignment="center", 
         st.segmented_control("View", ["Portfolio", "Research", "Historical membership"], key="view", required=True,
                              format_func=lambda name: story.VIEW_LABELS.get(name, name),
                              label_visibility="collapsed", disabled=busy)
-        if st.session_state.view != "Historical membership":
+        if st.session_state.view != "Historical membership" and not st.session_state.get("profile_refresh_error"):
             st.download_button("Export", data=make_report_callable(), file_name="portfolio-lab.zip", mime="application/zip",
                                key="export", type="primary", icon=":material/ios_share:", on_click="ignore", shortcut="E",
                                disabled=busy, help="One zip file. The report opens offline and prints to PDF.")
@@ -1058,6 +1122,11 @@ if st.session_state.view == "Historical membership":
     render_historical()
 elif st.session_state.get("pending_build"):
     hero_work()
+elif st.session_state.get("profile_refresh_error"):
+    st.error("The historical-mean portfolios could not refresh from the saved prices: " + st.session_state.profile_refresh_error)
+    st.caption("Your input prices and setup remain available. The previous model's results stay hidden until the refresh succeeds.")
+    st.button("Retry model refresh", key="retry_profile_refresh", on_click=retry_profile_refresh)
+    st.button("Change study inputs", key="change_after_refresh_error", on_click=open_setup)
 elif not ready:
     welcome_or_error()
 elif st.session_state.view == "Portfolio":
