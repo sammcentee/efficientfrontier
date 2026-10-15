@@ -1,5 +1,26 @@
 # Validation record
 
+## Historical mean as the primary model: 15 October 2026
+
+**651 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
+The suite reports the existing pandas warning from the invalid-date rejection test.
+
+The primary portfolios now use full-fit annual arithmetic mean returns and covariance. Their backtests use the same selection rule and 21-point grid, with only prior prices at each trade.
+Tests deliberately separate a high-mean asset from an asset with stronger weak-window returns. They verify the selected weights, charts, ETF markers, CLI output, reports, and objective metadata.
+The optional weakest-window comparison leaves the primary weights, backtests, and statistical evidence unchanged.
+
+An independent reconstruction matched all 39 scheduled profile allocations in a synthetic fixture from each recorded fit interval.
+A separate share-and-fee replay of a 92-asset saved-price study matched the highest-mean expanding-window equity path within `8.4e-10` initial-capital units.
+These checks establish calculation agreement, not investment performance.
+
+One valid rolling fit reached the solver's iteration limit. A regression now checks its weights against an independent constrained-variance solution.
+An equivalent half-variance objective resolved that case without changes to the solver tolerances.
+
+App tests cover one-time updates of open studies from retained prices, failure recovery, and preservation of inputs and view selections.
+The open local study refreshed without a data download or a keyboard-focus change. The browser displayed the historical-mean overview without an app exception or page overflow at 1280 pixels.
+The offline CLI completed all 24 strategies and the report archive. Fitted arithmetic means, realized CAGR, and mean-return uncertainty have separate labels.
+Native operating-system and physical-device behavior remain outside these checks.
+
 ## Historical membership: 12 October 2026
 
 **620 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.

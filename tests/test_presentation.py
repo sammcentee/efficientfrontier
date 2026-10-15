@@ -179,7 +179,8 @@ def test_classic_risk_exports_and_report_keep_first_fit_separate_from_full_histo
         assert "Classic Low, Medium and High" in fit
         assert "midpoint of Low and High volatility" in fit
         assert "When the frontier has no volatility range, all three use the same highest-return mix" in fit
-        assert "These levels differ from the full-history profiles" in fit
+        assert "same historical-mean objective as the full-history profiles" in fit
+        assert "fit only the initial training sample" in fit
         assert f"Fit return dates: {classic_analysis.train_returns.index[0].date()} to {classic_analysis.train_returns.index[-1].date()}" in fit
         assert "It does not show which mix won on the later holdout dates" in fit
         assert "The arithmetic mean is not compound growth (CAGR) or a forecast" in fit
@@ -338,18 +339,42 @@ def latest_profiles():
         window_returns=pd.DataFrame({"Low": [0.2, 0.26, 0.02], "Medium": [0.2, 0.18, 0.04],
                                      "Extreme": [0.12, 0.18, 0.06]}, index=pd.Index([1, 2, 3], name="window")),
         as_of="2024-10-01", observations=9,
-        settings={"periods_per_year": 12.0, "selection_method": "worst_window_return_frontier"}, warnings=[],
+        settings={"periods_per_year": 12.0, "return_objective": "historical_mean", "selection_method": "historical_mean_frontier"}, warnings=[],
     )
 
 
-def test_latest_profile_chart_uses_lowest_window_mean_not_full_history_mean(latest_profiles):
+def test_latest_profile_chart_uses_full_history_arithmetic_mean(latest_profiles):
     chart = latest_profile_chart(latest_profiles)
     np.testing.assert_allclose(chart.data[0].x, [0.1, 0.15, 0.25])
-    np.testing.assert_allclose(chart.data[0].y, [0.02, 0.04, 0.06])
+    np.testing.assert_allclose(chart.data[0].y, [0.16, 0.14, 0.12])
     assert [trace.name for trace in chart.data[1:]] == ["Low", "Medium", "Highest"]
     for index, trace in enumerate(chart.data[1:]):
-        assert trace.y[0] == pytest.approx([0.02, 0.04, 0.06][index])
+        assert trace.y[0] == pytest.approx([0.16, 0.14, 0.12][index])
     assert len({trace.marker.color for trace in chart.data[1:]}) == 3
+    assert chart.layout.title.text == "Historical mean frontier"
+    assert chart.layout.yaxis.title.text == "Arithmetic mean, yearly (full history)"
+    assert all("Full-history arithmetic mean" in trace.hovertemplate for trace in chart.data)
+
+
+@pytest.mark.parametrize("objective", ["historical_mean", "worst_window"])
+def test_latest_frontier_and_benchmarks_share_objective_and_fit_labels(latest_profiles, objective):
+    latest_profiles.settings["return_objective"] = objective
+    benchmarks = pd.DataFrame({"expected_return": [.23, .28], "worst_window_return": [-.1, -.08],
+                               "volatility": [.2, .3]}, index=["SPY", "QQQ"])
+    column = "worst_window_return" if objective == "worst_window" else "expected_return"
+    chart = latest_profile_chart(latest_profiles, benchmarks, selected="Medium")
+    np.testing.assert_allclose(chart.data[0].y, latest_profiles.frontier[column])
+    for trace, (_, row) in zip(chart.data[1:4], latest_profiles.summary.iterrows()):
+        assert trace.y[0] == pytest.approx(row[column])
+    for trace, (_, row) in zip(chart.data[4:], benchmarks.iterrows()):
+        assert trace.y[0] == pytest.approx(row[column])
+        assert trace.marker.symbol == "diamond"
+    assert chart.data[2].marker.size > chart.data[1].marker.size
+    assert all("Full-history fit volatility" in trace.hovertemplate for trace in chart.data)
+    if objective == "worst_window":
+        assert chart.layout.title.text == "Weakest-window frontier"
+        assert "Lowest window mean" in chart.layout.yaxis.title.text
+        assert all("Lowest annual window mean" in trace.hovertemplate for trace in chart.data)
 
 
 def test_latest_profiles_are_prominent_separate_and_escape_report_content(report_analysis, latest_profiles):
@@ -364,11 +389,25 @@ def test_latest_profiles_are_prominent_separate_and_escape_report_content(report
     assert "not universal risk ratings" in profile_section
     assert "in-sample estimates, not forecasts or holdout results" in profile_section
     assert "12 observations per year" in profile_section
-    assert "midpoint of this return range, not the midpoint of volatility" in profile_section
+    assert "midpoint of Low and Highest volatility" in profile_section
+    assert "diagnostics, not optimization targets" in profile_section
+    assert "Full-history arithmetic mean, yearly" in profile_section
+    assert "Lowest annual window mean (diagnostic)" in profile_section
+    assert "midpoint of this return range" not in profile_section
     assert label not in profile_section and "&lt;img src=x onerror=" in profile_section
     assert '&lt;script&gt;alert(&quot;profile&quot;)&lt;/script&gt;' in profile_section
     assert document.count("* plotly.js v") == 1
     assert "2024-02-01" in profile_section and "2024-10-01" in profile_section
+
+
+def test_optional_weakest_window_report_keeps_its_objective(report_analysis, latest_profiles):
+    latest_profiles.settings.update(return_objective="worst_window", selection_method="worst_window_return_frontier")
+    document = report_html(report_analysis, {}, latest_profiles=latest_profiles)
+    profile_section = document.split('<section id="latest-profiles">')[1].split("</section>")[0]
+    assert "define the weakest-window fit" in profile_section
+    assert "midpoint of this return range, not the midpoint of volatility" in profile_section
+    assert "Weakest-window frontier" in profile_section
+    assert "diagnostics, not optimization targets" not in profile_section
 
 
 def test_latest_profile_exports_preserve_values_and_fit_metadata(report_analysis, latest_profiles):
@@ -392,6 +431,9 @@ def test_latest_profile_exports_preserve_values_and_fit_metadata(report_analysis
         assert [window["window"] for window in metadata["windows"]] == [1, 2, 3]
         assert [window["observations"] for window in metadata["windows"]] == [3, 3, 3]
         assert "in-sample estimates" in metadata["interpretation"]
+        assert "Three-window means are diagnostics, not optimization targets" in metadata["interpretation"]
+        assert "expected_return is the annualized arithmetic mean over the full fit period" in metadata["interpretation"]
+        assert "worst_window_return is the lowest annual window mean" in metadata["interpretation"]
 
 
 def test_latest_profile_weights_escape_formula_asset_names(report_analysis, latest_profiles):
@@ -410,6 +452,8 @@ def test_report_summary_comes_first_and_names_the_selected_level(report_analysis
     summary = document.split('<section id="summary">')[1].split("</section>")[0]
     assert 'The <span class="pl-nb">highest-risk</span> portfolio puts 80.0% in one asset.' in summary
     assert "Highest" in summary and "Extreme" not in summary
+    assert "same objective with only history available before each trade" in summary
+    assert "Three-window estimates are diagnostics" in summary
     assert "Market benchmarks" not in summary and "Backtesting findings" not in summary
     assert "Efficient Frontier · Research Report" not in document
     assert "<title>Portfolio Lab · Research report</title>" in document

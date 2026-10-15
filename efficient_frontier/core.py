@@ -153,7 +153,9 @@ def optimize(
     constraints = [weights >= 0, cp.sum(weights) == 1]
     if max_weight < 1:
         constraints.append(weights <= max_weight)
-    objective = cp.Minimize(cp.quad_form(weights, cp.psd_wrap(solver_covariance)))
+    # Half-variance has the same minimizer and improves solver scaling near
+    # frontier corners where most nonnegativity constraints become active.
+    objective = cp.Minimize(cp.quad_form(weights, cp.psd_wrap(solver_covariance)) / 2)
     solve(cp.Problem(objective, constraints))
     minimum = portfolio("Minimum volatility", weights.value)
     portfolios = {minimum.name: minimum}

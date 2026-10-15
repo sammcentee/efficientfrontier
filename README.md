@@ -49,17 +49,19 @@ Keyboard shortcuts: **Ctrl+Enter** on Windows/Linux or **Cmd+Enter** on macOS su
 
 ## What the profiles mean
 
-The latest model uses all supplied history, split into three chronological windows. It optimizes annualized arithmetic mean return in the weakest window, subject to covariance risk and the chosen weight limit.
+The primary model uses historical arithmetic mean returns and covariance, with the chosen weight limit. Latest holdings fit all supplied history. The frontier minimizes estimated variance at each annualized arithmetic mean return target.
 
 | Profile | Meaning within this model |
 | --- | --- |
 | Low | Minimum estimated volatility. |
-| Medium | Halfway between the Low and Highest weakest-window return targets. |
-| Highest | Highest achievable weakest-window mean return, with minimum variance among tied solutions. |
+| Medium | The sampled frontier point nearest halfway between Low and Highest volatility. |
+| Highest | Highest fitted arithmetic mean return. |
 
 These are relative model positions. Low can still contain risky assets, and profiles can coincide. Highest does not use leverage. CSV and JSON exports retain the name **Extreme** for Highest.
 
-**Latest holdings are an in-sample fit, not a forecast.** The fit date is the last supplied price date. Separate backtests fit targets with only data before each trade. They evaluate the allocation rule, rather than today's weights. See [profile construction and evaluation](docs/BACKTESTING.md#latest-model-holdings-and-profiles).
+Three historical windows show diagnostic mean returns. They do not select the primary weights. **Research** retains a separate weakest-window comparison. Its objective favors the lowest of the three window means.
+
+**Latest holdings are an in-sample fit, not a forecast.** The fit date is the last supplied price date. Separate backtests use the same historical-mean objective with only data before each trade. They evaluate the allocation rule, rather than today's weights. Arithmetic mean return is not compound growth (CAGR). See [profile construction and evaluation](docs/BACKTESTING.md#latest-model-holdings-and-profiles).
 
 ## The full Nasdaq-100 universe
 

@@ -56,6 +56,7 @@ def test_cli_offline_export_and_csv_reproduction(tmp_path):
     assert metadata["training_end"] < metadata["holdout_start"]
     assert metadata["max_weight"] == 1.0
     assert metadata["latest_profiles"]["as_of"] == "2023-10-31"
+    assert metadata["latest_profiles"]["settings"]["return_objective"] == "historical_mean"
     assert "Latest model holdings" in run.stdout
     latest_weights = pd.read_csv(output / "latest_profile_weights.csv", index_col=0)
     assert list(latest_weights.columns) == ["Low", "Medium", "Extreme"]
@@ -101,6 +102,7 @@ def test_monthly_csv_cli_uses_selected_annualization_and_exports_risk(tmp_path):
     assert metadata["backtests"]["periods_per_year"] == 12
     assert metadata["backtests"]["rebalance_every"] == 3
     assert metadata["backtests"]["include_profiles"] is True
+    assert metadata["backtests"]["profile_return_objective"] == "historical_mean"
     windows = pd.read_csv(output / "latest_profile_windows.csv", index_col=0)
     assert windows.observations.sum() == 35
     latest = pd.read_csv(output / "latest_profile_summary.csv", index_col=0)
@@ -114,6 +116,34 @@ def test_monthly_csv_cli_uses_selected_annualization_and_exports_risk(tmp_path):
     contributions = pd.read_csv(output / "risk_contributions.csv", index_col=0)
     np.testing.assert_allclose(contributions.sum(), 1)
     assert "12 observations per year" in (output / "report.html").read_text()
+
+
+def test_cli_primary_profile_maximizes_mean_despite_a_negative_window(tmp_path):
+    returns = np.column_stack([
+        .01 + np.tile([-.005, .005], 18),
+        np.repeat([.04, -.02, .06], 12) + np.tile([-.001, .001], 18),
+    ])
+    prices = pd.DataFrame(100 * np.vstack([np.ones(2), np.cumprod(1 + returns, axis=0)]),
+                          index=pd.date_range("2020-01-31", periods=37, freq="ME", name="Date"),
+                          columns=["Steady", "HigherMean"])
+    source = tmp_path / "regimes.csv"
+    prices.to_csv(source)
+    output = tmp_path / "mean"
+    run = subprocess.run([sys.executable, "-m", "efficient_frontier", "--csv", str(source),
+                          "--periods-per-year", "12", "--backtests", "--rebalance-every", "3",
+                          "--output", str(output)], cwd=ROOT, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert "historical mean frontier" in run.stdout
+    weights = pd.read_csv(output / "latest_profile_weights.csv", index_col=0)
+    summary = pd.read_csv(output / "latest_profile_summary.csv", index_col=0)
+    assert weights.loc["HigherMean", "Extreme"] > 1 - 1e-6
+    assert summary.loc["Extreme", "expected_return"] == pytest.approx(.32, abs=1e-7)
+    assert summary.loc["Extreme", "worst_window_return"] == pytest.approx(-.24, abs=1e-7)
+    mean = prices.pct_change(fill_method=None).iloc[1:].mean() * 12
+    np.testing.assert_allclose(summary.expected_return, mean @ weights, atol=1e-8)
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["latest_profiles"]["settings"]["selection_method"] == "historical_mean_frontier"
+    assert metadata["backtests"]["profile_return_objective"] == "historical_mean"
 
 
 def test_invalid_annualization_fails_before_export(tmp_path):

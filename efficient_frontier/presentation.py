@@ -71,20 +71,32 @@ def holdout_chart(analysis: Any, benchmark_equity=None, selected=None) -> go.Fig
     return figure
 
 
+def _window_objective(profiles: Any) -> bool:
+    objective = profiles.settings.get("return_objective")
+    return objective == "worst_window" or (
+        objective is None and profiles.settings.get("selection_method") == "worst_window_return_frontier"
+    )
+
+
 def latest_profile_chart(profiles: Any, benchmark_estimates=None, selected=None) -> go.Figure:
-    """Plot the lowest historical window mean against estimated volatility. The selected level is ringed."""
-    hover = "Annual volatility: %{x:.2%}<br>Lowest annual window mean: %{y:.2%}<extra>%{fullData.name}</extra>"
+    """Plot the selected full-history fit objective against estimated volatility."""
+    weakest = _window_objective(profiles)
+    column = "worst_window_return" if weakest else "expected_return"
+    title = "Weakest-window frontier" if weakest else "Historical mean frontier"
+    label = "Lowest annual window mean" if weakest else "Full-history arithmetic mean, yearly"
+    hover = "Full-history fit volatility, yearly: %{x:.2%}<br>" + label + ": %{y:.2%}<extra>%{fullData.name}</extra>"
     figure = go.Figure(go.Scatter(
-        x=profiles.frontier["volatility"], y=profiles.frontier["worst_window_return"],
-        mode="lines", name="Window frontier", line={"color": REST, "width": 2.5}, hovertemplate=hover,
+        x=profiles.frontier["volatility"], y=profiles.frontier[column],
+        mode="lines", name=title, line={"color": REST, "width": 2.5}, hovertemplate=hover,
     ))
     for name, row in profiles.summary.iterrows():
-        figure.add_trace(_point(name, row["volatility"], row["worst_window_return"], hover, selected=name == selected))
-    add_benchmark_estimates(figure, benchmark_estimates, "worst_window_return")
-    style_chart(figure, "Risk frontier")
+        figure.add_trace(_point(name, row["volatility"], row[column], hover, selected=name == selected))
+    add_benchmark_estimates(figure, benchmark_estimates, column)
+    figure.update_traces(hovertemplate=hover)
+    style_chart(figure, title)
     figure.update_layout(legend_y=-0.24)
-    figure.update_xaxes(title="Volatility, yearly", tickformat=".0%", rangemode="tozero")
-    figure.update_yaxes(title="Weakest past stretch, yearly", tickformat=".0%")
+    figure.update_xaxes(title="Fit volatility, yearly", tickformat=".0%", rangemode="tozero")
+    figure.update_yaxes(title="Lowest window mean, yearly" if weakest else "Arithmetic mean, yearly (full history)", tickformat=".0%")
     return figure
 
 
@@ -136,13 +148,22 @@ def _metadata(analysis: Any, metadata: dict, study=None, latest_profiles=None, b
         result["backtest_files"] = {f"backtests/{i:02d}": name for i, name in enumerate(study.equity.columns, 1)}
         result["exclusions"] = "The original holdout excludes trading costs; the backtest comparison deducts the selected fees. Both exclude taxes and FX."
     if latest_profiles is not None:
+        objective_note = (
+            "The weakest-window objective optimizes the lowest of three window means. "
+            if _window_objective(latest_profiles) else
+            "The historical-mean objective uses the full fit period. Three-window means are diagnostics, not optimization targets. "
+        )
         result["latest_profiles"] = {
             "as_of": latest_profiles.as_of,
             "observations": latest_profiles.observations,
             "settings": latest_profiles.settings,
             "windows": latest_profiles.windows.rename_axis("window").reset_index().to_dict(orient="records"),
             "warnings": latest_profiles.warnings,
-            "interpretation": "Fits all supplied history through the last input date. Window means are in-sample estimates, not forecasts or holdout results.",
+            "interpretation": (
+                "Fits all supplied history through the last input date. " + objective_note
+                + "expected_return is the annualized arithmetic mean over the full fit period; worst_window_return is the lowest annual window mean. "
+                "These are in-sample estimates, not forecasts or holdout results."
+            ),
         }
     if benchmarks is not None:
         result["benchmarks"] = benchmarks.settings
@@ -162,9 +183,26 @@ def _table(frame: pd.DataFrame, percent_columns: list | None = None) -> str:
 
 
 def _latest_profiles_html(profiles: Any, benchmark_estimates=None, selected: str = "Medium") -> str:
+    weakest = _window_objective(profiles)
+    mean_label = "Full-history arithmetic mean, yearly"
+    window_label = "Lowest annual window mean" + ("" if weakest else " (diagnostic)")
+    objective_note = (
+        "The three historical windows define the weakest-window fit. " if weakest else
+        "The historical-mean fit uses the full history. The three historical windows are diagnostics, not optimization targets. "
+    )
+    selection_note = (
+        "The model minimizes estimated variance at a return target that applies to every historical window. "
+        "Low uses the minimum-variance point. Highest uses the highest feasible target for the lowest window mean. "
+        "Medium targets the midpoint of this return range, not the midpoint of volatility."
+        if weakest else
+        "The model minimizes estimated variance at each full-history arithmetic mean return target. "
+        "Low uses the point with the least fitted volatility. Highest uses the highest fitted arithmetic mean return. "
+        "Medium uses the sampled frontier point nearest to the midpoint of Low and Highest volatility. "
+        "When the frontier has no volatility range, all three use the same highest-return mix."
+    )
     summary = profiles.summary.rename(index=display_label, columns={
-        "expected_return": "Annual mean return", "volatility": "Annual volatility",
-        "sharpe": "Estimated Sharpe", "worst_window_return": "Lowest annual window mean",
+        "expected_return": mean_label, "volatility": "Annual volatility",
+        "sharpe": "Estimated Sharpe", "worst_window_return": window_label,
         "max_weight": "Largest weight", "effective_holdings": "Effective holdings",
     })
     windows = profiles.windows.rename(columns={
@@ -184,18 +222,17 @@ def _latest_profiles_html(profiles: Any, benchmark_estimates=None, selected: str
         '<p class="source">These model weights use all supplied history through the last input date. '
         'The date above is the last price observation, not a live quote.</p>'
         '<p>Low, Medium, and Highest are relative risk levels within this frontier. They are not universal risk ratings. '
-        'The three historical windows are part of the fit. Their means are in-sample estimates, not forecasts or holdout results.</p>'
+        f'{objective_note}Their means are in-sample estimates, not forecasts or holdout results. '
+        'An arithmetic mean is not compound growth (CAGR).</p>'
         + (f'<aside><h3>Profile notes</h3><ul>{warnings}</ul></aside>' if warnings else '')
         + f'<h3>Latest weights</h3><p class="muted">Sorted by {html.escape(display_label(selected))}. '
         'Rows under 0.005% in all three levels are hidden here. latest_profile_weights.csv has every row.</p>'
         f'<div class="scroll">{_table(weights.rename(columns=display_label))}</div>'
         '<h3>Profile estimates</h3>'
-        f'<div class="scroll">{_table(summary, ["Annual mean return", "Annual volatility", "Lowest annual window mean", "Largest weight"])}</div>'
-        '<p class="muted">The model minimizes estimated variance at a return target that applies to every historical window. '
-        'Low uses the minimum-variance point. Highest uses the highest feasible target for the lowest window mean. '
-        'Medium targets the midpoint of this return range, not the midpoint of volatility.</p>'
+        f'<div class="scroll">{_table(summary, [mean_label, "Annual volatility", window_label, "Largest weight"])}</div>'
+        f'<p class="muted">{selection_note}</p>'
         f'<div class="chart">{chart}</div>'
-        '<h3>Historical windows</h3>'
+        f'<h3>Historical windows{"" if weakest else " · diagnostics"}</h3>'
         f'<p class="muted">The model divides {profiles.observations} return observations into three consecutive windows without overlap. '
         f'Annual arithmetic means use {profiles.settings["periods_per_year"]:g} observations per year. '
         'The means assume fixed weights each period and exclude fees and taxes.</p>'
@@ -217,6 +254,12 @@ def _summary_html(analysis: Any, metadata: dict, prices, study, latest_profiles,
     if latest_profiles is not None:
         weights = latest_profiles.portfolios[profile].weights
         parts.append(f"<h2>{story.headline_html(weights, profile, universe)}</h2>")
+        if not _window_objective(latest_profiles):
+            parts.append(
+                '<p class="source">The primary profiles use the historical arithmetic mean return objective. '
+                'Latest holdings fit all supplied history. Profile backtests use the same objective with only history available before each trade. '
+                'Three-window estimates are diagnostics.</p>'
+            )
     else:
         parts.append("<h2>There is not enough history to set risk levels.</h2>")
     items = story.fine_print_items(metadata, prices if prices is not None else analysis.train_returns,
@@ -259,8 +302,8 @@ def _summary_html(analysis: Any, metadata: dict, prices, study, latest_profiles,
                 '<p class="pl-sub">Your rule minus each market, in percentage points. This is an arithmetic average, '
                 f'so it differs from the growth gap above.</p>{story.interval_html(evidence, selected)}</div>'
                 f'<div class="tile"><h3 class="pl-title">Stretch by stretch</h3>{story.stretch_summary_html(evidence, selected)}'
-                '<p class="pl-sub">The test period, split into three equal stretches. These differ from the three stretches '
-                f'that fitted today’s holdings.</p>{story.stretch_table_html(evidence, selected)}</div></div>'
+                '<p class="pl-sub">The test period, split into three equal stretches. These differ from the three historical windows '
+                f'shown with the latest holdings.</p>{story.stretch_table_html(evidence, selected)}</div></div>'
                 f'<p class="pl-small">These tests describe the last {months} months. They cannot tell you how the rule will do next.</p>')
     return "".join(parts) + "</section>"
 
@@ -332,7 +375,9 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
         'Low uses the point with the least fitted volatility. Medium uses the sampled frontier point nearest to the midpoint '
         'of Low and High volatility. High uses the endpoint with the highest fitted arithmetic mean return. '
         'When the frontier has no volatility range, all three use the same highest-return mix. '
-        'These levels differ from the full-history profiles, which optimize the weakest of three past windows.</p>'
+        + ('These levels differ from the optional full-history profiles, which optimize the weakest of three past windows.</p>'
+           if latest_profiles is not None and _window_objective(latest_profiles) else
+           'These levels use the same historical-mean objective as the full-history profiles, but fit only the initial training sample.</p>')
     ) if all(name in analysis.portfolios for name in CLASSIC_PROFILE_NAMES) else ""
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

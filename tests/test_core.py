@@ -143,6 +143,34 @@ def test_large_universe_uses_all_128_assets_with_analytic_optimal_weights():
     assert frontier.iloc[-1].expected_return == pytest.approx(mu.max(), abs=1e-6)
 
 
+def test_frontier_converges_for_a_rolling_fit_near_the_high_return_endpoint():
+    from efficient_frontier.data import demo_prices
+
+    returns = demo_prices().iloc[21:165].pct_change(fill_method=None).iloc[1:]
+    mean = returns.mean() * 252
+    covariance = returns.cov() * 252
+    covariance = 0.9 * covariance + 0.1 * pd.DataFrame(
+        np.diag(np.diag(covariance)), index=mean.index, columns=mean.index,
+    )
+    _, frontier, weights, warnings = optimize(mean, covariance, risk_free_rate=0.03, frontier_points=21)
+    # Solve the equality-constrained minimum variance for the three active
+    # assets independently. The reduced gradients verify the other assets stay out.
+    target = np.linspace(frontier.expected_return.iloc[0], mean.max(), 21)[-2]
+    active = ["DEMO_BONDS", "DEMO_GOLD", "DEMO_PROPERTY"]
+    constraints = np.column_stack([np.ones(3), mean.loc[active]])
+    precision_constraints = np.linalg.solve(covariance.loc[active, active], constraints)
+    multipliers = np.linalg.solve(constraints.T @ precision_constraints, [1, target])
+    expected = pd.Series(0.0, index=mean.index)
+    expected.loc[active] = precision_constraints @ multipliers
+    assert expected.loc[active].gt(0).all() and multipliers[1] > 0
+    reduced_gradient = covariance @ expected - np.column_stack([np.ones(len(mean)), mean]) @ multipliers
+    assert reduced_gradient.drop(active).ge(0).all()
+    np.testing.assert_allclose(weights.iloc[-2], expected, atol=2e-7)
+    assert frontier.expected_return.iloc[-2] == pytest.approx(target, abs=1e-9)
+    assert frontier.volatility.iloc[-2] == pytest.approx(np.sqrt(expected @ covariance @ expected), abs=1e-8)
+    assert not any("limited numerical accuracy" in warning for warning in warnings)
+
+
 def test_capped_portfolios_can_require_more_than_40_holdings():
     names = [f"ASSET{i:03d}" for i in range(64)]
     mu = pd.Series(0.10, index=names)

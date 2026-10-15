@@ -65,8 +65,15 @@ ASSUMPTIONS = (
 
 def _assumptions(study: Any) -> tuple[str, ...]:
     periods = study.settings.get("periods_per_year", 252)
+    objective_note = (
+        "Low, Medium, and Highest use the weakest-window objective, with a return target in each of three historical windows. "
+        if study.settings.get("profile_return_objective") == "worst_window" else
+        "Low, Medium, and Highest use the same historical arithmetic mean return objective as the primary latest holdings. "
+        "Low selects minimum fitted volatility, Medium selects the sampled point nearest the midpoint of endpoint volatility, "
+        "and Highest selects maximum fitted arithmetic mean return. Three-window estimates are diagnostics, not optimization targets. "
+    )
     profile_notes = (
-        "Low, Medium, and Highest use a frontier with a return target in each of three historical windows. "
+        objective_note +
         "These are relative risk levels within each fit, not universal risk ratings. "
         "Profile backtests fit only the history available before each allocation. "
         "The latest model holdings use all supplied history and remain separate from these backtests and the original holdout.",

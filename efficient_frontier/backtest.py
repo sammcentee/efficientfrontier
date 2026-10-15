@@ -60,7 +60,7 @@ def run_backtests(
 
     Holding contribution is dollar profit in initial-capital units before costs;
     contributions minus total cost reconcile to the portfolio's total return.
-    Optional Low, Medium, and Extreme profiles use only each past fit window.
+    Optional Low, Medium, and Extreme historical-mean profiles use only each past fit window.
     """
     prices = _validate_price_frame(prices)
     periods_per_year = validate_periods_per_year(periods_per_year)
@@ -121,7 +121,7 @@ def run_backtests(
             if include_profiles:
                 profiles = build_profiles(
                     prices.iloc[start:end + 1], risk_free_rate=risk_free_rate, max_weight=max_weight,
-                    shrinkage=shrinkage, periods_per_year=periods_per_year, frontier_points=3,
+                    shrinkage=shrinkage, periods_per_year=periods_per_year,
                 )
                 targets.update({name: profiles.portfolios[name].weights.loc[labels].to_numpy()
                                 for name in PROFILE_NAMES})
@@ -213,6 +213,7 @@ def run_backtests(
         "max_weight": max_weight, "shrinkage": shrinkage, "rebalance_every": int(rebalance_every),
         "rolling_window": int(rolling_window), "cost_bps": cost_bps, "split": split,
         "include_profiles": bool(include_profiles),
+        "profile_return_objective": "historical_mean" if include_profiles else None,
         "periods_per_year": periods_per_year,
         "trading_days_per_year": periods_per_year, "cash_interest_rate": 0.0,
         "train_start": str(returns.index[0].date()), "train_end": str(dates[split].date()),
