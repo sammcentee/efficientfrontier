@@ -100,10 +100,15 @@ def test_market_lead_describes_the_rule_and_its_costs():
     settings = {"test_start": "2025-04-03", "test_end": "2026-10-02", "rebalance_every": 21, "cost_bps": 10.0,
                 "rolling_window": 252, "periods_per_year": 252}
     study = SimpleNamespace(settings=settings)
-    assert market_lead(study, SELECTED) == (
-        "We replayed the medium-risk rule over the last 18 months. About once a month it refitted, using only prices "
-        "that it could have seen at the time. It paid 0.10% on every trade.")
-    assert "Every 42 trading days it refitted on the most recent 252 trading days" in market_lead(
+    lead = market_lead(study, SELECTED)
+    assert "We replayed the medium-risk rule over the last 18 months." in lead
+    assert "About once a month it refitted using all earlier returns." in lead
+    assert "annual historical arithmetic mean returns and volatility" in lead
+    assert "returns through the prior close; targets took effect at the following close" in lead
+    assert "first interval stayed in cash" in lead
+    assert "0.10% on each amount bought or sold" in lead
+    assert "later realised compound growth (CAGR), not the fitted mean return" in lead
+    assert "Every 42 trading days it refitted on the most recent 252 return observations" in market_lead(
         SimpleNamespace(settings={**settings, "rebalance_every": 42}), "Rolling window · Extreme")
     assert "minimum-volatility" in market_lead(study, "Buy and hold · Minimum volatility")
     assert "Every 21 price rows" in market_lead(SimpleNamespace(settings={**settings, "periods_per_year": 12}), SELECTED)
@@ -116,16 +121,16 @@ def evidence(statuses, gaps=(-.19, -.32)):
 
 
 @pytest.mark.parametrize("statuses,answer", [
-    (["No clear statistical advantage"] * 2, "Not clear, either way."),
-    (["Historical mean underperformance"] * 2, "Clearly behind both markets, in this sample."),
-    (["Historical mean advantage", "Historical mean advantage and alpha"], "Clearly ahead of both markets, in this sample."),
+    (["No clear statistical advantage"] * 2, "No clear difference in mean return."),
+    (["Historical mean underperformance"] * 2, "Lower mean returns than both markets, in this sample."),
+    (["Historical mean advantage", "Historical mean advantage and alpha"], "Higher mean returns than both markets, in this sample."),
     (["Historical alpha"] * 2, "Some evidence of alpha. No clear lead in average return."),
     (["Insufficient history"] * 2, "Too little history to judge."),
     (["Uncertainty unavailable"] * 2, "The uncertainty could not be estimated."),
     (["No clear statistical advantage", "Historical mean underperformance"],
-     "Not clear against the S&P 500. Clearly behind the Nasdaq-100."),
+     "No clear mean-return difference against the S&P 500. Lower mean returns than the Nasdaq-100, in this sample."),
     (["Historical mean advantage", "Historical alpha"],
-     "Clearly ahead of the S&P 500, in this sample. Some evidence of alpha against the Nasdaq-100."),
+     "Higher mean returns than the S&P 500, in this sample. Some evidence of alpha against the Nasdaq-100."),
 ])
 def test_evidence_answer_for_each_status_and_mixed_results(statuses, answer):
     assert evidence_answer(evidence(statuses), SELECTED) == answer
@@ -133,19 +138,39 @@ def test_evidence_answer_for_each_status_and_mixed_results(statuses, answer):
 
 def test_evidence_lead_and_clarity_follow_the_statuses():
     unclear = evidence(["No clear statistical advantage"] * 2)
-    assert evidence_lead(unclear, SELECTED, 18) == (
-        "The rule trailed, but 18 months is a short test. After we allow for chance, for returns that cluster in time, "
-        "and for all 96 tests in this study, neither gap is statistically clear.")
-    assert evidence_lead(unclear, SELECTED, 40).startswith("The rule trailed. After we allow")
+    lead = evidence_lead(unclear, SELECTED, 18)
+    assert "trailed both markets on realised compound growth (CAGR)" in lead
+    assert "18 months is a short test" in lead
+    assert "annual arithmetic mean return gaps, not CAGR gaps" in lead
+    assert "Neither annual mean return gap is statistically clear" in lead
+    assert "all 96 tests" in lead
+    assert "does not establish equal performance" in lead
+    assert "short test" not in evidence_lead(unclear, SELECTED, 40)
     assert evidence_lead(evidence(["No clear statistical advantage"] * 2, (.1, -.1)), SELECTED, 18).startswith(
-        "The rule led one market and trailed the other")
+        "The rule led the S&P 500 and trailed the Nasdaq-100")
     mixed = evidence(["No clear statistical advantage", "Historical mean underperformance"])
-    assert evidence_lead(mixed, SELECTED, 18) == "After we allow for chance and for all 96 tests, the two markets give different results."
-    assert clarity_text(unclear, SELECTED) == "Neither gap is statistically clear. See How sure can we be."
-    assert clarity_text(mixed, SELECTED) == "Only the gap to the Nasdaq-100 is statistically clear in this sample. See How sure can we be."
-    assert clarity_text(evidence(["Historical mean underperformance"] * 2), SELECTED).startswith("Both gaps are statistically clear")
+    assert "statistical evidence differs by market after adjustment for all 96 tests" in evidence_lead(mixed, SELECTED, 18)
+    assert clarity_text(unclear, SELECTED).startswith("Neither annual mean return gap is statistically clear.")
+    assert "Only the annual mean return gap to the Nasdaq-100 is statistically clear" in clarity_text(mixed, SELECTED)
+    assert clarity_text(evidence(["Historical mean underperformance"] * 2), SELECTED).startswith("Both annual mean return gaps are statistically clear")
+    assert "does not test the CAGR gaps" in clarity_text(mixed, SELECTED)
     assert clarity_text(evidence(["Insufficient history"] * 2), SELECTED) == "The statistics could not be estimated for this test."
     assert clarity_text(None, SELECTED) == "The statistics could not be estimated for this test."
+
+
+@pytest.mark.parametrize("status,gaps,growth,mean", [
+    ("Historical mean underperformance", (.12, .03), "led both markets", "statistically negative"),
+    ("Historical mean advantage", (-.12, -.03), "trailed both markets", "statistically positive"),
+    ("No clear statistical advantage", (.12, .03), "led both markets", "Neither annual mean return gap is statistically clear"),
+    ("No clear statistical advantage", (0., 0.), "matched both markets", "Neither annual mean return gap is statistically clear"),
+])
+def test_cagr_outcome_remains_separate_when_mean_return_evidence_differs(status, gaps, growth, mean):
+    comparison = evidence([status] * 2, gaps)
+    lead = evidence_lead(comparison, SELECTED, 40)
+    assert f"{growth} on realised compound growth (CAGR) in this sample" in lead
+    assert mean in lead
+    assert "annual arithmetic mean return gaps, not CAGR gaps" in lead
+    assert "cannot beat" not in lead
 
 
 def interval_evidence(names):
@@ -189,6 +214,52 @@ def test_list_shows_ten_rows_and_one_rest_row_beyond_twelve_holdings():
     assert '<i style="width:100.0%"></i>' in html
     small = list_html(weights([.5, .3, .2, .00001]))
     assert small.count('class="pl-row"') == 3 and "more holdings" not in small and "<b>A00</b></span>" in small
+
+
+@pytest.mark.parametrize("expected_return,shown", [(.234, "23.4%"), (-.234, "−23.4%")])
+def test_overview_uses_full_history_mean_even_when_worst_window_has_opposite_sign(expected_return, shown):
+    portfolios = {
+        name: SimpleNamespace(weights=pd.Series({"AAA": .6, "BBB": .4}), volatility=.15)
+        for name in ("Low", "Medium", "Extreme")
+    }
+    latest = SimpleNamespace(
+        portfolios=portfolios,
+        summary=pd.DataFrame({"expected_return": [expected_return] * 3, "worst_window_return": [-expected_return] * 3,
+                              "volatility": [.15] * 3, "effective_holdings": [1 / (.6 ** 2 + .4 ** 2)] * 3},
+                             index=list(portfolios)),
+        windows=pd.DataFrame({"years": [1., 1., 1.]}),
+    )
+    stats = story.stats_html(latest, "Medium", "Nasdaq-100")
+    why = " ".join(story.why_text(latest, "Medium", "Nasdaq-100"))
+    ledger = story.levels_ledger_html(latest, "Medium")
+    for text in (stats, why, ledger):
+        assert shown in text
+        assert "arithmetic mean" in text
+        assert "worst stretch" not in text and "Weakest past stretch" not in text
+    assert "all 3 years" in why
+    assert "same prices that selected today's holdings" in why
+    assert "not compound growth (CAGR) or a forecast" in why
+    assert "measures realised growth on later prices" in why
+    assert "midpoint between Low and Highest volatility" in why
+    assert "Highest maximises the fitted annual mean return" in why
+    assert "Historical mean*" in ledger and "not later realised compound growth (CAGR)" in ledger
+    latest.summary["worst_window_return"] = .876
+    assert story.stats_html(latest, "Medium", "Nasdaq-100") == stats
+    assert " ".join(story.why_text(latest, "Medium", "Nasdaq-100")) == why
+    assert story.levels_ledger_html(latest, "Medium") == ledger
+
+
+def test_method_defines_mean_frontier_and_separates_fit_growth_and_uncertainty():
+    method = story.METHOD_MD
+    assert "annual arithmetic mean returns and covariance" in method
+    assert "nearest to the midpoint" in method and "Low and Highest volatility" in method
+    assert "maximises the fitted annual arithmetic mean return" in method
+    assert "Each fit selects the same mean-based risk levels from earlier returns" in method
+    assert "previous close" in method and "next close" in method
+    assert "annual arithmetic mean return gaps, not CAGR gaps" in method
+    assert "unclear mean gap does not establish equal performance or rule out future outperformance" in method
+    assert "worst stretch" not in method
+    assert story.setting_text("return_objective", "historical_mean") == "Annual historical arithmetic mean"
 
 
 def test_one_asset_reads_in_the_singular():

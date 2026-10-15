@@ -44,6 +44,7 @@ SETTING_LABELS = {
     "trading_days_per_year": "Trading days per year", "cash_interest_rate": "Interest on cash", "train_start": "First fit from",
     "train_end": "First fit to", "test_start": "Test from", "test_end": "Test to", "initial_execution": "First trade",
     "execution": "Trade timing", "cost_convention": "Cost rule",
+    "return_objective": "Return objective", "selection_method": "Portfolio selection",
 }
 STAT_LABELS = {
     "CAGR difference": "Growth gap", "Annual mean advantage": "Average gap", "Mean CI lower": "95% range, low",
@@ -52,8 +53,8 @@ STAT_LABELS = {
     "Historical evidence": "Result",
 }
 WORDS = {
-    "95% range": "The band where the true yearly gap probably sits, given how much the returns moved. If the band crosses zero, "
-                 "the data cannot rule out “no real difference”. The band is wider when returns cluster in time (Newey–West).",
+    "95% range": "A 95% confidence interval for the annual arithmetic mean return gap, not the compound growth (CAGR) gap. "
+                 "A range that crosses zero includes no difference. It allows for returns that cluster in time (Newey–West).",
     "Average gap": "The average difference per return observation between your rule and the market, scaled to a year. "
                    "It differs from the growth gap, which compounds the whole path.",
     "Points": "Percentage points. If your rule grew 9.4% and the market grew 28.6%, the gap is 19.2 points, not 19.2%.",
@@ -70,12 +71,12 @@ GLOSSARY_MD = (
 METHOD_MD = """
 ### What the model does
 It chooses weights for all eligible assets. Weights are zero or more and add up to 100%.
-Today's holdings use all of the selected history. The history is split into three equal stretches, in date order.
-The model prefers a stronger worst stretch. At each target, it picks the mix with the least volatility.
+Today's holdings use all of the selected history to estimate annual arithmetic mean returns and covariance.
+The frontier finds the least volatile mix for each target mean return. These fitted means are not compound growth (CAGR) or forecasts.
 
 ### What the risk levels mean
-**Low** is the mix with the least modelled volatility. **Medium** aims halfway between Low and Highest on the worst-stretch return.
-**Highest** aims for the strongest worst-stretch return, with the least variance among equal solutions.
+**Low** is the mix with the least modelled volatility. **Medium** is the sampled frontier point nearest to the midpoint
+between Low and Highest volatility. **Highest** maximises the fitted annual arithmetic mean return, with the least variance among equal solutions.
 The levels are relative to the selected assets. They are not absolute limits or guarantees. Exports call Highest "Extreme".
 Volatility measures how much past returns moved. It does not measure every form of risk.
 
@@ -87,12 +88,15 @@ The default 10% reduces the cross-asset terms by 10%. This is a manual setting, 
 ### The market test
 **Buy once, then hold** (Buy and hold) invests once. **Keep the first mix** (Fixed rebalance) trades back to the first targets.
 **Refit on all past prices** (Expanding window) refits with all earlier returns. **Refit on recent prices** (Rolling window) uses a fixed recent window.
-Each trade uses information to the previous close and executes at the next close. The first interval stays in cash.
+Each fit selects the same mean-based risk levels from earlier returns. Each trade uses information to the previous close
+and executes at the next close. The first interval stays in cash. The later test reports realised compound growth (CAGR).
 Fees apply to each amount bought or sold. There is no final sale. Taxes and currency conversion are not included.
 
 ### Reading the evidence
 SPY and QQQ are ETF stand-ins, not raw index series. They use the same dates and fee rate as the rule.
-The frontier does not promise to beat either market. The ranges describe past uncertainty.
+The realised CAGR comparison shows which rule grew more in this sample. The confidence ranges and adjusted tests concern
+annual arithmetic mean return gaps, not CAGR gaps. An unclear mean gap does not establish equal performance or rule out future outperformance.
+The frontier does not promise to beat either market.
 The Holm adjustment covers every test in this report. It cannot correct earlier searches that you did before.
 Today's members, the full-history requirement and repeated changes after review can all distort a backtest.
 Save the rules and the report. Then judge them on later data that you have not seen.
@@ -202,6 +206,11 @@ def setting_text(key, value) -> str:
         return f"{value:g} basis points ({value / 100:.2f}%)"
     if key in ("periods_per_year", "trading_days_per_year"):
         return f"{value:g}"
+    if key == "return_objective":
+        return {"historical_mean": "Annual historical arithmetic mean",
+                "worst_window": "Lowest annual mean across three historical windows"}.get(value, str(value))
+    if key == "selection_method" and value == "historical_mean_frontier":
+        return "Historical mean and variance frontier"
     if isinstance(value, (list, tuple)):
         return ", ".join(map(str, value))
     return str(value)
@@ -299,16 +308,13 @@ def context_setup_html(setup: dict, badge: str | None = None) -> str:
 # ----------------------------------------------------------------------------- holdings
 
 def stats_html(latest: Any, profile: str, universe: str, names: dict | None = None) -> str:
-    """Volatility, largest holding and number held, divided by hairlines."""
+    """Fitted mean return, volatility and largest holding, divided by hairlines."""
     weights = latest.portfolios[profile].weights
-    held = _held(weights)
     largest = weights.idxmax()
-    count_label = "Stocks held" if _noun(universe) == "stock" else "Assets held"
-    spread = latest.summary.loc[profile, "effective_holdings"]
     stats = (
+        (_pct(latest.summary.loc[profile, "expected_return"]), "Historical mean", "Annual arithmetic mean, fitted"),
         (_pct(latest.portfolios[profile].volatility), "Volatility", "Yearly, from past prices"),
         (_pct(weights.max()), "Largest holding", (names or {}).get(largest, largest)),
-        (str(len(held)), count_label, f"Spread like {spread:.1f} equal holdings"),
     )
     return '<div class="pl-stats">' + "".join(
         f'<div class="pl-stat"><span class="pl-num">{number}</span><span class="pl-lbl">{label}</span><small>{_e(sub)}</small></div>'
@@ -357,11 +363,14 @@ def why_text(latest: Any, profile: str, universe: str) -> list[str]:
     count = len(latest.portfolios[profile].weights)
     mixes = f"The model tries weighted mixes of all {count} {noun}." if count > 1 else f"The model has one {_noun(universe)} to hold."
     return [
-        f"{mixes} It splits the {years:g} years into three equal stretches. It prefers mixes with a stronger worst stretch. At each risk level, it picks the least volatile mix.",
-        f"In each of the three stretches, this mix would have averaged at least {_pct(latest.summary.loc[profile, 'worst_window_return'])} "
-        "a year. That is the number the model maximised, measured on the same prices that it learned from. It is not a forecast. "
-        "The next section tests the rule on prices that it had not seen.",
-        f"Low is relative to the selected {noun}. Highest uses no borrowing and does not maximise every measure of risk.",
+        f"{mixes} It uses all {years:g} years to estimate annual arithmetic mean returns and volatility. "
+        "The frontier finds the least volatile mix for each target mean return.",
+        f"This mix has a fitted annual arithmetic mean of {_pct(latest.summary.loc[profile, 'expected_return'])}. "
+        "It uses the same prices that selected today's holdings. It is not compound growth (CAGR) or a forecast. "
+        "The next section fits the rule using earlier prices and measures realised growth on later prices.",
+        "Low has the least fitted volatility. Medium is the sampled frontier point nearest to the midpoint between Low and Highest volatility. "
+        f"Highest maximises the fitted annual mean return. These levels are relative to the selected {noun}; "
+        "Highest uses no borrowing and does not maximise every measure of risk.",
     ]
 
 
@@ -379,11 +388,11 @@ def levels_ledger_html(latest: Any, selected: str, names: dict | None = None, un
             f'<td><i class="pl-ldot" style="background:{ramp.get(profile, "var(--pl-rest)")}"></i>{_e(display_label(profile))}</td>'
             f'<td>{_pct(latest.summary.loc[profile, "volatility"])}</td>'
             f'<td class="hide-m">{_e((names or {}).get(largest, largest))} {_pct(weights.max())}</td>'
-            f"<td>{len(_held(weights))}</td><td>{_pct(latest.summary.loc[profile, 'worst_window_return'])}</td></tr>")
+            f"<td>{len(_held(weights))}</td><td>{_pct(latest.summary.loc[profile, 'expected_return'])}</td></tr>")
     return ('<table class="pl-ledger"><thead><tr><th>Level</th><th>Volatility</th><th class="hide-m">Largest holding</th>'
-            f'<th>{count_label}</th><th>Weakest past stretch*</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
-            '<p class="pl-small">*The yearly return in the weakest of three past stretches. The model learned from these same '
-            "prices, so this number is not a forecast.</p>")
+            f'<th>{count_label}</th><th>Historical mean*</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
+            '<p class="pl-small">*Annual arithmetic mean fitted to all selected prices. This is not later realised '
+            "compound growth (CAGR) or a forecast.</p>")
 
 
 # ----------------------------------------------------------------------------- market test
@@ -416,14 +425,17 @@ def market_lead(study: Any, selected: str) -> str:
     unit = "trading days" if settings.get("periods_per_year", 252) == 252 else "price rows"
     rule = {
         "Expanding window": (("About once a month" if every == 21 and unit == "trading days" else f"Every {every} {unit}")
-                             + f" it refitted, using only prices that it could have seen at the time. It paid {cost:.2f}% on every trade."),
-        "Rolling window": f"Every {every} {unit} it refitted on the most recent {settings['rolling_window']} {unit} of prices. "
-                          f"It paid {cost:.2f}% on every trade.",
-        "Fixed rebalance": f"It kept the mix from the first fit. Every {every} {unit} it traded back to that mix and paid "
-                           f"{cost:.2f}% on each trade.",
-        "Buy and hold": f"It bought the mix from the first fit once and then held it. It paid {cost:.2f}% to enter.",
+                             + " it refitted using all earlier returns."),
+        "Rolling window": f"Every {every} {unit} it refitted on the most recent {settings['rolling_window']} return observations.",
+        "Fixed rebalance": f"It kept the mix from the first fit. Every {every} {unit} it traded back to that mix.",
+        "Buy and hold": "It bought the mix from the first fit once and then held it.",
     }.get(method, "")
-    return f"We replayed the {level}-risk rule over the last {months_tested(study)} months. {rule}".strip()
+    selection = (" Each fit selected the risk level from a frontier of annual historical arithmetic mean returns and volatility."
+                 if policy in LEVEL else "")
+    return (f"We replayed the {level}-risk rule over the last {months_tested(study)} months. {rule}{selection} "
+            "Fits used returns through the prior close; targets took effect at the following close. "
+            f"The first interval stayed in cash. It paid {cost:.2f}% on each amount bought or sold. "
+            "The result is later realised compound growth (CAGR), not the fitted mean return.")
 
 
 def result_tile_html(study: Any, selected: str, benchmarks: Any, evidence: Any, metadata: dict) -> str:
@@ -500,39 +512,46 @@ def evidence_answer(evidence: Any, selected: str) -> str:
     statuses = _statuses(evidence, selected)
     categories = {category for _, category, _ in statuses}
     if len(categories) == 1:
-        return {"unclear": "Not clear, either way.", "behind": "Clearly behind both markets, in this sample.",
-                "ahead": "Clearly ahead of both markets, in this sample.",
+        return {"unclear": "No clear difference in mean return.", "behind": "Lower mean returns than both markets, in this sample.",
+                "ahead": "Higher mean returns than both markets, in this sample.",
                 "alpha": "Some evidence of alpha. No clear lead in average return.",
                 "insufficient": "Too little history to judge.",
                 "unavailable": "The uncertainty could not be estimated."}[categories.pop()]
-    short = {"unclear": "Not clear against the {m}.", "behind": "Clearly behind the {m}.",
-             "ahead": "Clearly ahead of the {m}, in this sample.", "alpha": "Some evidence of alpha against the {m}.",
+    short = {"unclear": "No clear mean-return difference against the {m}.", "behind": "Lower mean returns than the {m}, in this sample.",
+             "ahead": "Higher mean returns than the {m}, in this sample.", "alpha": "Some evidence of alpha against the {m}.",
              "insufficient": "Too little history against the {m}.", "unavailable": "No estimate against the {m}."}
     return " ".join(short[category].format(m=name) for name, category, _ in statuses)
 
 
 def evidence_lead(evidence: Any, selected: str, months: int, metadata: dict | None = None) -> str:
-    """The lead under the evidence answer."""
+    """Separate realised compound growth from uncertainty in arithmetic mean returns."""
     if evidence is None:
         return (metadata or {}).get("evidence_note", "")
     statuses = _statuses(evidence, selected)
     tests = evidence.settings.get("multiple_testing_tests", 0)
+    directions = ["led" if gap > 0 else "trailed" if gap < 0 else "matched" for _, _, gap in statuses]
+    comparison = (f"{directions[0]} both markets" if len(set(directions)) == 1 else
+                  " and ".join(f"{direction} the {name}" for direction, (name, _, _) in zip(directions, statuses)))
+    growth = f"The rule {comparison} on realised compound growth (CAGR) in this sample."
+    if months < 36:
+        growth += f" {months} months is a short test."
+    distinction = "The confidence ranges and adjusted tests concern annual arithmetic mean return gaps, not CAGR gaps."
     categories = {category for _, category, _ in statuses}
     if len(categories) > 1:
-        return f"After we allow for chance and for all {tests} tests, the two markets give different results."
-    category = categories.pop()
-    if category == "unclear":
-        gaps = [gap for _, _, gap in statuses]
-        direction = "trailed" if all(gap < 0 for gap in gaps) else "led" if all(gap > 0 for gap in gaps) else \
-            "led one market and trailed the other"
-        opening = f"The rule {direction}" + ("." if months >= 36 else f", but {months} months is a short test.")
-        return (f"{opening} After we allow for chance, for returns that cluster in time, and for all {tests} tests in this "
-                "study, neither gap is statistically clear.")
-    return {"behind": f"The gaps stay after we allow for chance and for all {tests} tests. They describe this sample only.",
-            "ahead": f"The gaps stay after we allow for chance and for all {tests} tests. A past lead does not show future outperformance.",
+        inference = f"The statistical evidence differs by market after adjustment for all {tests} tests."
+    else:
+        inference = {
+            "unclear": f"Neither annual mean return gap is statistically clear after allowing for returns that cluster in time "
+                       f"and all {tests} tests. This does not establish equal performance.",
+            "behind": f"The annual mean return gaps are statistically negative after adjustment for all {tests} tests. "
+                      "This describes the sample, not future performance.",
+            "ahead": f"The annual mean return gaps are statistically positive after adjustment for all {tests} tests. "
+                     "This describes the sample, not future performance.",
             "alpha": "Alpha adjusts for exposure to one market. It does not prove skill.",
-            "insufficient": "The tests need at least 60 paired return observations.",
-            "unavailable": (metadata or {}).get("evidence_note", "")}[category]
+            "insufficient": f"The tests need at least {evidence.settings.get('inference_min_observations', 60)} paired return observations.",
+            "unavailable": (metadata or {}).get("evidence_note", "The mean-return uncertainty could not be estimated."),
+        }[categories.pop()]
+    return f"{growth} {distinction} {inference}"
 
 
 def clarity_text(evidence: Any, selected: str) -> str:
@@ -545,10 +564,11 @@ def clarity_text(evidence: Any, selected: str) -> str:
         return unknown
     clear = [name for name, category, _ in statuses if category in ("ahead", "behind")]
     if not clear:
-        return "Neither gap is statistically clear. See How sure can we be."
+        return "Neither annual mean return gap is statistically clear. This does not test the CAGR gaps. See How sure can we be."
     if len(clear) == len(statuses):
-        return "Both gaps are statistically clear in this sample. See How sure can we be."
-    return f"Only the gap to the {clear[0]} is statistically clear in this sample. See How sure can we be."
+        return "Both annual mean return gaps are statistically clear in this sample. This does not test the CAGR gaps. See How sure can we be."
+    return (f"Only the annual mean return gap to the {clear[0]} is statistically clear in this sample. "
+            "This does not test the CAGR gaps. See How sure can we be.")
 
 
 def _signed(value: float) -> str:

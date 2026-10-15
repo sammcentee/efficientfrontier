@@ -156,7 +156,8 @@ def main():
             prices, source = demo_prices(), "Demo · synthetic"
         analysis = analyze(prices, **settings)
         latest_profiles = build_profiles(
-            prices, **{key: value for key, value in settings.items() if key != "train_fraction"},
+            prices, return_objective="historical_mean",
+            **{key: value for key, value in settings.items() if key != "train_fraction"},
         ) if len(prices) >= 7 else None
         profile_backtests = min(len(analysis.train_returns),
                                 args.rolling_window if args.rolling_window is not None else len(analysis.train_returns)) >= 6
@@ -233,7 +234,8 @@ def main():
         print(f"Note: {metadata['universe_limitation']}")
         print(f"Coverage: {(args.output / 'universe_coverage.csv').resolve()}")
     if latest_profiles is not None:
-        print(f"\nLatest model holdings as of {latest_profiles.as_of} (full-history fit, not an out-of-sample result):")
+        print(f"\nLatest model holdings as of {latest_profiles.as_of} "
+              "(historical mean frontier; full-history fit, not an out-of-sample result):")
         print(latest_profiles.summary.round(4).to_string())
         for name, portfolio in latest_profiles.portfolios.items():
             leaders = portfolio.weights.sort_values(ascending=False).head(5)

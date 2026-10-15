@@ -30,7 +30,7 @@ Solver calls fell from 91 to 78, or 14.3%, for that case. Runtime savings depend
 ## Limits and next priorities
 
 - **Historical membership, updated 12 October:** a separate offline mode now uses dated member rosters and a rolling window of prior prices. It records each exclusion, cash allocation, and trade. The default Nasdaq study still uses current members. The new bundled community history has known omissions, and users must supply prices with stable security identities, including prices for held delisted securities. This does not establish a complete survivorship-free reconstruction. See [historical membership](../README.md#historical-membership).
-- **Model risk:** three historical windows do not establish a future return floor. The risk labels compare portfolios inside this model.
+- **Model risk, updated 15 October:** the primary model uses historical arithmetic means and covariance. Three-window means are diagnostics. These fitted estimates are not forecasts, and the risk labels compare portfolios inside the model. A separate weakest-window comparison remains available in Research.
 - **Maintenance:** the app still needs substantial custom CSS and Streamlit state code. Keep future changes small and cover state transitions with tests.
 - **External data:** provider access, quote currencies, and adjusted-price quality remain external assumptions. Offline CSV files give the most reproducible inputs.
 - **Platforms:** browser checks cannot establish native Windows, macOS, or physical iPhone behavior.

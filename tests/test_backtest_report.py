@@ -139,11 +139,23 @@ def test_focus_mode_highlights_one_strategy_and_keeps_every_path(study):
 
 def test_profile_backtest_reports_explain_separate_past_only_fits(study):
     study.settings["include_profiles"] = True
+    study.settings["profile_return_objective"] = "historical_mean"
     for document in (backtest_html(study), findings_markdown(study, "Synthetic demo")):
         assert "relative risk levels within each fit" in document
         assert "only the history available before each allocation" in document
         assert "latest model holdings use all supplied history" in document
         assert "separate from these backtests and the original holdout" in document
+        assert "same historical arithmetic mean return objective as the primary latest holdings" in document
+        assert "Three-window estimates are diagnostics, not optimization targets" in document
+        assert "return target in each of three" not in document
+
+
+def test_weakest_window_backtest_metadata_keeps_its_own_description(study):
+    study.settings.update(include_profiles=True, profile_return_objective="worst_window")
+    for document in (backtest_html(study), findings_markdown(study, "Synthetic demo")):
+        assert "use the weakest-window objective" in document
+        assert "return target in each of three historical windows" in document
+        assert "diagnostics, not optimization targets" not in document
 
 
 def test_html_escapes_asset_names_settings_and_warnings_without_bundle(study):

@@ -44,7 +44,17 @@ def test_frontier_references_use_the_matching_estimation_objective(comparison):
         assert trace.name == html.escape(name)
         assert trace.marker.symbol == "diamond"
         assert trace.y[0] == pytest.approx(comparison.benchmarks.training_estimates.loc[name, "expected_return"])
-        assert latest.data[-2 + position].y[0] == pytest.approx(comparison.benchmarks.latest_estimates.loc[name, "worst_window_return"])
+        assert latest.data[-2 + position].y[0] == pytest.approx(comparison.benchmarks.latest_estimates.loc[name, "expected_return"])
+        assert "Full-history arithmetic mean" in latest.data[-2 + position].hovertemplate
+
+
+def test_optional_weakest_window_frontier_keeps_matched_benchmark_estimates(comparison):
+    profiles = build_profiles(comparison.prices, frontier_points=3, return_objective="worst_window")
+    chart = latest_profile_chart(profiles, comparison.benchmarks.latest_estimates)
+    assert chart.layout.title.text == "Weakest-window frontier"
+    for trace, (_, row) in zip(chart.data[-2:], comparison.benchmarks.latest_estimates.iterrows()):
+        assert trace.y[0] == pytest.approx(row["worst_window_return"])
+        assert "Lowest annual window mean" in trace.hovertemplate
 
 
 def test_equity_charts_keep_both_benchmarks_when_all_strategies_are_hidden(comparison):
@@ -144,6 +154,15 @@ def test_report_exports_all_pairs_raw_prices_and_reproducible_curves(comparison)
         windows = pd.read_csv(bundle.open("evidence_windows.csv"), index_col=0)
         pd.testing.assert_frame_equal(windows, comparison.evidence.windows)
         metadata = json.loads(bundle.read("metadata.json"))
+        assert len(metadata["backtest_files"]) == 24
+        assert metadata["backtests"]["profile_return_objective"] == "historical_mean"
+        assert metadata["latest_profiles"]["settings"]["return_objective"] == "historical_mean"
+        pd.testing.assert_frame_equal(
+            pd.read_csv(bundle.open("backtest_metrics.csv"), index_col=0), comparison.study.metrics,
+        )
+        profile_summary = pd.read_csv(bundle.open("latest_profile_summary.csv"), index_col=0)
+        pd.testing.assert_frame_equal(profile_summary, comparison.profiles.summary)
+        assert "worst_window_return" in profile_summary
         assert metadata["benchmarks"] == comparison.benchmarks.settings
         assert metadata["evidence"]["multiple_testing_tests"] == 96
         assert metadata["evidence"]["warnings"] == comparison.evidence.warnings
