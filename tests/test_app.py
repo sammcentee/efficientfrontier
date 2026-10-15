@@ -212,6 +212,7 @@ def test_risk_choice_changes_display_without_refitting_or_dropping_holdings(monk
     monkeypatch.setattr(profiles, "build_profiles", calculate)
     app = demo_app()
     latest = app.session_state.latest_profiles
+    initial_calls = len(calls)
     for profile in ("Low", "Extreme", "Medium"):
         app.segmented_control(key="risk_profile").set_value(profile).run()
         assert not app.exception
@@ -223,11 +224,12 @@ def test_risk_choice_changes_display_without_refitting_or_dropping_holdings(monk
         portfolio, page = latest.portfolios[profile], html_text(app)
         held = int((portfolio.weights >= .0005).sum())
         assert f'<span class="pl-num">{portfolio.volatility:.1%}</span><span class="pl-lbl">Volatility</span>' in page
-        assert f'<span class="pl-num">{held}</span><span class="pl-lbl">Assets held</span>' in page
+        mean = f"{portfolio.expected_return:.1%}".replace("-", "−")
+        assert f'<span class="pl-num">{mean}</span><span class="pl-lbl">Historical mean</span>' in page
         assert f'<span class="pl-nb">{LEVEL[profile]}-risk</span>' in page
         selected_row = page.split('<tr class="on">')[1].split("</tr>")[0]
         assert f"{latest.summary.loc[profile, 'volatility']:.1%}" in selected_row and f"<td>{held}</td>" in selected_row
-    assert calls == [1]
+    assert initial_calls > 0 and len(calls) == initial_calls
     app.button(key="key_market").click().run()
     assert app.segmented_control(key="view").value == "Portfolio"
     assert "backtests" in app.session_state
@@ -573,7 +575,7 @@ def test_market_costs_charts_and_evidence_preserve_all_96_tests(monkeypatch, mar
     assert app.session_state.evidence.settings["multiple_testing_tests"] == len(app.session_state.backtests.metrics) * 4
     research_view(app, "Efficient frontiers")
     comparison = app.session_state.benchmarks
-    expected_points = {"Risk frontier": (comparison.latest_estimates, "worst_window_return"),
+    expected_points = {"Historical mean frontier": (comparison.latest_estimates, "expected_return"),
                        "Classic frontier": (comparison.training_estimates, "expected_return")}
     names = {"S&P 500 (SPY)", "Nasdaq-100 (QQQ)"}
     found = set()
@@ -625,6 +627,8 @@ def test_overview_answers_follow_the_selected_rule_and_level(monkeypatch, market
     app = market_app(monkeypatch, prices)
     assert not app.exception and not app.error
     latest, evidence = app.session_state.latest_profiles, app.session_state.evidence
+    assert "They do not set the historical-mean weights" in html_text(app)
+    assert "that fitted today's holdings" not in html_text(app)
 
     def points(value):
         return "0.0" if round(value * 100, 1) == 0 else f"{value * 100:+.1f}".replace("-", "−")
@@ -653,7 +657,7 @@ def test_overview_answers_follow_the_selected_rule_and_level(monkeypatch, market
         answers[selected] = html.unescape(re.sub("<[^>]+>", "", heading))
         assert all(value in page for value in expected[selected])
         assert not any(value in page for other, values in expected.items() if other != selected for value in values)
-    assert answers == {"Expanding window · Medium": "Partly. It beat the S&P 500 but trailed the Nasdaq-100.",
+    assert answers == {"Expanding window · Medium": "Partly. It beat the S&P 500 but matched the Nasdaq-100.",
                        "Rolling window · Extreme": "Yes. It beat both markets in this test.",
                        "Rolling window · Low": "Partly. It beat the S&P 500 but trailed the Nasdaq-100."}
 
@@ -902,7 +906,7 @@ def test_classic_risk_choice_links_frontier_weights_and_holdout_without_refittin
     captions = " ".join(item.value for item in app.caption)
     assert "not compounded growth or a forecast" in captions
     assert "same initial weights" in captions
-    assert "weakest of three past stretches" in html_text(app)
+    assert "same historical-mean objective as the overview" in html_text(app)
 
 
 def test_classic_higher_fit_return_can_lose_to_etfs_on_the_later_dates(monkeypatch):
@@ -932,6 +936,116 @@ def test_classic_higher_fit_return_can_lose_to_etfs_on_the_later_dates(monkeypat
                        analysis.test_returns.index[0], analysis.test_returns.index[-1]):
         assert f"{date_value.day} {date_value:%b %Y}" in captions
     assert any("does not show which mix won on the later test dates" in item.value for item in app.markdown)
+
+
+def test_weakest_window_comparison_is_lazy_and_does_not_change_primary_results(monkeypatch, market_prices):
+    from efficient_frontier import profiles
+
+    objectives = []
+    original = profiles.build_profiles
+
+    def fit(*args, **kwargs):
+        if len(args[0]) == len(market_prices):
+            objectives.append(kwargs.get("return_objective", "historical_mean"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(profiles, "build_profiles", fit)
+    app = market_app(monkeypatch, market_prices)
+    latest = app.session_state.latest_profiles
+    equity = app.session_state.backtests.equity.copy()
+    evidence = app.session_state.evidence.summary.copy()
+    assert latest.settings["return_objective"] == "historical_mean"
+    assert app.session_state.backtests.settings["profile_return_objective"] == "historical_mean"
+    research_view(app, "Efficient frontiers")
+    assert objectives == ["historical_mean"]
+    assert not app.checkbox(key="compare_worst_window").value
+    app.checkbox(key="compare_worst_window").set_value(True).run()
+    assert not app.exception and not app.error
+    assert objectives == ["historical_mean", "worst_window"]
+    charts = {figure["layout"]["title"]["text"]: figure for figure in figures(app)}
+    alternative = charts["Weakest-window frontier"]
+    benchmarks = app.session_state.benchmarks.latest_estimates
+    for trace in alternative["data"]:
+        name = html.unescape(trace.get("name", ""))
+        if name in benchmarks.index:
+            np.testing.assert_allclose(chart_values(trace["y"]), [benchmarks.loc[name, "worst_window_return"]])
+    pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, latest.frontier_weights)
+    pd.testing.assert_frame_equal(app.session_state.backtests.equity, equity)
+    pd.testing.assert_frame_equal(app.session_state.evidence.summary, evidence)
+    app.checkbox(key="compare_worst_window").set_value(False).run()
+    assert all(figure["layout"]["title"]["text"] != "Weakest-window frontier" for figure in figures(app))
+    assert objectives == ["historical_mean", "worst_window"]
+
+
+def test_old_open_study_refreshes_once_from_retained_prices_without_download(monkeypatch, market_prices):
+    from efficient_frontier import backtest, data, profiles
+
+    app = market_app(monkeypatch, market_prices)
+    analysis, prices, metadata = app.session_state.result
+    benchmark_prices = app.session_state.benchmark_prices.copy()
+    expected_equity = app.session_state.backtests.equity.copy()
+    app.session_state.latest_profiles = profiles.build_profiles(prices, return_objective="worst_window")
+    app.session_state.backtests.settings["profile_return_objective"] = "worst_window"
+    app.session_state.evidence.summary.loc[:, "annual_advantage"] = -999.
+    metadata.pop("profile_model_revision")
+    app.session_state.view = "Research"
+    app.session_state.research_topic = "Data & coverage"
+    calls = []
+    original = backtest.run_backtests
+
+    def replay(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    def no_download(*args, **kwargs):
+        pytest.fail("A model update must reuse the open study's prices.")
+
+    monkeypatch.setattr(data, "download_prices", no_download)
+    monkeypatch.setattr(data, "download_benchmarks", no_download)
+    monkeypatch.setattr(backtest, "run_backtests", replay)
+    st.cache_data.clear()
+    app.run()
+    assert not app.exception and not app.error
+    assert app.session_state.view == "Research"
+    assert app.session_state.result[0] is analysis
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
+    pd.testing.assert_frame_equal(app.session_state.benchmark_prices, benchmark_prices)
+    pd.testing.assert_frame_equal(app.session_state.backtests.equity, expected_equity)
+    assert app.session_state.latest_profiles.settings["return_objective"] == "historical_mean"
+    assert app.session_state.backtests.settings["profile_return_objective"] == "historical_mean"
+    assert not app.session_state.evidence.summary.annual_advantage.eq(-999).any()
+    assert calls == [1]
+    app.run()
+    assert calls == [1]
+
+
+def test_failed_model_refresh_keeps_inputs_and_hides_stale_results_until_retry(monkeypatch):
+    from efficient_frontier import profiles
+
+    app = demo_app()
+    prices = app.session_state.result[1].copy()
+    app.session_state.result[2].pop("profile_model_revision")
+    original = profiles.build_profiles
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("Fixture model refresh failure.")
+
+    monkeypatch.setattr(profiles, "build_profiles", unavailable)
+    st.cache_data.clear()
+    app.run()
+    assert not app.exception
+    assert any("Fixture model refresh failure" in item.value for item in app.error)
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
+    for key in ("latest_profiles", "backtests", "benchmarks", "evidence"):
+        assert key not in app.session_state
+    assert not app.get("download_button") and not app.get("plotly_chart")
+    assert app.button(key="change_after_refresh_error")
+    monkeypatch.setattr(profiles, "build_profiles", original)
+    app.button(key="retry_profile_refresh").click().run()
+    assert not app.exception and not app.error
+    assert app.session_state.latest_profiles.settings["return_objective"] == "historical_mean"
+    assert app.session_state.backtests.settings["profile_return_objective"] == "historical_mean"
+    assert app.get("download_button")
 
 
 def test_large_universe_chart_limit_does_not_change_holdings(monkeypatch):

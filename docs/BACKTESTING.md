@@ -32,42 +32,48 @@ Both engines need at least two training returns and two holdout returns. The CSV
 
 ## Latest model holdings and profiles
 
-The latest model fits all supplied returns through the final price date. It uses three chronological, nonoverlapping windows with nearly equal numbers of returns. Each window needs at least two returns, so the fit needs at least six returns in total. Window dates identify the first and last return observations. The annualization setting converts each window's arithmetic mean into an annual estimate.
+The primary model uses historical arithmetic mean return. Latest holdings fit all supplied returns through the final price date. For weights `w`, the fitted annual mean is `mu @ w`, where `mu` is the annualized arithmetic mean of each asset over the complete fit period. This estimate is not compound growth (CAGR) or a forecast.
 
-For weights `w`, each window has a portfolio mean `mu_window @ w`. The worst-window return is the smallest of these three means. The optimizer finds the weights with the largest achievable worst-window return. It does not select each asset's worst window separately.
-
-Covariance uses the complete fit period and the selected shrinkage. Weights are long-only, sum to one, and obey the chosen per-asset cap. For each return target, the frontier minimizes portfolio variance with that target as a minimum in every window:
+Covariance uses the same fit period and the selected shrinkage. Weights are long-only, sum to one, and obey the chosen per-asset cap. For each arithmetic mean return target, the frontier minimizes portfolio variance:
 
 ```text
 minimize: w.T @ covariance @ w
-subject to: mu_window @ w >= target, for all three windows
+subject to: mu @ w >= target
             sum(w) = 1
             0 <= w_i <= max_weight
 ```
 
-The solver allows return-target slack of `1e-8 * S` to preserve the minimum-variance tie-break near numerical ties. Here, `S` is the largest absolute annual asset mean across the three windows, or one if all means are zero. The final check rejects target shortfalls greater than `2e-8 * S`. Tables report the actual means of the computed weights.
+The profiles use the same selection rule as the classic mean-return frontier, with their own fit dates:
 
-If the solver reports reduced accuracy, the profile notes retain that warning. The output must still pass the weight and return-target checks.
-
-The first target is the worst-window mean of the minimum-variance portfolio. The last target is the largest achievable worst-window mean. The profiles select these positions:
-
-| Profile | Return target |
+| Profile | Position on the frontier |
 | --- | --- |
-| Low | First target: minimum variance |
-| Medium | Arithmetic midpoint of the first and last targets |
-| Extreme | Last target, with minimum variance among portfolios that meet it |
+| Low | Least fitted volatility |
+| Medium | Sampled point nearest the midpoint of Low and Extreme volatility |
+| Extreme | Endpoint with the highest fitted arithmetic mean return |
 
-The labels are relative to the supplied assets and model. Extreme is the high-return endpoint of this efficient branch. It does not add leverage or seek the largest possible variance. Medium is halfway along the return targets, not necessarily halfway along volatility. Identical targets or tied solutions can make profiles coincide.
+The app calls Extreme **Highest**. These labels are relative to the supplied assets and model. Highest does not add leverage or seek the largest possible variance. When the frontier has no volatility range, all three profiles use the same highest-return mix. Numerical ties can produce several equivalent allocations.
 
-The objective favors the weakest of three estimated window means. It is not a forecast, a statistical confidence bound, or a minimum-drawdown objective. It does not guarantee positive returns in any future year. Reports show the three windows and give a warning when any window contains fewer observations than the selected periods per year. They also warn when no feasible portfolio has positive estimated means in all windows. A separate warning identifies profiles with no distinct risk levels.
+The three chronological, nonoverlapping windows remain diagnostic checks. Their observation counts are nearly equal. Each needs at least two returns, so profiles need at least six returns in total. Window dates identify the first and last return observations. Each annualized window mean is `mu_window @ w`; `worst_window_return` is the smallest of those three portfolio means. These diagnostics do not select primary weights. They are not confidence bounds or forecasts.
 
-**Latest model holdings use an in-sample fit.** Their `as_of` date is the final supplied price date, not a guarantee of current market quotes. The original mean-return frontier and holdout remain separate.
+Reports warn when a window has fewer observations than the selected periods per year. They also identify profiles without distinct risk levels. Solver warnings remain visible, and tables report the actual estimates of the computed weights.
 
-For historical profile backtests, each fit uses only returns through the close before execution. The engine forms three windows inside that fit period. Fixed rebalance retains the initial profile targets. Expanding and rolling methods rebuild their profiles at each scheduled fit. Latest full-history weights never enter those earlier trades.
+**Latest model holdings use an in-sample fit.** Their `as_of` date is the final supplied price date, not a guarantee of current market quotes. The classic frontier uses the same historical-mean objective on the initial training sample. Its holdout evaluates that initial allocation on later dates.
+
+Historical profile backtests use the same historical-mean objective, but each fit uses only returns through the close before execution. Fixed rebalance retains the initial profile targets. Expanding and rolling methods rebuild their profiles at each scheduled fit. Latest full-history weights never enter those earlier trades. Three-window diagnostics also use only each fit's history.
 
 The initial sample and rolling window each need at least six returns for the complete profile comparison. If either is too short, the app and CLI retain the original 12 combinations and explain why they omitted the profiles. A latest full-history fit can still be available when the earlier backtest fit is too short.
 
 The Python API keeps `include_profiles=False` as its compatibility default. `run_backtests(..., include_profiles=True)` requests the additional profiles. Direct API calls reject shorter fits. The app and CLI use the fallback above.
+
+### Optional weakest-window comparison
+
+**Research → Efficient frontiers** retains a separate weakest-window comparison. The Python API selects it with `build_profiles(..., return_objective="worst_window")`. It does not change the primary model or its backtests.
+
+This objective maximizes the lowest of the three portfolio window means. At each frontier target, it minimizes variance subject to `mu_window @ w >= target` in every window. Low uses the minimum-variance endpoint. Medium uses the midpoint of the endpoint return targets. Highest uses the maximum feasible weakest-window target, with minimum variance among tied solutions. Medium therefore uses a return midpoint in this optional model.
+
+For this optional objective, the solver allows return-target slack of `1e-8 * S`. Here, `S` is the largest absolute annual asset mean across the three windows, or one if all means are zero. The final check rejects target shortfalls greater than `2e-8 * S`. This preserves the minimum-variance tie-break near numerical ties. A warning identifies cases where no feasible portfolio has positive estimated means in all three windows.
+
+The optional chart is **Weakest-window frontier**. Its ETF markers use the same lowest-window-mean measure. The primary **Historical mean frontier** and its ETF markers use full-history arithmetic means. Neither chart guarantees future returns or minimum drawdown.
 
 ## Costs and constraints
 
@@ -150,14 +156,14 @@ Latest profile exports contain:
 
 | File | Contents |
 | --- | --- |
-| `latest_profile_summary.csv` | Profile estimates and concentration measures |
+| `latest_profile_summary.csv` | Full-history arithmetic means, volatility, window diagnostics, and concentration measures |
 | `latest_profile_weights.csv` | Complete asset weights for Low, Medium, and Extreme |
 | `latest_profile_windows.csv` | Dates and observation counts for the three windows |
 | `latest_profile_window_returns.csv` | Annual arithmetic mean estimates for each profile and window |
-| `latest_profile_frontier.csv` | Worst-window frontier estimates |
+| `latest_profile_frontier.csv` | Historical-mean frontier estimates, including the lowest-window-mean diagnostic |
 | `latest_profile_frontier_weights.csv` | Complete asset weights at each frontier point |
 
-`metadata.json` includes the latest fit date, observation count, window details, settings, and warnings. These exports describe the latest model, separately from historical strategy allocations.
+`metadata.json` includes the latest fit date, observation count, window details, settings, and warnings. `return_objective` records the latest fit objective, and `profile_return_objective` records the objective for profile backtests. In profile CSVs, `expected_return` is the annualized arithmetic mean over the full fit period. `worst_window_return` retains the lowest annual window mean. The optional weakest-window model retains these field definitions. These exports describe the latest model, separately from historical strategy allocations.
 
 The backtest report includes `findings.md`, `backtest_metrics.csv`, `backtest_curve.csv` and one set of allocation, holdings and trade CSVs per combination under `backtests/`. `metadata.json` maps numbered file prefixes to strategy names. Trade logs record the exact estimation start/end dates as well as wealth, fees and turnover. All exports include the full input universe.
 

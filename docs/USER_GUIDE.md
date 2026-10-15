@@ -58,6 +58,10 @@ The adjustment is `(1 - shrinkage) × covariance + shrinkage × diag(covariance)
 
 The app evaluates four allocation rules: buy and hold, fixed rebalance, expanding window, and rolling window. See [trade timing and costs](BACKTESTING.md#timing-and-information) for the exact definitions. The selected profile, rule, and chart only change the display. Exports retain all calculated strategies and the full statistical test family.
 
+The primary profiles use historical arithmetic mean return and covariance. Low has the least fitted volatility. Medium is the sampled frontier point nearest the midpoint of Low and Highest volatility. Highest has the largest fitted arithmetic mean return. Latest holdings fit all supplied history. The allocation rules use the same objective with only the data available before each trade.
+
+Three historical windows show diagnostic mean returns. They do not select primary weights. **Research → Efficient frontiers** retains an optional **Weakest-window frontier**, which optimizes the lowest window mean. That comparison does not change the primary holdings or backtests. Both objectives describe past data; neither estimates compound growth or guarantees future returns.
+
 **Research → Risk breakdown** uses the initial model weights and the covariance from the training period. It describes the initial model, rather than later weight drift. Latest-profile estimates use all supplied history. These are different fits. See the [risk definitions](BACKTESTING.md#portfolio-risk-and-diversification).
 
 ## Classic frontier and risk choices
@@ -74,7 +78,7 @@ These levels compare the selected assets under the holding limit. They are not a
 
 The frontier describes the first fit. At the same estimated volatility, a higher point has a higher fitted mean return. A Low point can have less return than an ETF with more risk. The chart uses annualized arithmetic means, not compounded growth. ETF points use the same fit dates, but the ETFs are separate references unless they are among the selected assets. See the [CVXPY portfolio model](https://www.cvxgrp.org/cvx_short_course/docs/applications/notebooks/portfolio_optimization.html) for the mean and variance definition.
 
-The classic holdout tests the same initial weights on later prices, beside SPY and QQQ when available. It buys once, lets weights drift, and excludes trading costs. A mix above an ETF during fitting can lose to it in this later period. Return estimates can change, and compound growth differs from an arithmetic mean. The overview uses a separate weakest-window model, with the selected refit rule and fees. Its results do not test the classic frontier point.
+The classic holdout tests the same initial weights on later prices, beside SPY and QQQ when available. It buys once, lets weights drift, and excludes trading costs. A mix above an ETF during fitting can lose to it in this later period. Return estimates can change, and compound growth differs from an arithmetic mean. The overview uses the same historical-mean objective, with the selected allocation rule and fees. Its full-history holdings and historical refits use different fit dates from the classic frontier. Its strategy results include delayed execution and selected fees.
 
 ## Price data
 
