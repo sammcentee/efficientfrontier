@@ -25,6 +25,8 @@ The support flag is a descriptive product screen. It requires both ETF reference
 
 The risk-matched ETF rules invest `min(1, budget / past_estimated_volatility)` in SPY or QQQ and retain the balance as zero-interest cash. They use the same delayed monthly refits and per-dollar trading fees. They never borrow to reach the budget. Separate raw ETF references buy once after the same initial cash interval and entry fee. Estimated risk matching does not guarantee equal realized risk.
 
+The support screen also compares the selected stock rule with raw SPY and QQQ in validation and the later test. Support fails if a raw ETF has strictly higher net CAGR with no more realized volatility in either period. This check does not change the selected blend or its weights.
+
 At every fit, the engine excludes stocks with at least 20 consecutive unchanged price intervals in the past sample. It retains the original input prices and exports each dated eligibility decision. Repeated quotes do not prove false data. If a held stock later triggers the screen, the study stops rather than assume a verified sale at that quote.
 
 Weight constraints can reduce estimation problems without ensuring superior returns. See [Jagannathan and Ma's research](https://www.nber.org/papers/w8922) and the [CVXPY portfolio formulation](https://www.cvxgrp.org/cvx_short_course/docs/applications/notebooks/portfolio_optimization.html). The live input universe still uses current members and complete-history eligibility, so it retains selection and survivorship bias.

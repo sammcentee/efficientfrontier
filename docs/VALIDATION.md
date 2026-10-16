@@ -2,11 +2,12 @@
 
 ## Risk budget and combined stock universe: 16 October 2026
 
-**723 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
+**726 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
 The suite reports the existing pandas warning from the invalid-date rejection test.
 
 The primary app replaces the three risk selectors with a volatility budget before the calculation. Tests cover explicit holding limits, infeasible settings, retained inputs, old-study migration, offline behavior, unsupported holdings, exports, and separate legacy diagnostics.
-The selection tests verify constrained optima, feasible blends, dated price-quality decisions, costs, cash, both ETF references, the one-year evidence floor, and both realized-risk checks. Future prices cannot change earlier results or the frozen blend.
+A model revision blocks stale results and exports until an explicit rebuild. A regression verifies that unchanged inputs still force a fresh calculation after a revision.
+The selection tests verify constrained optima, feasible blends, dated price-quality decisions, costs, cash, both ETF references, the one-year evidence floor, and both realized-risk checks. They also verify raw ETF dominance rejection and valid return-versus-risk tradeoffs. Future prices cannot change earlier results or the frozen blend.
 
 An independent share, cash, and fee reconstruction matched all 16 phase/strategy equity paths within `4.9e-15` initial-capital units on a saved 92-stock study. All 32 scheduled fits respected the position cap and fitted volatility ceiling within numerical tolerance.
 This establishes accounting agreement, not market-data accuracy, statistical significance, or future outperformance.
@@ -14,7 +15,7 @@ This establishes accounting agreement, not market-data accuracy, statistical sig
 The live source check combined 101 Nasdaq-100 securities and 503 SPY stocks into 518 unique stocks. Both provider dates and the independently published SPY holding count reconciled. The parser explicitly excluded cash and a contingent-value right. No downloaded source file entered the repository.
 Five years of Yahoo prices supplied 500 complete stocks on 1,254 common market dates. A fixed 20% volatility budget, 10% holding limit, and 21-session schedule completed in about 61 seconds, excluding downloads. The long unchanged-price screen excluded FER from its fits.
 One fit reported limited numerical accuracy. Its weight and fitted-risk feasibility checks passed, and the warning remains in the results.
-The selected rule exceeded the realized-risk budget and correctly remained unsupported. No parameter changed in response to that outcome.
+The selected rule exceeded the realized-risk budget and correctly remained unsupported. QQQ also had higher net CAGR with lower realized volatility in the later test. No parameter changed in response to that outcome.
 
 The risk-target CLI completed offline. The saved-price report archive retained 62 verified files, including both periods, all allocations, holdings, trades, source records, and policy decisions. Reproduction tests matched the numeric exports.
 The background T3 browser displayed the new inputs and completed the synthetic app flow without an app exception or desktop page overflow.

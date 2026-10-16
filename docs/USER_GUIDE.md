@@ -62,6 +62,8 @@ The selected blend stays fixed during the later test. Stock weights can change a
 
 The result status is a descriptive screen, not statistical proof of skill. Full support requires at least one year of return observations in both validation and the later test, both ETF references, and the stated comparison checks. Shorter studies remain available for research. A failed screen keeps the latest candidate collapsed with an explicit explanation.
 
+The screen also compares the selected stock rule with raw SPY and QQQ in validation and the later test. Support fails if a raw ETF has strictly higher net CAGR with no more realized volatility in either period. This check does not change the selected blend or its weights.
+
 **Latest candidate holdings** use all observed prices and the frozen blend. They can differ from the holdings used during the test. Holding contributions add up to total return before fees. Subtracting fees gives net total return.
 
 **Annual mean** measures the arithmetic average of net test returns, scaled to a year. **CAGR** compounds the same returns. A gain of 50% followed by a loss of 50% has a zero arithmetic mean but loses 25% of the starting value. The fitted mean uses a different period and different weights.

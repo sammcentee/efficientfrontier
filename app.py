@@ -25,7 +25,7 @@ from efficient_frontier.profiles import build_profiles
 from efficient_frontier.risk import risk_contributions, risk_summary
 from efficient_frontier.style import ACCENT, APP_CSS, GRID, PLOTLY_CONFIG, style_chart
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
-from efficient_frontier.selection import run_selection, SELECTED, BASELINE
+from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, SELECTED, BASELINE
 from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, SELECTION_METRIC_LABELS
 
 
@@ -39,7 +39,6 @@ MARKET_CAPTIONS = ["Today’s combined members, without duplicate symbols. Price
 FREQUENCIES = {"Daily market prices": 252, "Daily calendar prices": 365, "Weekly": 52, "Monthly": 12, "Custom": None}
 TOPICS = ["Efficient frontiers", "Risk breakdown", "Data & coverage", "All backtests", "Methodology"]
 DEFAULT_TEST = {"rebalance_every": 21, "rolling_window": 0, "cost_bps": 10.0}
-SELECTION_MODEL_REVISION = "risk_budget_v1"
 DEFAULT_SETUP = {
     "market": "S&P 500 + Nasdaq-100", "history": "5 years", "ticker_text": "AAPL, MSFT, AMZN, GOOGL, NVDA, META, JPM, XOM, JNJ, PG, KO, UNH",
     "start": date(2020, 1, 1), "end": date.today(), "use_cap": True, "cap": 10.0, "target_vol": 20.0, "risk_free": 2.0,
@@ -135,7 +134,8 @@ def calculate_market(benchmark_prices, prices, result, latest, settings, study=N
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
-def calculate_selection(prices, benchmark_prices, settings, target_volatility):
+def calculate_selection(prices, benchmark_prices, settings, target_volatility, model_revision):
+    """Include the selection model revision in the cached calculation identity."""
     return run_selection(prices, benchmark_prices=benchmark_prices, target_volatility=target_volatility,
                          **settings, rebalance_every=DEFAULT_TEST["rebalance_every"], cost_bps=DEFAULT_TEST["cost_bps"])
 
@@ -381,7 +381,7 @@ def build(plan, mark, progress_slot):
             except (ValueError, RuntimeError, OSError) as exc:
                 metadata["benchmarks_note"] = f"Market comparison unavailable: {exc}"
                 benchmark_prices = None
-        selection = calculate_selection(prices, benchmark_prices, settings, plan["target_volatility"])
+        selection = calculate_selection(prices, benchmark_prices, settings, plan["target_volatility"], SELECTION_MODEL_REVISION)
     except (ValueError, RuntimeError, OSError) as exc:
         for key in ("result", "selection", "latest_profiles", "backtests", "benchmarks", "evidence", "benchmark_prices", "coverage"):
             st.session_state.pop(key, None)
@@ -852,6 +852,8 @@ def research():
 
 init_state()
 ready = "result" in st.session_state
+current_selection = (ready and "selection" in st.session_state
+                     and st.session_state.result[2].get("selection_model_revision") == SELECTION_MODEL_REVISION)
 busy = bool(st.session_state.get("pending_build") or st.session_state.get("pending_study"))
 
 with st.container(key="localnav", horizontal=True, vertical_alignment="center", gap="medium"):
@@ -860,7 +862,7 @@ with st.container(key="localnav", horizontal=True, vertical_alignment="center", 
         st.segmented_control("View", ["Portfolio", "Research", "Historical membership"], key="view", required=True,
                              format_func=lambda name: story.VIEW_LABELS.get(name, name),
                              label_visibility="collapsed", disabled=busy)
-        if st.session_state.view != "Historical membership" and "selection" in st.session_state:
+        if st.session_state.view != "Historical membership" and current_selection:
             st.download_button("Export", data=make_report_callable(), file_name="portfolio-lab.zip", mime="application/zip",
                                key="export", type="primary", icon=":material/ios_share:", on_click="ignore", shortcut="E",
                                disabled=busy, help="One zip file. The report opens offline and prints to PDF.")
@@ -882,8 +884,8 @@ if st.session_state.view == "Historical membership":
     render_historical()
 elif st.session_state.get("pending_build"):
     hero_work()
-elif ready and "selection" not in st.session_state:
-    st.info("This saved study uses the previous three-profile model. Your input prices are retained. "
+elif ready and not current_selection:
+    st.info("This saved study uses a previous selection model. Your input prices are retained. "
             "Set the new risk budget before building a selection study.")
     st.button("Set risk budget and rebuild", key="migrate_selection", on_click=open_setup)
 elif not ready:
