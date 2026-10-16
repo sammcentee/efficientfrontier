@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml)
 
-A local research app for portfolio allocations, risk, and historical tests. Start with the current Nasdaq-100, your own tickers, a price CSV, or the offline synthetic demo.
+A local research app for portfolio allocations, risk, and historical tests. Start with stocks from SPY and the Nasdaq-100, your own tickers, a price CSV, or the offline synthetic demo.
 
-Compare Low, Medium, and Highest model portfolios. Inspect every weight, evaluate allocation rules against SPY and QQQ, and export an interactive report. This is a research tool, not an investment recommendation or a trading system.
+Set an annual volatility budget before the calculation. Compare a diversified historical-mean rule with simpler portfolios and SPY/QQQ. The app can report that stock selection has no supported advantage. Inspect every weight and export an interactive report. This is a research tool, not a trading system.
 
 ## Start here: no coding needed
 
@@ -32,42 +32,44 @@ bash run.sh
 
 ## Your first study
 
-1. Keep **Nasdaq-100** and **5 years**, or select **Change** for your own data.
-2. Select **Show portfolios**. The app obtains prices, fits the portfolios, and runs the historical market test.
-3. Choose **Low**, **Medium**, or **Highest**. Read the test comparison first, then inspect the latest proposed holdings.
-4. Open **“Would this rule have beaten the market?”** Choose a **Rule**. **Test settings** changes the trade assumptions.
-5. Open **Research** for frontiers, risk, data coverage, all tests, and the method.
+1. Choose the stock universe and history. The default combines SPY's stock holdings with the current Nasdaq-100.
+2. Set **Annual volatility budget (%)** before the calculation. The default is 20%, with a 10% limit per stock.
+3. Select **Build portfolio**. The app obtains prices, compares fixed allocation rules on earlier validation dates, and evaluates the selected rule on later dates.
+4. Read the result status and the comparison with diversified and ETF baselines. Inspect the candidate's holdings and trade record.
+5. Open **Research** for data coverage and method details.
 6. Select **Export** for the report and data. The report includes the results on screen.
 
-The app waits for **Show portfolios** before it requests data. Select **Try the offline demo** for a synthetic example without a data download. CSV analysis also works offline after setup.
+The app waits for **Build portfolio** before it requests data. Select **Try the offline demo** for a synthetic example without a data download. CSV analysis also works offline after setup.
 
-Keyboard shortcuts: **Ctrl+Enter** on Windows/Linux or **Cmd+Enter** on macOS submits the setup. **L/M/H** selects a profile, **2** opens the market test, **4** opens Research, and **E** exports. See the [user guide](docs/USER_GUIDE.md) for settings and input rules.
+Keyboard shortcuts: **Ctrl+Enter** on Windows/Linux or **Cmd+Enter** on macOS submits the setup. **4** opens Research, and **E** exports. See the [user guide](docs/USER_GUIDE.md) for settings and input rules.
 
 ![Portfolio Lab in an earlier layout](docs/images/portfolio-lab.png)
 
 *Screenshot from an earlier app version. The current layout can differ.*
 
-## What the profiles mean
+## How the risk budget works
 
-The primary model uses historical arithmetic mean returns and covariance, with the chosen weight limit. Latest holdings fit all supplied history. The frontier minimizes estimated variance at each annualized arithmetic mean return target.
+The slider sets a ceiling for estimated annual volatility. It replaces the three risk levels. A 20% setting does not promise 20% future volatility, and it does not mean a maximum loss of 20%.
 
-| Profile | Meaning within this model |
-| --- | --- |
-| Low | Minimum estimated volatility. |
-| Medium | The sampled frontier point nearest halfway between Low and Highest volatility. |
-| Highest | Highest fitted arithmetic mean return. |
+The stock portfolio is long-only and fully invested. Its weights obey the selected holding limit. If that limit or volatility budget is infeasible, the app explains the problem. It does not silently raise the limit or add cash.
 
-These are relative model positions. Low can still contain risky assets, and profiles can coincide. Highest does not use leverage. CSV and JSON exports retain the name **Extreme** for Highest.
+Historical arithmetic means still drive the return objective. The method fits a capped mean-return portfolio and a feasible portfolio closest to equal weight. It compares three fixed blends: 0%, 50%, and 100% of the mean-return portfolio. Earlier validation dates choose the blend after trading costs. The later test cannot change that choice.
 
-**Highest is not a recommendation.** Without a holding limit, maximizing the fitted mean can put the whole portfolio in one stock. Medium can also have much more risk than either ETF. The overview compares the later results of these rules with maximum Sharpe, equal weight, SPY, and QQQ. It shows arithmetic mean, compound growth, volatility, and drawdown on the same test dates. It does not automatically select the past winner.
+The result status checks the selected rule against the diversified baseline and available ETFs at the selected risk budget. A failed comparison produces **no supported stock-selection advantage**, rather than a forced recommendation. This is a descriptive screen, not statistical proof of investment skill.
 
-Three historical windows show diagnostic mean returns. They do not select the primary weights. **Research** retains a separate weakest-window comparison. Its objective favors the lowest of the three window means.
+The latest candidate uses all observed prices with the frozen blend. Its weights can differ from those held in the historical replay. Fitted arithmetic means, realized arithmetic means, and compound growth (CAGR) have separate labels. See the [risk-budget method](docs/BACKTESTING.md#risk-budget-selection).
 
-**Latest holdings are an in-sample fit, not a forecast.** The fit date is the last supplied price date. Separate backtests use the same historical-mean objective with only data before each trade. They evaluate the allocation rule, rather than today's weights. Arithmetic mean return is not compound growth (CAGR). See [profile construction and evaluation](docs/BACKTESTING.md#latest-model-holdings-and-profiles).
+## Stocks from SPY and the Nasdaq-100
 
-## The full Nasdaq-100 universe
+The combined universe uses State Street's current SPY stock holdings and Nasdaq's current Nasdaq-100 list. It removes duplicate symbols while preserving separate share classes. SPY holdings are a practical proxy for the S&P 500, not a certified historical index roster. Cash, derivatives, and rights in the fund file do not become stock candidates.
 
-The default requests the [current official constituent list](https://api.nasdaq.com/api/quote/list-type/nasdaq100), with separate share classes. It admits only securities with complete positive adjusted prices on the fixed SPY/QQQ market dates for the selected history.
+The app records both sources, their dates, and exclusions. Prices must cover the same SPY/QQQ market dates. A long unchanged-price screen uses only the prices available at each fit. It flags possible stale or illiquid quotes without claiming that those quotes are false.
+
+Current membership and complete-history requirements can favor survivors. The later test is excluded from algorithmic blend selection. Historical results already examined during research are not genuinely fresh prospective evidence.
+
+## The Nasdaq-only universe
+
+The optional Nasdaq-100 source requests the [current official constituent list](https://api.nasdaq.com/api/quote/list-type/nasdaq100), with separate share classes. It admits only securities with complete positive adjusted prices on the fixed SPY/QQQ market dates for the selected history.
 
 It records exclusions. It does not fill gaps or shorten the common history. Open **Research → Data** for counts and reasons. Reports retain `universe_coverage.csv` and the source date. An unavailable or incomplete constituent list stops the request.
 
@@ -131,21 +133,21 @@ Date,ASSET_A,ASSET_B
 
 Use complete positive adjusted prices in one currency. The app does not convert currencies or fill missing prices. Set **Change → Model assumptions → Price frequency** to match the file. Annualization does not resample the data.
 
-The classic analysis needs at least five price rows and a split with two returns in each period. Latest profiles need seven rows. See the [price-data rules](docs/USER_GUIDE.md#price-data) for short histories, exchange suffixes, and benchmarks.
+The risk-budget calculation needs two returns in each of its three phases. Full support also needs at least one year of returns in validation and in the later test. The legacy classic calculation needs five price rows. See the [price-data rules](docs/USER_GUIDE.md#price-data) for short histories, exchange suffixes, and benchmarks.
 
 ## Reports without the browser
 
 After the launcher creates `.venv`, run these commands from the repository root:
 
 ```bash
-# Offline synthetic study with all four backtest rules
-.venv/bin/python -m efficient_frontier --backtests
+# Offline risk-budget study, with an explicit feasible limit for six demo assets
+.venv/bin/python -m efficient_frontier --target-volatility .20 --max-weight .20
 
-# Current Nasdaq-100 members with complete history from the chosen start
-.venv/bin/python -m efficient_frontier --nasdaq100 --start 2021-01-01 --backtests
+# Combined SPY and Nasdaq-100 stocks, 20% volatility budget and 10% per stock
+.venv/bin/python -m efficient_frontier --sp500-nasdaq100 --target-volatility .20
 
-# Your price file, with no benchmark download
-.venv/bin/python -m efficient_frontier --csv data/prices.csv --backtests
+# Your price file, with no benchmark download (at least ten eligible assets)
+.venv/bin/python -m efficient_frontier --csv data/prices.csv --target-volatility .20
 ```
 
 On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`. The default output is `results/latest/`. Open `report.html` for the offline report, or choose **Print / save PDF** in it. The ZIP includes the input prices and full results.
@@ -158,7 +160,7 @@ The [recorded 60-stock study](docs/HOLDINGS_STUDY.md) evaluated 2023-05-17 throu
 
 That study used a list recorded after the main evaluation began. It includes selection hindsight and does not establish future returns or statistically supported outperformance against SPY or QQQ. The linked study retains dates, fees, holdings, reproduction steps, and limitations.
 
-Current benchmark comparisons use matched dates and entry rules. They account for all strategy/benchmark tests in the run. Neither a headline return nor a p-value gives the probability of future success. Results omit taxes, FX conversion, and real execution limits. See the [benchmark guide](docs/BENCHMARKS.md).
+Current benchmark comparisons use matched dates and entry rules. The primary support screen is descriptive. Legacy research retains separate statistics with adjustment across its strategy/benchmark tests. Neither a headline return nor a p-value gives the probability of future success. Results omit taxes, FX conversion, and real execution limits. See the [benchmark guide](docs/BENCHMARKS.md).
 
 ## Documentation and development
 

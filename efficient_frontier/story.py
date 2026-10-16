@@ -29,6 +29,7 @@ TOPIC_LABELS = {"Efficient frontiers": "Frontier", "Risk breakdown": "Risk", "Da
 SETTING_LABELS = {
     "source": "Source", "universe": "Stocks", "price_currency": "Price currency", "compare_market": "Market comparison",
     "train_fraction": "Prices for the first fit", "risk_free_rate": "Risk-free rate", "max_weight": "Largest holding allowed",
+    "target_volatility": "Annual volatility budget",
     "shrinkage": "Covariance shrinkage", "periods_per_year": "Observations per year", "currency_assumption": "Currency assumption",
     "requested_start": "From", "requested_end_exclusive": "Until (not included)", "universe_source_url": "Index list source",
     "universe_source_date": "Index list date", "universe_retrieved_at": "Index list retrieved", "universe_requested": "Securities checked",
@@ -106,12 +107,13 @@ SKELETON_HTML = ('<div class="pl-skel-rows" aria-hidden="true">'
                  + '</div>')
 
 LEVEL = {"Low": "low", "Medium": "medium", "Extreme": "highest"}
-NOUN = {"Nasdaq-100": ("Nasdaq-100 stocks", "stock"), "Original 60 holdings": ("stocks from your original 60", "stock"),
+NOUN = {"S&P 500 + Nasdaq-100": ("S&P 500 and Nasdaq-100 stocks", "stock"),
+        "Nasdaq-100": ("Nasdaq-100 stocks", "stock"), "Original 60 holdings": ("stocks from your original 60", "stock"),
         "My tickers": ("of your tickers", "stock"), "Upload CSV": ("assets from your file", "asset"),
         "Demo": ("simulated assets", "asset")}
-PLACE = {"Nasdaq-100": "the Nasdaq-100", "My tickers": "your tickers", "Original 60 holdings": "your original 60 holdings",
+PLACE = {"S&P 500 + Nasdaq-100": "the S&P 500 and Nasdaq-100", "Nasdaq-100": "the Nasdaq-100", "My tickers": "your tickers", "Original 60 holdings": "your original 60 holdings",
          "Upload CSV": "your CSV file", "Demo": "the demo data"}
-YAHOO = ("Nasdaq-100", "My tickers", "Original 60 holdings")
+YAHOO = ("S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings")
 HELD = 0.0005
 INFO_SVG = ('<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'
             '<circle cx="9" cy="9" r="7.25"/><path d="M9 8v5" stroke-linecap="round"/>'
@@ -282,9 +284,9 @@ def context_result_html(metadata: dict, prices: pd.DataFrame) -> str:
     history = _history(metadata) if universe in YAHOO else None
     period = (f'<span>{history}<span class="hide-m"> to {last}</span></span>' if history
               else f"<span>{first} to {last}</span>")
-    if universe == "Nasdaq-100":
+    if universe in ("Nasdaq-100", "S&P 500 + Nasdaq-100"):
         count = f'{metadata.get("universe_included", len(prices.columns))} of {metadata.get("universe_requested", len(prices.columns))} stocks'
-        parts = ["<span>Nasdaq-100</span>", f"<span>{_e(count)}</span>", period]
+        parts = [f"<span>{_e(universe)}</span>", f"<span>{_e(count)}</span>", period]
     else:
         label = f'CSV: {metadata["input_file"]}' if universe == "Upload CSV" and metadata.get("input_file") else universe
         count = f"{len(prices.columns)} {_noun(universe)}{'' if len(prices.columns) == 1 else 's'}"

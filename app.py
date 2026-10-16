@@ -11,37 +11,38 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from efficient_frontier import presentation, story
+from efficient_frontier import story
 from efficient_frontier.backtest import run_backtests
 from efficient_frontier.backtest_report import HOLDINGS, METRICS, backtest_chart
 from efficient_frontier.benchmark_report import evidence_summary_frame
 from efficient_frontier.benchmarks import compare_benchmarks
-from efficient_frontier.core import CLASSIC_PROFILE_NAMES, analyze
+from efficient_frontier.core import analyze
 from efficient_frontier.data import BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, stale_price_notes, validate_benchmark_prices
 from efficient_frontier.evidence import analyze_evidence
 from efficient_frontier.historical_app import render_historical
-from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, latest_profile_chart, weights_frame
+from efficient_frontier.presentation import csv_text, frontier_chart, latest_profile_chart
 from efficient_frontier.profiles import build_profiles
 from efficient_frontier.risk import risk_contributions, risk_summary
 from efficient_frontier.style import ACCENT, APP_CSS, GRID, PLOTLY_CONFIG, style_chart
-from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100
+from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
+from efficient_frontier.selection import run_selection, SELECTED, BASELINE
+from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, SELECTION_METRIC_LABELS
 
 
 st.set_page_config(page_title="Portfolio Lab", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
 st.html(f"<style>{APP_CSS}</style>")
 
-MARKETS = ["Nasdaq-100", "My tickers", "Original 60 holdings", "Upload CSV", "Demo"]
-MARKET_CAPTIONS = ["Today's 101 members. Prices from Yahoo Finance.", "Type Yahoo Finance symbols.",
+MARKETS = ["S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings", "Upload CSV", "Demo"]
+MARKET_CAPTIONS = ["Today’s combined members, without duplicate symbols. Prices from Yahoo Finance.", "Today's 101 members. Prices from Yahoo Finance.", "Type Yahoo Finance symbols.",
                    "Your original fixed list. Marsh uses its current MRSH symbol, formerly MMC.",
                    "Your own adjusted prices. Stays offline.", "Six simulated assets. Works offline."]
 FREQUENCIES = {"Daily market prices": 252, "Daily calendar prices": 365, "Weekly": 52, "Monthly": 12, "Custom": None}
-METHODS = ["Expanding window", "Rolling window", "Fixed rebalance", "Buy and hold"]
 TOPICS = ["Efficient frontiers", "Risk breakdown", "Data & coverage", "All backtests", "Methodology"]
 DEFAULT_TEST = {"rebalance_every": 21, "rolling_window": 0, "cost_bps": 10.0}
-PROFILE_MODEL_REVISION = "historical_mean_v1"
+SELECTION_MODEL_REVISION = "risk_budget_v1"
 DEFAULT_SETUP = {
-    "market": "Nasdaq-100", "history": "5 years", "ticker_text": "AAPL, MSFT, AMZN, GOOGL, NVDA, META",
-    "start": date(2020, 1, 1), "end": date.today(), "use_cap": False, "cap": 40.0, "risk_free": 2.0,
+    "market": "S&P 500 + Nasdaq-100", "history": "5 years", "ticker_text": "AAPL, MSFT, AMZN, GOOGL, NVDA, META, JPM, XOM, JNJ, PG, KO, UNH",
+    "start": date(2020, 1, 1), "end": date.today(), "use_cap": True, "cap": 10.0, "target_vol": 20.0, "risk_free": 2.0,
     "train_pct": 70, "shrink": 10, "frequency": "Daily market prices", "periods_per_year": 252.0,
     "price_currency": "USD", "compare_market": True, "download_benchmarks": False,
     "prices_file": None, "benchmark_file": None,
@@ -49,16 +50,13 @@ DEFAULT_SETUP = {
 FILE_KEYS = ("prices_file", "benchmark_file")
 DRAWER_KEYS = [key for key in DEFAULT_SETUP if key not in FILE_KEYS]
 SETTING_KEYS = ("train_fraction", "risk_free_rate", "max_weight", "shrinkage", "periods_per_year")
-CHART_TITLES = {"Growth": "Growth of 10,000", "Drawdown": "Falls from peak", "Relative to markets": "Versus the markets"}
 COVERAGE_COLUMNS = {"industry": None, "symbol": "Symbol", "name": "Company", "status": "Status", "reason": "Reason",
                     "observations": st.column_config.NumberColumn("Price rows"), "first_date": "First date", "last_date": "Last date"}
 DATE_COLUMN = st.column_config.DateColumn("Date", format="D MMM YYYY")
-PREVIEW_HTML = ('<ol class="pl-preview"><li><b>What it holds.</b><span>The stocks and weights at each risk level.</span></li>'
-                '<li><b>Would it have beaten the market?</b><span>A replay of the last part of the history against the '
-                'S&amp;P 500 and the Nasdaq-100.</span></li><li><b>How sure can we be?</b><span>The statistics, in plain words. '
-                'The detail is one click away.</span></li></ol>')
-KEY_LEGEND = ('<span class="pl-keys">Keys: <kbd>L</kbd> <kbd>M</kbd> <kbd>H</kbd> risk · <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> '
-              '<kbd>4</kbd> sections · <kbd>S</kbd> setup · <kbd>E</kbd> export</span>')
+PREVIEW_HTML = ('<ol class="pl-preview"><li><b>Set the risk budget.</b><span>Choose annual volatility and a holding limit before building.</span></li>'
+                '<li><b>Check the evidence.</b><span>Compare an earlier validation period and a later test with diversified baselines.</span></li>'
+                '<li><b>Inspect one candidate.</b><span>Show proposed stock weights only with a clear support decision.</span></li></ol>')
+KEY_LEGEND = '<span class="pl-keys">Keys: <kbd>1</kbd> overview · <kbd>2</kbd> test · <kbd>4</kbd> research · <kbd>S</kbd> setup · <kbd>E</kbd> export</span>'
 SCROLL_JS = """<script>/* __NONCE__ */
 (() => {
   const main = document.querySelector('[data-testid="stMain"]');
@@ -84,15 +82,15 @@ def fetch_prices(tickers, start, end):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_members():
-    return fetch_nasdaq100()
+def fetch_members(market):
+    return fetch_sp500_nasdaq100() if market == "S&P 500 + Nasdaq-100" else fetch_nasdaq100()
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_universe(start, end):
-    progress_bar = st.progress(0, text="Read the current Nasdaq-100 list")
+def fetch_universe(market, start, end):
+    progress_bar = st.progress(0, text=f"Read the current {market} list")
     return download_universe_prices(
-        fetch_members(), start, end,
+        fetch_members(market), start, end,
         progress=lambda done, total, message: progress_bar.progress(done / max(total, 1), text=message),
     )
 
@@ -116,7 +114,7 @@ def calculate_latest(prices, settings, return_objective="historical_mean"):
 
 @st.cache_data(show_spinner=False, max_entries=2)
 def compare_backtests(prices, settings, options):
-    """Run the historical-mean profile rules from prior prices."""
+    """Run the original diagnostic rules from prior prices."""
     return run_backtests(prices, **settings, **options)
 
 
@@ -136,14 +134,22 @@ def calculate_market(benchmark_prices, prices, result, latest, settings, study=N
     return benchmarks, evidence, ""
 
 
+@st.cache_data(show_spinner=False, max_entries=2)
+def calculate_selection(prices, benchmark_prices, settings, target_volatility):
+    return run_selection(prices, benchmark_prices=benchmark_prices, target_volatility=target_volatility,
+                         **settings, rebalance_every=DEFAULT_TEST["rebalance_every"], cost_bps=DEFAULT_TEST["cost_bps"])
+
+
 # ----------------------------------------------------------------------------- state and callbacks
 
 def init_state():
-    defaults = {"setup": dict(DEFAULT_SETUP), "setup_open": False, "view": "Portfolio", "risk_profile": "Medium",
-                "comparison_method": "Expanding window", "comparison_chart": "Growth", "research_topic": "Efficient frontiers",
-                "classic_risk_profile": "Medium"}
+    defaults = {"setup": dict(DEFAULT_SETUP), "setup_open": False, "view": "Portfolio", "comparison_method": "Expanding window", "research_topic": "Efficient frontiers"}
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+    if "target_vol" not in st.session_state.setup:
+        # Stage the new defaults; retained input prices remain available for a deliberate rebuild.
+        st.session_state.setup = {**st.session_state.setup, "market": DEFAULT_SETUP["market"],
+                                  "target_vol": 20.0, "use_cap": True, "cap": 10.0}
 
 
 def set_state(name, value):
@@ -163,17 +169,18 @@ def start_build():
 
 
 def try_demo():
-    st.session_state.setup = {**st.session_state.setup, "market": "Demo"}
+    st.session_state.setup = {**st.session_state.setup, "market": "Demo", "use_cap": True, "cap": 20.0}
     start_build()
+
+
+def change_market():
+    if st.session_state.market == "Demo":
+        st.session_state.cap = 20.0
 
 
 def cancel_work():
     st.session_state.pop("pending_build", None)
     st.session_state.pop("pending_study", None)
-
-
-def retry_profile_refresh():
-    st.session_state.pop("profile_refresh_error", None)
 
 
 def open_setup():
@@ -199,12 +206,6 @@ def dismiss_setup():
 
 def remove_file(name):
     st.session_state.draft_clear = st.session_state.get("draft_clear", set()) | {name}
-
-
-def submit_test_settings():
-    # A new key mounts a closed popover. The browser cannot reopen it with its stale open state.
-    st.session_state.test_nonce = st.session_state.get("test_nonce", 0) + 1
-    st.session_state.pending_study = True
 
 
 def read_draft(uploads):
@@ -235,7 +236,7 @@ def resolve(setup):
         if periods_per_year is None:
             periods_per_year = setup["periods_per_year"]
     settings = dict(train_fraction=setup["train_pct"] / 100, risk_free_rate=setup["risk_free"] / 100,
-                    max_weight=setup["cap"] / 100 if setup["use_cap"] else 1.0, shrinkage=setup["shrink"] / 100,
+                    max_weight=setup["cap"] / 100, shrinkage=setup["shrink"] / 100,
                     periods_per_year=periods_per_year)
     ticker_text = setup["ticker_text"] if market == "My tickers" else ""
     files = {name: setup[name] if csv else None for name in FILE_KEYS}
@@ -247,6 +248,7 @@ def resolve(setup):
     }
     return {"market": market, "source": source, "start": start, "end": end, "settings": settings,
             "price_currency": setup["price_currency"], "compare_market": setup["compare_market"],
+            "target_volatility": setup["target_vol"] / 100,
             "download_for_csv": download_for_csv, "ticker_text": ticker_text, **files, "input_choices": input_choices}
 
 
@@ -254,34 +256,25 @@ def differs(plan):
     """True when a resolved setup would not reproduce the applied result."""
     metadata = st.session_state.result[2]
     return (metadata["universe"] != plan["market"] or st.session_state.get("applied_inputs") != plan["input_choices"]
-            or any(metadata[key] != value for key, value in plan["settings"].items())
+            or any(metadata.get(key) != value for key, value in plan["settings"].items())
+            or metadata.get("target_volatility") != plan["target_volatility"]
             or metadata["price_currency"] != plan["price_currency"] or metadata["compare_market"] != plan["compare_market"]
             or plan["source"] == "Yahoo Finance" and (metadata.get("requested_start") != plan["start"].isoformat()
                                                       or metadata.get("requested_end_exclusive") != plan["end"].isoformat()))
 
 
-def apply_notes(metadata, notes):
-    """Set each note with text and remove each note set to None."""
-    for key, value in notes.items():
-        if value is None:
-            metadata.pop(key, None)
-        else:
-            metadata[key] = value
-
-
 def make_report_callable():
-    """A zero-argument export over the objects on screen now. It reads no session state when it runs."""
-    result, prices, metadata = st.session_state.result
-    objects = (result, prices, metadata, st.session_state.get("backtests"), st.session_state.get("latest_profiles"),
-               st.session_state.get("benchmarks"), st.session_state.get("evidence"))
-    profile, method = st.session_state.risk_profile, st.session_state.comparison_method
-    return lambda: presentation.report_zip(*objects, selected_profile=profile, selected_method=method)
+    """Capture the completed selection and its inputs without recalculating on export."""
+    _, prices, metadata = st.session_state.result
+    selection = st.session_state.selection
+    return lambda: selection_report_zip(selection, prices, metadata)
 
 
 def settings_frame(metadata):
     """Study settings with plain labels. The metadata does not change."""
-    return pd.DataFrame([{"Setting": story.setting_label(key), "Value": story.setting_text(key, value)}
-                         for key, value in metadata.items() if key not in ("universe_coverage", "profile_model_revision")])
+    return pd.DataFrame([{"Setting": "History before the later test" if key == "train_fraction" else story.setting_label(key),
+                          "Value": f"{value:.1%}" if key == "target_volatility" else story.setting_text(key, value)}
+                         for key, value in metadata.items() if key not in ("universe_coverage", "profile_model_revision", "selection_model_revision")])
 
 
 def day(value):
@@ -294,11 +287,8 @@ def day(value):
 def run_study(prices, result, latest, metadata, settings, options, benchmark_prices):
     """Run the market test and its market step. Writes nothing. Returns (study, benchmarks, evidence, notes, error)."""
     try:
-        profile_backtests = min(len(result.train_returns), options["rolling_window"] or len(result.train_returns)) >= 6
         study = compare_backtests(prices, settings, dict(**{**options, "rolling_window": options["rolling_window"] or None},
-                                                         include_profiles=profile_backtests))
-        if not profile_backtests:
-            study.warnings.append("Risk-profile tests need six returns in each fit window. The original targets remain available.")
+                                                         include_profiles=False))
     except (ValueError, RuntimeError, OSError) as exc:
         return None, None, None, {}, str(exc)
     benchmarks = evidence = None
@@ -314,35 +304,6 @@ def run_study(prices, result, latest, metadata, settings, options, benchmark_pri
     return study, benchmarks, evidence, notes, None
 
 
-def refresh_profile_model():
-    """Rebuild an old open study from its retained prices, without another download."""
-    if "result" not in st.session_state or st.session_state.get("pending_build") or st.session_state.get("profile_refresh_error"):
-        return
-    result, prices, metadata = st.session_state.result
-    if metadata.get("profile_model_revision") == PROFILE_MODEL_REVISION:
-        return
-    if len(prices) < 7:
-        metadata["profile_model_revision"] = PROFILE_MODEL_REVISION
-        return
-    settings = {key: metadata[key] for key in SETTING_KEYS}
-    try:
-        with st.spinner("Update the portfolio rule from the saved prices"):
-            latest = calculate_latest(prices, settings)
-            options = st.session_state.get("backtest_options", DEFAULT_TEST)
-            study, benchmarks, evidence, notes, error = run_study(
-                prices, result, latest, metadata, settings, options, st.session_state.get("benchmark_prices"))
-            if error is not None:
-                raise RuntimeError(error)
-    except (ValueError, RuntimeError, OSError) as exc:
-        for key in ("latest_profiles", "backtests", "benchmarks", "evidence"):
-            st.session_state.pop(key, None)
-        st.session_state.profile_refresh_error = str(exc)
-        return
-    apply_notes(metadata, notes)
-    metadata["profile_model_revision"] = PROFILE_MODEL_REVISION
-    st.session_state.update(latest_profiles=latest, backtests=study, benchmarks=benchmarks, evidence=evidence, study_error=None)
-
-
 def error_kind(exc):
     """Name the failure for the error state. A retry helps only "yahoo" (network) and "other"."""
     message = str(exc)
@@ -350,7 +311,7 @@ def error_kind(exc):
         return "yahoo"
     if message.startswith("Yahoo returned no prices"):
         return "no_prices"
-    if "position cap is infeasible" in message:
+    if any(phrase in message.lower() for phrase in ("infeasible", "risk budget", "below the feasible minimum")):
         return "infeasible"
     if message == "Choose an adjusted-price CSV first.":
         return "no_file"
@@ -358,26 +319,26 @@ def error_kind(exc):
 
 
 def build(plan, mark, progress_slot):
-    """Fetch prices, fit the portfolios and run the default market test. Writes the session state once, at the end."""
+    """Load inputs and build one selection study. Replace the applied result only after success."""
     market, source, settings = plan["market"], plan["source"], plan["settings"]
     start, end = plan["start"], plan["end"]
     loaded = None
     try:
         metadata = {"source": source, "universe": market, "price_currency": plan["price_currency"],
-                    "compare_market": plan["compare_market"], **settings}
+                    "compare_market": plan["compare_market"], "target_volatility": plan["target_volatility"], **settings}
         metadata["currency_assumption"] = "The user declares a common price currency. No verification or currency conversion occurs."
         universe_benchmarks = None
         if source == "Yahoo Finance":
             metadata.update(requested_start=start.isoformat(), requested_end_exclusive=end.isoformat())
-            if market == "Nasdaq-100":
+            if market in ("S&P 500 + Nasdaq-100", "Nasdaq-100"):
                 mark(2)
                 with progress_slot:
-                    loaded = fetch_universe(start.isoformat(), end.isoformat())
+                    loaded = fetch_universe(market, start.isoformat(), end.isoformat())
                 prices, universe_benchmarks = loaded.prices, loaded.benchmarks
                 metadata.update(loaded.metadata)
                 metadata["universe"] = market
                 if len(prices.columns) < 2:
-                    raise ValueError("Fewer than two Nasdaq-100 securities have complete prices. Review coverage below or choose a shorter history.")
+                    raise ValueError("Fewer than two selected securities have complete prices. Review coverage below or choose a shorter history.")
             else:
                 tickers = original_tickers(current_symbols=True) if market == "Original 60 holdings" else parse_tickers(plan["ticker_text"])
                 prices = fetch_prices(tickers, start.isoformat(), end.isoformat())
@@ -389,10 +350,8 @@ def build(plan, mark, progress_slot):
             prices = load_csv(BytesIO(plan["prices_file"][1]))
             metadata["input_file"] = plan["prices_file"][0]
         mark(3)
-        result = calculate(prices, settings)
-        latest = calculate_latest(prices, settings) if len(prices) >= 7 else None
         mark(4)
-        benchmark_prices = benchmarks = evidence = None
+        benchmark_prices = None
         if market == "Demo":
             metadata["benchmarks_note"] = "Synthetic prices have no real-market benchmark comparison."
         elif not plan["compare_market"]:
@@ -422,11 +381,9 @@ def build(plan, mark, progress_slot):
             except (ValueError, RuntimeError, OSError) as exc:
                 metadata["benchmarks_note"] = f"Market comparison unavailable: {exc}"
                 benchmark_prices = None
-        options = st.session_state.get("backtest_options", DEFAULT_TEST)
-        study, study_benchmarks, study_evidence, notes, study_error = run_study(
-            prices, result, latest, metadata, settings, options, benchmark_prices)
+        selection = calculate_selection(prices, benchmark_prices, settings, plan["target_volatility"])
     except (ValueError, RuntimeError, OSError) as exc:
-        for key in ("result", "latest_profiles", "backtests", "benchmarks", "evidence", "benchmark_prices", "coverage"):
+        for key in ("result", "selection", "latest_profiles", "backtests", "benchmarks", "evidence", "benchmark_prices", "coverage"):
             st.session_state.pop(key, None)
         if loaded is not None:
             st.session_state.coverage = loaded.coverage
@@ -434,29 +391,14 @@ def build(plan, mark, progress_slot):
         st.session_state.build_error_kind = error_kind(exc)
         st.session_state.pop("pending_build", None)
         st.rerun()
-    if study is not None:
-        apply_notes(metadata, notes)
-        benchmarks, evidence = study_benchmarks, study_evidence
-    elif benchmark_prices is not None:
-        try:
-            benchmarks, evidence, note = calculate_market(benchmark_prices, prices, result, latest, settings)
-            if note:
-                metadata["evidence_note"] = note
-        except (ValueError, RuntimeError, OSError) as exc:
-            metadata["benchmarks_note"] = f"Market comparison unavailable: {exc}"
-            benchmark_prices = None
-    st.session_state.update(
-        result=(result, prices, metadata), applied_inputs=plan["input_choices"], latest_profiles=latest,
-        benchmark_prices=benchmark_prices, coverage=loaded.coverage if loaded is not None else None,
-        benchmarks=benchmarks, evidence=evidence, backtest_options=options, study_error=study_error, build_error=None,
-        scroll_to="top")
-    metadata["profile_model_revision"] = PROFILE_MODEL_REVISION
-    st.session_state.pop("profile_refresh_error", None)
-    if study is None:
-        st.session_state.pop("backtests", None)
-    else:
-        st.session_state.backtests = study
-    for key in ("pending_build", "holding_strategy", "chart_strategies", "risk_portfolio", "correlation_assets"):
+    metadata["selection_model_revision"] = SELECTION_MODEL_REVISION
+    st.session_state.update(result=(None, prices, metadata), selection=selection,
+                            applied_inputs=plan["input_choices"], benchmark_prices=benchmark_prices,
+                            coverage=loaded.coverage if loaded is not None else None,
+                            build_error=None, scroll_to="top")
+    for key in ("pending_build", "pending_study", "latest_profiles", "backtests", "benchmarks", "evidence",
+                "profile_refresh_error", "holding_strategy", "chart_strategies", "risk_portfolio", "correlation_assets",
+                "preview_target_vol", "preview_cap"):
         st.session_state.pop(key, None)
     st.rerun()
 
@@ -525,9 +467,9 @@ def file_slot(label, key, name, clear_key, caption=None, help=None):
 def setup_sheet():
     state = st.session_state
     setup = state.setup
-    st.html('<p class="pl-sub">Choose the stocks and the history. Nothing changes until you select Show portfolios.</p>')
+    st.html('<p class="pl-sub">Choose the stocks and the history. Nothing changes until you select Build portfolio.</p>')
     uploads = {}
-    market = st.radio("Stocks", MARKETS, index=MARKETS.index(setup["market"]), key="market", captions=MARKET_CAPTIONS)
+    market = st.radio("Stocks", MARKETS, index=MARKETS.index(setup["market"]), key="market", captions=MARKET_CAPTIONS, on_change=change_market)
     if market == "My tickers":
         st.text_area("Stock symbols", setup["ticker_text"], key="ticker_text",
                      help="Separate Yahoo Finance symbols with commas. Exchange suffixes such as .L work.")
@@ -535,7 +477,7 @@ def setup_sheet():
         uploads["prices_file"] = file_slot(
             "Adjusted prices (.csv)", "prices_upload", "prices_file", "clear_prices_file",
             caption="Use Date as the first column, then one asset per column. Prices must be complete and use a common currency.")
-    if market in ("Nasdaq-100", "My tickers", "Original 60 holdings"):
+    if market in ("S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings"):
         history = st.segmented_control("History", ["5 years", "10 years", "Custom dates"], default=setup["history"], key="history",
                                        required=True, format_func=lambda value: "Custom" if value == "Custom dates" else value)
         if history == "Custom dates":
@@ -546,15 +488,20 @@ def setup_sheet():
             end = date.today()
             start = (pd.Timestamp(end) - pd.DateOffset(years=5 if history == "5 years" else 10)).date()
             st.caption(f"{day(start)} to {day(end - pd.Timedelta(days=1))}")
-    with st.expander("Model assumptions  :gray[holding limit, risk-free rate, test split, shrinkage, currency]"):
-        st.caption("The defaults work without changes. These settings change the assumptions, not your risk choice.")
-        use_cap = st.checkbox("Limit each holding", setup["use_cap"], key="use_cap")
-        st.number_input("Largest holding allowed (%)", 0.0, 100.0, setup["cap"], step=1.0, key="cap", disabled=not use_cap,
-                        help="A 25% limit needs at least four assets. The limit applies when weights are set. Prices can move weights later.")
+    st.slider("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"], step=1.0, key="target_vol",
+              help="A fitted annual volatility ceiling. Realized volatility can exceed it. No borrowing or automatic cash allocation.")
+    risk_reference()
+    st.number_input("Largest holding allowed (%)", 1.0, 100.0, setup["cap"], step=1.0, key="cap",
+                    help="A 10% limit needs at least ten assets. If the risk budget cannot be met, the build stops.")
+    if market == "Demo":
+        st.caption("The demo has six simulated assets. Its default holding limit is 20%, shown above; you can change it. At least 17% is needed.")
+    with st.expander("Model assumptions  :gray[validation split, costs, shrinkage, currency]"):
+        st.caption("The earlier block is divided into fitting and validation. The remaining prices test the frozen blend. "
+                   "Trading uses prior prices, every 21 price rows, with 10 basis points per amount traded.")
         st.number_input("Risk-free rate (%)", -10.0, 100.0, setup["risk_free"], step=.25, key="risk_free",
                         help="A yearly rate for Sharpe and Sortino. It affects the classic maximum-Sharpe mix. It does not add cash.")
-        st.slider("Prices for the first fit (%)", 50, 90, setup["train_pct"], step=5, key="train_pct",
-                  help="The earliest prices fit the starting model. The rest test it. This does not change today's holdings.")
+        st.slider("Prices before the later test (%)", 50, 90, setup["train_pct"], step=5, key="train_pct",
+                  help="This earlier block contains fitting and validation. The remaining prices test the frozen blend; they do not select it.")
         st.slider("Covariance shrinkage (%)", 0, 100, setup["shrink"], step=5, key="shrink",
                   help="Pulls stock-to-stock relationships toward zero to reduce noise. 0% keeps them as measured. 100% ignores them.")
         if market == "Upload CSV":
@@ -574,13 +521,15 @@ def setup_sheet():
             st.caption("CSV analysis stays offline unless you select this download. SPY and QQQ columns in your asset file also work.")
     draft = read_draft(uploads)
     if "result" in state and differs(resolve(draft)):
-        st.info("Your setup differs from this result. Select Show portfolios to apply it.")
+        st.info("Your setup differs from this result. Select Build portfolio to apply it.")
     with st.container(horizontal=True, horizontal_alignment="right", gap="small"):
         if st.button("Cancel", key="cancel_setup"):
             close_setup()
             st.rerun()
-        if st.button("Show portfolios", key="build", type="primary", shortcut="Mod+Enter", on_click=set_state, args=("view", "Portfolio")):
+        if st.button("Build portfolio", key="build", type="primary", shortcut="Mod+Enter", on_click=set_state, args=("view", "Portfolio")):
             state.setup = draft
+            state.pop("preview_target_vol", None)
+            state.pop("preview_cap", None)
             state.setup_open = False
             start_build()
             st.rerun()
@@ -591,21 +540,15 @@ def setup_sheet():
 def hero_work():
     setup = st.session_state.setup
     plan = resolve(setup)
-    market = plan["market"]
-    compare = plan["compare_market"] and plan["price_currency"] == "USD"
     with st.container(key="hero", horizontal_alignment="center"):
-        context_line(story.context_setup_html(setup, badge="First run · about 25 s" if market == "Nasdaq-100" and not ready else None))
-        st.html(f'<h1 class="pl-display pl-working">{story.work_headline_html(market, rerun=ready and not differs(plan))}</h1>')
+        context_line(story.context_setup_html(setup))
+        st.html('<h1 class="pl-display pl-working">Build and check one candidate.</h1>')
         steps = st.empty()
-        steps.html(story.steps_html(market, 1 if market == "Nasdaq-100" else 2, compare=compare))
+        labels = {2: "Load the selected prices", 3: "Prepare the risk budget", 4: "Validate the blend, then replay the later test"}
+        steps.info("Read the selected universe")
         progress_slot = st.container(key="work_progress")
-        st.html('<p class="pl-note">Prices stay in memory for one hour. A second run with the same dates is almost instant.</p>')
         st.button("Cancel", key="cancel_build", type="tertiary", on_click=cancel_work)
-    with st.container(border=True, key="tile_skeleton"):
-        st.html(story.SKELETON_HTML)
-    st.session_state.pop("scroll_to", None)
-    scroll("top")
-    build(plan, lambda number: steps.html(story.steps_html(market, number, compare=compare)), progress_slot)
+    build(plan, lambda number: steps.info(labels[number]), progress_slot)
 
 
 def welcome_or_error():
@@ -615,21 +558,25 @@ def welcome_or_error():
     with st.container(key="hero", horizontal_alignment="center"):
         context_line(story.context_setup_html(setup))
         if error is None:
-            st.html(f'<h1 class="pl-display">{story.welcome_headline_html(market)}</h1>'
-                    '<p class="pl-lead pl-center">Fit three portfolios to the selected history. Separately replay each selection rule '
-                    "with only the prices available before each trade.</p>")
+            st.html('<h1 class="pl-display">Choose a risk budget.<br>Then test one portfolio.</h1>'
+                    '<p class="pl-lead pl-center">Maximize historical arithmetic mean within your volatility and holding limits. '
+                    'An earlier validation period chooses the blend; a later test checks it.</p>')
             if not st.session_state.setup_open:
-                st.button("Show portfolios", key="build", type="primary", shortcut="Mod+Enter", on_click=start_build)
-            note = ("The first Nasdaq-100 run downloads about 100 price series. It takes about 25 seconds. "
-                    "Nothing downloads until you select Show portfolios." if market == "Nasdaq-100"
-                    else "Prices download from Yahoo Finance when you select Show portfolios."
-                    if market in ("My tickers", "Original 60 holdings") else "This runs offline.")
+                target = st.slider("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"], step=1.0, key="preview_target_vol")
+                risk_reference()
+                cap = st.number_input("Largest holding allowed (%)", 1.0, 100.0, setup["cap"], step=1.0, key="preview_cap")
+                st.session_state.setup = {**setup, "target_vol": target, "cap": cap, "use_cap": True}
+                st.caption("Fully invested stocks. Realized volatility can exceed the fitted budget. A 10% holding limit needs at least ten assets. An infeasible budget stops the build.")
+                st.button("Build portfolio", key="build", type="primary", shortcut="Mod+Enter", on_click=start_build)
+            note = ("Prices download from Yahoo Finance only after you select Build portfolio. The combined universe can take several minutes."
+                    if market not in ("Upload CSV", "Demo") else "This runs offline unless you explicitly enable a benchmark download.")
             st.html(f'<p class="pl-note">{note}</p>')
             if market != "Demo":
                 st.button("Try the offline demo", key="try_demo", type="tertiary", icon=":material/science:", on_click=try_demo)
+                st.caption("The six-asset demo uses an explicit 20% holding limit.")
             st.button("Explore historical membership", key="open_historical", type="tertiary",
                       on_click=set_state, args=("view", "Historical membership"))
-            st.html(PREVIEW_HTML + '<p class="pl-foot pl-center" style="margin-top:32px">Historical research, not a forecast or financial advice.</p>')
+            st.html(PREVIEW_HTML)
             return
         kind = st.session_state.get("build_error_kind", "other")
         headline = {"yahoo": "We could not reach Yahoo Finance.", "no_prices": "Yahoo Finance had no prices for these symbols.",
@@ -641,7 +588,7 @@ def welcome_or_error():
             cap = setup["cap"]
             need = (f"A {cap:g}% limit needs at least {math.ceil(100 / cap - 1e-9)} "
                     f"{'assets' if market in ('Demo', 'Upload CSV') else 'stocks'}. " if cap > 0 else "")
-            st.html(f'<p class="pl-lead pl-center">{need}Raise or remove the holding limit in Model assumptions.</p>')
+            st.html(f'<p class="pl-lead pl-center">{need}Review the holding limit and annual volatility budget in Change the study. No constraint is relaxed automatically.</p>')
         try_buttons(fix=kind in ("no_prices", "infeasible", "no_file"))
     coverage = st.session_state.get("coverage")
     if coverage is not None:
@@ -652,368 +599,161 @@ def welcome_or_error():
 
 # ----------------------------------------------------------------------------- overview
 
-def overview():
-    result, prices, metadata = st.session_state.result
-    latest = st.session_state.get("latest_profiles")
-    coverage = st.session_state.get("coverage")
-    profile = st.session_state.risk_profile
-    universe = metadata["universe"]
-    noun = "asset" if universe in ("Demo", "Upload CSV") else "stock"
-    names = story.company_names(coverage) if universe == "Nasdaq-100" else {}
+def risk_reference():
+    benchmark_prices = st.session_state.get("benchmark_prices")
+    if benchmark_prices is None:
+        st.caption("SPY and QQQ volatility references will be available after prices load. Nothing downloads when you move this slider.")
+        return
+    periods = st.session_state.result[2]["periods_per_year"]
+    volatility = benchmark_prices.pct_change(fill_method=None).dropna().std() * math.sqrt(periods)
+    st.caption("Reference from the saved input history: " + ", ".join(f"{name} {value:.1%}" for name, value in volatility.items())
+               + " annual volatility. These are historical observations, not future limits.")
 
+
+def selection_period(study, title):
+    st.html(title_html(title))
+    st.caption(f"{day(study.equity.index[0])} to {day(study.equity.index[-1])}. "
+               "Same net return paths and dates for all rows. Annual arithmetic mean is not compound growth.")
+    columns = ["annual_mean", "cagr", "volatility", "max_drawdown"]
+    metrics = selection_metrics_frame(study)[columns]
+    st.dataframe(metrics.style.format("{:.2%}", na_rep="—"), width="stretch",
+                 column_config={"_index": "Rule or baseline", **SELECTION_METRIC_LABELS})
+    shown = [name for name in (SELECTED, BASELINE) if name in study.equity]
+    st.plotly_chart(backtest_chart(study, strategies=shown), width="stretch", theme=None, config=PLOTLY_CONFIG)
+
+
+def overview():
+    _, prices, metadata = st.session_state.result
+    selection = st.session_state.selection
     with st.container(key="hero", horizontal_alignment="center"):
         context_line(story.context_result_html(metadata, prices))
+        st.html(f'<h1 class="pl-display">{metadata["target_volatility"]:.0%} annual volatility budget.</h1>')
+        st.html(stat_strip(((f"{metadata['target_volatility']:.0%}", "Annual volatility budget", "Fitted ceiling"),
+                            (f"{metadata['max_weight']:.0%}", "Holding limit", "Maximum target weight"))))
         if "synthetic" in metadata["source"]:
-            st.info("Demo · synthetic prices. These are not market results.")
-        if latest is None:
-            st.html('<h1 class="pl-display">There is not enough history to set risk levels.</h1>')
-            st.info("Latest risk profiles need at least seven complete price rows. Research still shows the classic model.")
+            st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
+    with st.container(border=True, key="tile_selection_decision"):
+        st.html(selection_summary_html(selection, metadata))
+        st.caption("The historical-mean portfolio maximizes the fitted annual arithmetic mean within your limits. "
+                   "The diversified baseline stays as close to equal weights as those same limits allow. "
+                   "Earlier validation compares three fixed blends: 0%, 50%, and 100% historical-mean weights. "
+                   "Net validation CAGR chooses the blend; the later test cannot change it.")
+    with st.container(border=True, key="tile_validation"):
+        selection_period(selection.validation, "Earlier validation (chooses the blend)")
+    st.html('<div id="pl-market"></div>')
+    with st.container(border=True, key="tile_final_test"):
+        selection_period(selection.test, "Later test (not used to choose the blend)")
+        st.caption("The blend stays frozen after validation. Historical data reviewed earlier can introduce hindsight. "
+                   "A chronological test alone is not evidence from fresh, unseen future prices.")
+        st.html(story.result_drivers_html(selection.test, selection.selected))
+        with st.expander("What drove the stock rule’s test result?"):
+            st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
+                         column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}})
+    names = story.company_names(st.session_state.get("coverage"))
+    portfolio = selection.latest[selection.selected]
+    with st.expander(f"Latest {'proposed' if selection.supported else 'experimental'} holdings · fitted through {day(prices.index[-1])}",
+                     expanded=selection.supported):
+        st.caption("These weights use all supplied prices with the frozen blend. The earlier validation and later test "
+                   "replayed older fits with different holdings. Fitted mean is not the test’s CAGR.")
+        if not selection.supported:
+            st.warning("This stock candidate does not pass the support screen. Its holdings are shown for inspection, not as a recommendation.")
+        st.html(stat_strip(((f"{portfolio.expected_return:.1%}", "Fitted annual mean", "Full-history estimate before fees"),
+                            (f"{portfolio.volatility:.1%}", "Fitted annual volatility", "Full-history estimate"))))
+        frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
+        if names:
+            frame.insert(1, "Company", frame.Symbol.map(names))
+        st.dataframe(frame, hide_index=True, width="stretch", column_config={"Weight": st.column_config.NumberColumn("Weight", format="percent")})
+        for note in stale_price_notes(prices):
+            st.warning(note)
+    if selection.warnings:
+        st.warning(selection.warnings[0])
+        with st.expander("All data and model notes"):
+            for note in selection.warnings:
+                st.write(note)
+            st.dataframe(selection.eligibility, hide_index=True, width="stretch")
+    if metadata.get("universe_limitation"):
+        st.caption(metadata["universe_limitation"])
+    st.button("Open Research", key="open_research", on_click=jump, args=("Research", "top"))
+    st.html(KEY_LEGEND)
+
+
+def prepare_legacy_research():
+    """Build expensive original diagnostics only after an explicit request."""
+    result, prices, metadata = st.session_state.result
+    if result is not None:
+        return True
+    context_line(story.context_result_html(metadata, prices), align="left")
+    st.html('<h1 class="pl-page">Research</h1>')
+    st.caption("Legacy frontier and multi-rule diagnostics are separate from the risk-budget selection. "
+               "They do not change its frozen blend or support decision. Large universes can take several minutes.")
+    with st.expander("Input prices and coverage"):
+        st.dataframe(prices, width="stretch")
+        if st.session_state.get("coverage") is not None:
+            st.dataframe(st.session_state.coverage, hide_index=True, width="stretch", column_config=COVERAGE_COLUMNS)
+        st.dataframe(settings_frame(metadata), hide_index=True, width="stretch")
+    if st.button("Run legacy diagnostics", key="run_legacy"):
+        settings = {key: metadata[key] for key in SETTING_KEYS}
+        try:
+            with st.spinner("Run the original frontier and trading-rule diagnostics"):
+                result = calculate(prices, settings)
+                latest = None
+                study, benchmarks, evidence, _, error = run_study(
+                    prices, result, latest, metadata, settings, DEFAULT_TEST, st.session_state.get("benchmark_prices"))
+                if error:
+                    raise RuntimeError(error)
+        except (ValueError, RuntimeError, OSError) as exc:
+            st.error(f"Legacy diagnostics could not run: {exc}")
         else:
-            st.html(f'<h1 class="pl-display">{story.headline_html(latest.portfolios[profile].weights, profile, universe)}</h1>')
-            st.segmented_control("Risk level", ["Low", "Medium", "Extreme"], key="risk_profile", required=True,
-                                 format_func=story.LEVEL_LABELS.get, label_visibility="collapsed", width="stretch",
-                                 persist_state="session", disabled=busy)
-            st.html(f'<p class="pl-note">Risk is relative to {story.these_assets(len(prices.columns), universe)}. '
-                    "Historical mean and volatility set the levels. They do not forecast future returns.</p>")
-
-    with st.container(border=True, key="tile_decision"):
-        study = st.session_state.get("backtests")
-        if study is not None and not st.session_state.get("study_error"):
-            selected = f"{st.session_state.comparison_method} · {profile}"
-            st.html(story.decision_panel_html(study, selected, st.session_state.get("benchmarks")))
-            st.caption("Inspect the equal-weight and maximum-Sharpe holdings and charts in Research → All tests.")
-        else:
-            st.html(title_html("The historical rule test is unavailable"))
-            st.caption("The latest fitted holdings do not establish how the rule performed against the ETFs. Use Test settings to run the comparison.")
-        test_controls()
-
-    if latest is not None:
-        holdings_tiles(latest, prices, profile, universe, noun, names, coverage)
-    market_section(result, prices, metadata, latest, profile)
-    st.html(story.fine_print_html(metadata, prices))
-    with st.container(horizontal_alignment="center"):
-        st.button("Open Research", key="open_research", icon=":material/chevron_right:", icon_position="right",
-                  on_click=jump, args=("Research", "top"), disabled=busy)
-    source = {"Yahoo Finance": "Yahoo Finance", "Upload CSV": f"CSV file {metadata.get('input_file', '')}".strip()}.get(
-        metadata["source"], "simulated")
-    index_list = (f" · Index list: Nasdaq.com, {day(metadata['universe_source_date'])}"
-                  if universe == "Nasdaq-100" and metadata.get("universe_source_date") else "")
-    st.html(f'<div class="pl-foot"><span>Portfolio Lab · Prices: {html.escape(source)}{index_list}</span>{KEY_LEGEND}</div>')
-
-
-def holdings_tiles(latest, prices, profile, universe, noun, names, coverage):
-    weights = latest.portfolios[profile].weights
-    allocations = weights.sort_values(ascending=False)
-    with st.container(border=True, key="tile_holdings"):
-        st.html(title_html(f"Latest proposed holdings · fitted through {day(latest.as_of)}",
-                           "These weights use all selected prices. The test replays earlier fits of this rule, with different holdings."))
-        callout = story.callout_html(weights, universe, names)
-        if callout:
-            st.html(callout)
-        st.html(story.stats_html(latest, profile, universe, names) + story.list_html(weights, names))
-        count = len(allocations)
-        with st.expander(f"Every {noun} and its exact weight  :gray[{count} row{'' if count == 1 else 's'}]"):
-            holdings = allocations.rename("Weight").rename_axis("Symbol").reset_index()
-            if coverage is not None:
-                holdings.insert(1, "Company", holdings["Symbol"].map(names))
-            # Weight before Company, so the weight stays in view on a phone. The frame keeps its columns.
-            order = ["Symbol", "Weight", "Company"] if coverage is not None else None
-            st.dataframe(holdings, hide_index=True, width="stretch", column_order=order, column_config={
-                "Weight": st.column_config.ProgressColumn("Weight", format="percent", min_value=0.0,
-                                                          max_value=float(allocations.max()), color=ACCENT),
-                "Company": st.column_config.TextColumn("Company")})
-            small = int((allocations < .0005).sum())
-            listed = f"All {count} {noun}s appear here, sorted by weight." if count > 1 else f"The one {noun} appears here."
-            st.caption(f"{listed} {small} {'has' if small == 1 else 'have'} a weight under 0.05%. "
-                       "Each portfolio adds up to 100%. Weights under 0.005% show as 0%.")
-        with st.expander(f"Why these {noun}s?  :gray[how the model chose them]"):
-            for paragraph in story.why_text(latest, profile, universe):
-                st.write(paragraph)
-            st.caption("The three past stretches below are diagnostics. They do not set these portfolio weights.")
-            with st.expander("Average return in each historical stretch"):
-                percent = {name: st.column_config.NumberColumn(story.LEVEL_LABELS.get(name, name), format="percent")
-                           for name in latest.window_returns.columns}
-                st.dataframe(latest.window_returns, width="stretch", column_config={"_index": "Stretch", **percent})
-                st.dataframe(latest.windows, hide_index=True, width="stretch", column_config={
-                    "start": "From", "end": "To", "observations": "Return observations",
-                    "years": st.column_config.NumberColumn("Years", format="%.1f")})
-    st.caption(f"Weights fitted on all prices from {day(prices.index[0])} to {day(prices.index[-1])}. "
-               "Very small weights can show as 0.0%.")
-    for note in stale_price_notes(prices):
-        st.warning(note)
-    for note in latest.warnings:
-        st.caption(note)
-    with st.container(border=True, key="tile_levels"):
-        st.html('<div class="pl-head"><h3 class="pl-title">How the three levels compare</h3>'
-                '<span class="pl-keys"><kbd>L</kbd> <kbd>M</kbd> <kbd>H</kbd></span></div>'
-                + story.levels_ledger_html(latest, profile, names, universe))
-
-
-def test_controls():
-    with st.container(horizontal=True, vertical_alignment="center", gap="small"):
-        st.selectbox("Rule", METHODS, key="comparison_method", format_func=story.RULE_LABELS.get, label_visibility="collapsed",
-                     width=320, persist_state="session")
-        with st.popover("Test settings", key=f"test_settings_{st.session_state.get('test_nonce', 0)}", on_change="rerun",
-                        type="tertiary", icon=":material/tune:"):
-            with st.form("comparison_settings", border=False):
-                options = st.session_state.get("backtest_options", DEFAULT_TEST)
-                st.number_input("Trade every (price rows)", 1, value=options["rebalance_every"], key="rebalance_every",
-                                help="21 trading days is about one month. For a CSV file, this counts price rows.")
-                st.number_input("Trading cost (basis points)", 0.0, 9999.0, options["cost_bps"], key="cost_bps",
-                                help="10 basis points = 0.10% of each amount bought or sold. Entry counts. There is no final sale.")
-                st.number_input("Recent history for “Refit on recent prices” (return observations)", 0, value=options["rolling_window"],
-                                key="rolling_window", help="0 uses the same length as the first fit.")
-                st.caption("All four rules use the same dates and fees. Each trade uses information to the previous close "
-                           "and trades at the next close.")
-                st.form_submit_button("Run the test again", key="run_comparison", type="primary", on_click=submit_test_settings)
-
-
-def rerun_study(result, prices, metadata, latest):
-    """Run the market test again with the Test settings. Writes the session state once, at the end."""
-    options = {key: st.session_state.get(key, DEFAULT_TEST[key]) for key in DEFAULT_TEST}
-    settings = {key: metadata[key] for key in SETTING_KEYS}
-    study, benchmarks, evidence, notes, error = run_study(prices, result, latest, metadata, settings, options,
-                                                          st.session_state.get("benchmark_prices"))
-    if error is None:
-        st.session_state.update(backtests=study, benchmarks=benchmarks, evidence=evidence, backtest_options=options, study_error=None)
-        apply_notes(metadata, notes)
-    else:
-        for key in ("backtests", "benchmarks", "evidence"):
-            st.session_state.pop(key, None)
-        metadata.pop("evidence_note", None)
-        st.session_state.study_error = error
-    for key in ("pending_study", "holding_strategy", "chart_strategies"):
-        st.session_state.pop(key, None)
-    st.rerun()
-
-
-def market_section(result, prices, metadata, latest, profile):
-    study = st.session_state.get("backtests")
-    benchmarks = st.session_state.get("benchmarks")
-    evidence = st.session_state.get("evidence")
-    matched = benchmarks if benchmarks is not None and benchmarks.backtest_equity is not None else None
-    eyebrow = "Would this rule have beaten the market?" if matched is not None or study is None else "How did this rule do in the test period?"
-    method = st.session_state.comparison_method
-    selected = f"{method} · {profile}"
-    fallback = study is not None and selected not in study.equity
-    if fallback:
-        selected = f"{method} · Minimum volatility"
-
-    if st.session_state.get("pending_study"):
-        answer = story.market_answer(study, selected, benchmarks) if study is not None else "The market test did not run."
-        st.html(story.section_header_html("pl-market", eyebrow, answer))
-        options = {key: st.session_state.get(key, DEFAULT_TEST[key]) for key in DEFAULT_TEST}
-        unit = "trading days" if metadata["periods_per_year"] == 252 else "price rows"
-        with st.container(key="study_work"):
-            st.html('<p class="pl-lead">Running the market test again.</p>'
-                    f'<p class="pl-sub">{html.escape(story.RULE_LABELS[method])} · every {options["rebalance_every"]} {unit} · '
-                    f'{options["cost_bps"] / 100:.2f}% per trade</p>')
-            st.button("Cancel", key="cancel_study", type="tertiary", on_click=cancel_work)
-        rerun_study(result, prices, metadata, latest)
-
-    if st.session_state.get("study_error"):
-        st.html(story.section_header_html("pl-market", eyebrow, "The market test did not run.",
-                                          "The settings did not work for this data. Use Test settings above to change them and run the test again."))
-        st.error(st.session_state.study_error)
-        return
-    if study is None:
-        st.html(story.section_header_html("pl-market", eyebrow, "The market test did not run."))
-        st.info("Select Test settings, then Run the test again.")
-        return
-
-    st.html(story.section_header_html("pl-market", eyebrow, story.market_answer(study, selected, benchmarks),
-                                      story.market_lead(study, selected)))
-    if fallback:
-        st.info("This sample is too short for the risk profiles. The comparison shows minimum volatility.")
-    with st.container(border=True, key="tile_result"):
-        st.html(story.result_tile_html(study, selected, benchmarks, evidence, metadata))
-    with st.container(border=True, key="tile_drivers"):
-        st.html(story.result_drivers_html(study, selected))
-        with st.expander("Every historical holding's contribution"):
-            holdings = study.holdings[selected]
-            order = holdings.pnl_contribution.abs().sort_values(ascending=False, kind="stable").index
-            contributions = holdings.loc[order, ["pnl_contribution", "average_weight", "selection_frequency"]].copy()
-            contributions["pnl_contribution"] *= 10_000
-            st.dataframe(contributions.style.format({"pnl_contribution": "{:,.2f}", "average_weight": "{:.2%}",
-                                                     "selection_frequency": "{:.2%}"}), width="stretch", column_config={
-                "_index": "Symbol", "pnl_contribution": "Profit / loss per initial 10,000", "average_weight": "Average weight",
-                "selection_frequency": "Share of allocation dates selected"})
-            st.caption("Contributions measure the holdings used during the test. Their sum, less trading fees, equals the net profit or loss.")
-    if matched is None:
-        st.info(metadata.get("benchmarks_note", "Market benchmarks are unavailable."))
-
-    mode = st.session_state.comparison_chart
-    relative = matched is not None and evidence is not None
-    windows = evidence is not None and selected in set(evidence.windows["strategy"])
-    with st.container(border=True, key="tile_chart"):
-        with st.container(horizontal=True, vertical_alignment="center"):
-            st.html(f'<h3 class="pl-title">{CHART_TITLES[mode if relative or mode != "Relative to markets" else "Growth"]}</h3>',
-                    width="stretch")
-            st.segmented_control("Chart", ["Growth", "Drawdown", "Relative to markets"], key="comparison_chart", required=True,
-                                 format_func=story.CHART_LABELS.get, label_visibility="collapsed", persist_state="session")
-        if mode == "Relative to markets" and not relative:
-            st.caption("Versus markets needs market prices. The chart shows growth.")
-        st.plotly_chart(story.story_chart(study, selected, mode, benchmarks, evidence), width="stretch", theme=None, config=PLOTLY_CONFIG)
-        st.caption(story.chart_footnote(study, benchmarks))
-        if windows:
-            st.caption("Shaded bands are the three test stretches in How sure can we be.")
-        for note in study.warnings:
-            st.caption(note)
-        with st.expander("Returns, falls and trading costs  :gray[full table]"):
-            comparison = study.metrics.loc[[selected]].rename(index={selected: "Your rule"})
-            if matched is not None:
-                comparison = pd.concat([comparison, matched.backtest_metrics])
-            formats = {name: "{:.0f}" if name.endswith("count") else ratio if name in ("sharpe", "sortino", "calmar")
-                       else "{:.2f}" if name == "total_turnover" else "{:.2%}" for name in comparison}
-            st.dataframe(comparison.style.format(formats, na_rep="—"), column_config={name: label for name, (label, _) in METRICS.items()}, width="stretch")
-    evidence_section(study, matched, evidence, selected, metadata)
-
-
-def evidence_section(study, matched, evidence, selected, metadata):
-    eyebrow = "How sure can we be?"
-    if matched is None:
-        st.html(story.section_header_html("pl-evidence", eyebrow, "There is no market to compare with.",
-                                          "The statistics compare the rule with the S&P 500 and the Nasdaq-100. This study has no market prices."))
-        return
-    if evidence is None:
-        st.html(story.section_header_html("pl-evidence", eyebrow, "The uncertainty could not be estimated."))
-        if metadata.get("evidence_note"):
-            st.info(metadata["evidence_note"])
-        return
-    months = story.months_tested(study)
-    st.html(story.section_header_html("pl-evidence", eyebrow, story.evidence_answer(evidence, selected),
-                                      story.evidence_lead(evidence, selected, months, metadata)))
-    left, right = st.columns([7, 5], gap="small")
-    with left.container(border=True, key="tile_gap"):
-        st.html(title_html("Average yearly gap, with 95% range", "Your rule minus each market, in percentage points. "
-                           "This is an arithmetic average, so it differs from the growth gap above.")
-                + story.interval_html(evidence, selected))
-        with st.container(horizontal=True, vertical_alignment="center", gap="small", key="words"):
-            st.html('<span class="pl-words">Words used here</span>', width="content")
-            for label, key in (("95% range", "word_range"), ("Average gap", "word_gap"), ("Points", "word_points")):
-                with st.popover(label, key=key, type="tertiary", icon=":material/help:"):
-                    st.markdown(story.WORDS[label])
-    with right.container(border=True, key="tile_stretch"):
-        st.html(title_html("Stretch by stretch") + story.stretch_summary_html(evidence, selected)
-                + '<p class="pl-sub">The test period, split into three equal stretches. The historical stretches shown with '
-                "today's holdings are separate diagnostics. They do not set the historical-mean weights.</p>"
-                + story.stretch_table_html(evidence, selected))
-    with st.container(border=True, key="tile_stats"):
-        with st.expander("Show the statistics  :gray[alpha, beta, p-values, method notes]"):
-            st.dataframe(evidence_summary_frame(evidence).xs(selected, level="strategy"), column_config={"_index": "Market", **story.STAT_LABELS},
-                         width="stretch")
-            windows = evidence.windows.loc[evidence.windows.strategy == selected].drop(columns="strategy")
-            st.dataframe(windows.style.format({"relative_return": "{:+.2%}", "annual_advantage": lambda value: f"{value * 100:+.2f} pp"}),
-                         hide_index=True, width="stretch", column_config={
-                             "benchmark": "Market", "window": "Stretch", "start": "From", "end": "To", "observations": "Observations",
-                             "relative_return": "Change vs market", "annual_advantage": "Average gap"})
-            settings = evidence.settings
-            strategies = evidence.summary.index.get_level_values("strategy").nunique()
-            markets = evidence.summary.index.get_level_values(1).nunique()
-            st.markdown(f"Ranges use Newey–West standard errors ({settings.get('hac_lags', 0)} lags) on "
-                        f"{settings.get('inference_observations', 0)} return pairs. The Holm adjustment covers all "
-                        f"{settings.get('multiple_testing_tests', 0)} tests: {strategies} rules and levels, {markets} markets and 2 measures. "
-                        "A p-value is not the chance that the rule will win. Alpha adjusts for exposure to one market. "
-                        "It does not prove skill. The average gap is an arithmetic difference. Growth compounds the whole path.")
-            if evidence.warnings:
-                st.markdown("\n".join(f"- {note}" for note in evidence.warnings))
-    st.html('<div class="pl-settle"><h3 class="pl-title">What would settle it?</h3><p>More time, or prices that nobody has '
-            "looked at yet. Export the report now. Then test the same rule on the next year of prices.</p></div>")
-    st.caption(f"These tests describe the last {months} months. They cannot tell you how the rule will do next.")
+            st.session_state.update(result=(result, prices, metadata), latest_profiles=latest, backtests=study,
+                                    benchmarks=benchmarks, evidence=evidence)
+            st.rerun()
+    return False
 
 
 # ----------------------------------------------------------------------------- research
 
 def research():
     result, prices, metadata = st.session_state.result
-    latest = st.session_state.get("latest_profiles")
     study = st.session_state.get("backtests")
     benchmarks = st.session_state.get("benchmarks")
     evidence = st.session_state.get("evidence")
     coverage = st.session_state.get("coverage")
-    profile = st.session_state.risk_profile
     method = st.session_state.comparison_method
     context_line(story.context_result_html(metadata, prices), align="left")
-    st.html('<h1 class="pl-page">Research</h1><p class="pl-lead">Everything behind the overview, for checks and for reuse.</p>')
+    st.html('<h1 class="pl-page">Legacy research</h1><p class="pl-lead">Separate diagnostics. These do not choose the primary candidate or change its support decision.</p>')
     topic = st.segmented_control("Topic", TOPICS, key="research_topic", required=True, format_func=story.TOPIC_LABELS.get,
                                  label_visibility="collapsed", persist_state="session")
     if topic == "Efficient frontiers":
-        if latest is not None:
-            with st.container(border=True, key="tile_r_frontier"):
-                estimates = benchmarks.latest_estimates if benchmarks is not None else None
-                research_chart(latest_profile_chart(latest, estimates, profile))
-                st.caption("Full-history fit. The vertical axis is the historical arithmetic mean, scaled to a year. "
-                           "It is an in-sample estimate, not realized CAGR or a forecast."
-                           + (" Diamonds are SPY and QQQ on the same dates." if estimates is not None else ""))
-                st.caption(f"Highlighted: {story.LEVEL_LABELS[profile]}. Change the level on the overview, or press L, M or H.")
-                with st.expander("All three portfolios' weights"):
-                    st.dataframe(weights_frame(latest).style.format("{:.2%}"), column_config={"_index": "Symbol", "Extreme": "Highest"},
-                                 width="stretch")
         with st.container(border=True, key="tile_r_classic"):
-            st.html(title_html("The historical-mean rule: initial fit and later test", "This model fits average returns on the first "
-                               f"{metadata['train_fraction'] * 100:g}% of return observations. It then buys each mix once and tests it on later prices. "
-                               "It uses the same historical-mean objective as the overview, with an earlier fit period and a separate trade convention."))
-            classic_profile = st.segmented_control("Classic risk level", CLASSIC_PROFILE_NAMES, key="classic_risk_profile",
-                                                   required=True, persist_state="session")
-            st.caption("Low is the least volatile frontier mix. Medium is the frontier point nearest halfway between Low and High volatility. "
-                       "High has the highest average return in the fit. These are relative choices, not absolute risk limits.")
-            if len(result.frontier) == 1:
-                st.info("This fit has no distinct frontier risk levels. Low, Medium and High use the same mix.")
-            with st.expander("Classic frontier", expanded=True):
-                estimates = benchmarks.training_estimates if benchmarks is not None else None
-                research_chart(frontier_chart(result, estimates, selected=classic_profile))
-                st.caption(f"Fit returns: {day(result.train_returns.index[0])} to {day(result.train_returns.index[-1])}. "
-                           "The vertical axis is the historical arithmetic mean, scaled to a year. It is not compounded growth or a forecast.")
-                st.markdown("**Why a point above an ETF may lose later.** At the same volatility, a higher point has a higher average return "
-                            "in this fit. It does not show which mix won on the later test dates. Low can also have a lower return than an ETF "
-                            "with more risk. The fit selects the weights using history; future returns can differ.")
-                st.caption("The frontier uses your selected assets and holding limit." + (
-                    " The SPY and QQQ markers use the same dates. They do not follow your holding limit." if estimates is not None else ""))
-                with st.expander(f"Initial weights · Classic {classic_profile}"):
-                    weights = weights_frame(result)[[classic_profile]].rename(columns={classic_profile: "Weight"})
-                    st.dataframe(weights.sort_values("Weight", ascending=False, kind="stable").style.format("{:.2%}"),
-                                 column_config={"_index": "Symbol"}, width="stretch")
-            with st.expander("Classic holdout, no trading costs", expanded=True):
-                research_chart(holdout_chart(result, benchmarks.holdout_equity if benchmarks is not None else None, selected=classic_profile))
-                st.caption(f"Later test returns: {day(result.test_returns.index[0])} to {day(result.test_returns.index[-1])}. "
-                           f"Classic {classic_profile} uses the same initial weights as its highlighted frontier point.")
-                metrics = result.holdout_metrics.loc[[classic_profile]]
-                if benchmarks is not None:
-                    metrics = pd.concat([metrics, benchmarks.holdout_metrics])
-                st.dataframe(metrics.style.format({name: ratio if name in ("sharpe", "sortino", "calmar") else "{:.2%}" for name in metrics}, na_rep="—"),
-                             column_config={"_index": "Portfolio", **{name: label for name, (label, _) in METRICS.items()}}, width="stretch")
-                st.caption("Each mix is bought once at the split close and then left to drift. This check has no fees. "
-                           "SPY and QQQ use the same entry and test dates when available. The overview's market test uses different refits, fees and an entry one close later.")
-        if latest is not None:
-            with st.container(border=True, key="tile_r_optional"):
-                st.html(title_html("Optional comparison: weakest historical stretch"))
-                st.caption("This separate model maximizes the weakest of three historical mean returns. "
-                           "It does not change the overview, its historical-mean portfolios, or their market tests.")
-                if st.checkbox("Show the weakest-window comparison", key="compare_worst_window"):
-                    settings = {key: metadata[key] for key in SETTING_KEYS}
-                    try:
-                        alternative = calculate_latest(prices, settings, return_objective="worst_window")
-                    except (ValueError, RuntimeError, OSError) as exc:
-                        st.error(f"The optional comparison could not run: {exc}")
-                    else:
-                        estimates = benchmarks.latest_estimates if benchmarks is not None else None
-                        research_chart(latest_profile_chart(alternative, estimates, profile))
-                        st.caption("Full-history fit. The vertical axis is the lowest annual arithmetic mean across the three stretches. "
-                                   "Medium is the midpoint return target in this model, rather than the midpoint volatility choice."
-                                   + (" SPY and QQQ use those same three stretches." if estimates is not None else ""))
-                        with st.expander("Weakest-window weights and historical stretches"):
-                            st.dataframe(weights_frame(alternative).style.format("{:.2%}"), column_config={"_index": "Symbol", "Extreme": "Highest"},
-                                         width="stretch")
-                            st.dataframe(alternative.window_returns.style.format("{:.2%}"), width="stretch")
+            estimates = benchmarks.training_estimates if benchmarks is not None else None
+            figure = frontier_chart(result, estimates)
+            figure.data = tuple(trace for trace in figure.data if trace.name not in ("Low", "Medium", "High"))
+            research_chart(figure)
+            st.caption(f"Initial-fit diagnostic: {day(result.train_returns.index[0])} to {day(result.train_returns.index[-1])}. "
+                       "The line shows fitted annual arithmetic mean versus volatility, before fees. It does not select the risk-budget candidate.")
+            st.dataframe(result.frontier.style.format("{:.2%}"), width="stretch")
+        with st.expander("Optional comparison: weakest historical stretch"):
+            st.caption("This separate frontier maximizes the weakest of three historical means. It does not change the candidate or support decision.")
+            if st.checkbox("Show the weakest-window comparison", key="compare_worst_window"):
+                settings = {key: metadata[key] for key in SETTING_KEYS}
+                try:
+                    alternative = calculate_latest(prices, settings, return_objective="worst_window")
+                except (ValueError, RuntimeError, OSError) as exc:
+                    st.error(f"The optional comparison could not run: {exc}")
+                else:
+                    figure = latest_profile_chart(alternative)
+                    figure.data = tuple(trace for trace in figure.data if trace.name not in ("Low", "Medium", "Extreme"))
+                    research_chart(figure)
+                    st.caption("Full-history diagnostic; the lowest arithmetic mean across the three historical stretches.")
     elif topic == "Risk breakdown":
         with st.container(border=True, key="tile_r_risk"):
             with st.container(key="r_lead"):
                 st.caption("Where the risk comes from. These checks use portfolios fitted on the initial training period and its covariance. "
-                           "The overview's risk selection does not apply here.")
-            st.dataframe(risk_summary(result).style.format({"max_weight": "{:.2%}", "effective_holdings": "{:.2f}", "diversification_ratio": "{:.2f}"}, na_rep="—"),
+                           "The overview’s risk budget does not select these legacy diagnostic portfolios.")
+            st.dataframe(risk_summary(result).drop(index=["Low", "Medium", "High"], errors="ignore").style.format({"max_weight": "{:.2%}", "effective_holdings": "{:.2f}", "diversification_ratio": "{:.2f}"}, na_rep="—"),
                          column_config={"_index": "Portfolio", "max_weight": "Largest weight", "effective_holdings": "Effective holdings",
                                         "diversification_ratio": "Diversification ratio"}, width="stretch")
-            risk_portfolio = st.selectbox("Portfolio", list(result.portfolios), key="risk_portfolio")
+            risk_portfolio = st.selectbox("Portfolio", [name for name in result.portfolios if name not in ("Low", "Medium", "High")], key="risk_portfolio")
             frame = pd.DataFrame({"Allocation weight": result.portfolios[risk_portfolio].weights,
                                   "Share of portfolio variance": risk_contributions(result)[risk_portfolio]}).sort_values("Allocation weight", ascending=False)
             figure = px.bar(frame.head(20).rename_axis("Asset").reset_index(), y="Asset", x=list(frame.columns), orientation="h", barmode="group",
@@ -1060,18 +800,18 @@ def research():
                 st.caption("Training-period correlations. This selection does not change the portfolio universe.")
     elif topic == "All backtests":
         if study is None:
-            st.info("The market test has not run. Select Test settings in the overview to run it.")
+            st.info("The optional legacy trading tests are unavailable.")
             st.button("Go to the market test", key="go_market", on_click=jump, args=("Portfolio", "pl-market"))
             return
         with st.container(key="r_lead"):
             st.caption(f"Every rule and level that the market test ran: {len(study.equity.columns)} strategies over the same "
                        f"{story.months_tested(study)} months. Use it to check that the overview is not a lucky pick.")
         if "holding_strategy" not in st.session_state:
-            preferred = f"{method} · {profile}"
+            preferred = f"{method} · Equal weight"
             st.session_state.holding_strategy = preferred if preferred in study.equity else study.equity.columns[0]
         with st.container(border=True, key="tile_r_tests"):
             strategies = st.multiselect("Strategies in this chart", list(study.equity), format_func=story.strategy_label, key="chart_strategies",
-                                        default=[name for name in (f"{method} · {level}" for level in ("Low", "Medium", "Extreme")) if name in study.equity])
+                                        default=[name for name in study.equity if name.startswith(method + " · ")])
             holding = st.selectbox("Inspect one strategy", list(study.equity), key="holding_strategy", format_func=story.strategy_label)
             if strategies:
                 st.plotly_chart(backtest_chart(study, strategies=strategies, benchmark_equity=benchmarks.backtest_equity if benchmarks is not None else None,
@@ -1101,7 +841,8 @@ def research():
                     st.dataframe(comparisons, hide_index=True, width="stretch",
                                  column_config={"strategy": "Strategy", "benchmark": "Market", **story.STAT_LABELS})
     else:
-        st.markdown(story.METHOD_MD)
+        st.markdown("These optional diagnostics use the original mean–variance frontier and four trading methods. "
+                    "They do not change the primary candidate, the blend selected in earlier validation, or its later support check.")
         for note in result.warnings:
             st.write(note)
         st.markdown(story.GLOSSARY_MD.format(k=evidence.settings["multiple_testing_tests"] if evidence is not None else "the"))
@@ -1110,7 +851,6 @@ def research():
 # ----------------------------------------------------------------------------- page
 
 init_state()
-refresh_profile_model()
 ready = "result" in st.session_state
 busy = bool(st.session_state.get("pending_build") or st.session_state.get("pending_study"))
 
@@ -1120,20 +860,16 @@ with st.container(key="localnav", horizontal=True, vertical_alignment="center", 
         st.segmented_control("View", ["Portfolio", "Research", "Historical membership"], key="view", required=True,
                              format_func=lambda name: story.VIEW_LABELS.get(name, name),
                              label_visibility="collapsed", disabled=busy)
-        if st.session_state.view != "Historical membership" and not st.session_state.get("profile_refresh_error"):
+        if st.session_state.view != "Historical membership" and "selection" in st.session_state:
             st.download_button("Export", data=make_report_callable(), file_name="portfolio-lab.zip", mime="application/zip",
                                key="export", type="primary", icon=":material/ios_share:", on_click="ignore", shortcut="E",
                                disabled=busy, help="One zip file. The report opens offline and prints to PDF.")
     elif st.session_state.view == "Historical membership":
         st.button("Back to portfolios", key="close_historical", on_click=set_state, args=("view", "Portfolio"))
 
-KEYS = (("key_holdings", "Holdings", "1", jump, ("Portfolio", "top")),
-        ("key_market", "Market test", "2", jump, ("Portfolio", "pl-market")),
-        ("key_evidence", "Evidence", "3", jump, ("Portfolio", "pl-evidence")),
-        ("key_research", "Research", "4", jump, ("Research", "top")),
-        ("key_low", "Low", "L", set_state, ("risk_profile", "Low")),
-        ("key_medium", "Medium", "M", set_state, ("risk_profile", "Medium")),
-        ("key_highest", "Highest", "H", set_state, ("risk_profile", "Extreme")))
+KEYS = (("key_holdings", "Overview", "1", jump, ("Portfolio", "top")),
+        ("key_market", "Later test", "2", jump, ("Portfolio", "pl-market")),
+        ("key_research", "Research", "4", jump, ("Research", "top")))
 if ready and st.session_state.view != "Historical membership":
     with st.container(key="keys"):
         for key, label, shortcut, callback, args in KEYS:
@@ -1146,16 +882,15 @@ if st.session_state.view == "Historical membership":
     render_historical()
 elif st.session_state.get("pending_build"):
     hero_work()
-elif st.session_state.get("profile_refresh_error"):
-    st.error("The historical-mean portfolios could not refresh from the saved prices: " + st.session_state.profile_refresh_error)
-    st.caption("Your input prices and setup remain available. The previous model's results stay hidden until the refresh succeeds.")
-    st.button("Retry model refresh", key="retry_profile_refresh", on_click=retry_profile_refresh)
-    st.button("Change study inputs", key="change_after_refresh_error", on_click=open_setup)
+elif ready and "selection" not in st.session_state:
+    st.info("This saved study uses the previous three-profile model. Your input prices are retained. "
+            "Set the new risk budget before building a selection study.")
+    st.button("Set risk budget and rebuild", key="migrate_selection", on_click=open_setup)
 elif not ready:
     welcome_or_error()
 elif st.session_state.view == "Portfolio":
     overview()
-else:
+elif prepare_legacy_research():
     research()
 
 target = st.session_state.pop("scroll_to", None)
