@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from efficient_frontier import story
 from efficient_frontier.backtest import run_backtests
 from efficient_frontier.backtest_report import backtest_chart, backtest_html, findings_markdown
 from efficient_frontier.benchmark_report import (
@@ -169,6 +170,58 @@ def test_report_exports_all_pairs_raw_prices_and_reproducible_curves(comparison)
         document = bundle.read("report.html").decode()
         assert document.count("* plotly.js v") == 1
         assert "Evidence against benchmarks" in document
+
+
+@pytest.mark.parametrize("method", ["Buy and hold", "Expanding window"])
+def test_report_shares_live_decision_context_before_proposed_holdings(comparison, method):
+    selected = f"{method} · Extreme"
+    panel = story.decision_panel_html(comparison.study, selected, comparison.benchmarks)
+    drivers = story.result_drivers_html(comparison.study, selected)
+    document = report_html(
+        comparison.analysis, {}, comparison.study, comparison.profiles,
+        comparison.benchmarks, comparison.evidence, selected_profile="Extreme", selected_method=method,
+    )
+    summary = document.split('<section id="summary">')[1].split("</section>")[0]
+    assert panel in summary
+    assert drivers in summary
+    assert summary.index(panel) < summary.index("Latest proposed holdings")
+    assert "These weights use all selected prices. The test replays earlier fits of this rule, with different holdings." in summary
+    if method == "Expanding window":
+        assert comparison.study.metrics.loc[selected, "cagr"] < comparison.benchmarks.backtest_metrics.cagr.min()
+        assert "No. It trailed both markets." in panel
+        assert summary.index("No. It trailed both markets.") < summary.index("Latest proposed holdings")
+
+
+def test_decision_context_selection_preserves_every_numeric_export(comparison):
+    archives = [report_zip(
+        comparison.analysis, comparison.prices, {}, comparison.study,
+        comparison.profiles, comparison.benchmarks, comparison.evidence,
+        selected_profile=profile, selected_method=method,
+    ) for profile, method in [("Low", "Buy and hold"), ("Extreme", "Expanding window")]]
+    with zipfile.ZipFile(io.BytesIO(archives[0])) as first, zipfile.ZipFile(io.BytesIO(archives[1])) as second:
+        csv_names = {name for name in first.namelist() if name.endswith(".csv")}
+        assert csv_names == {name for name in second.namelist() if name.endswith(".csv")}
+        assert len([name for name in csv_names if name.startswith("backtests/")]) == 24 * 3
+        for name in csv_names:
+            assert first.read(name) == second.read(name), name
+        assert first.read("report.html") != second.read("report.html")
+
+
+def test_report_discloses_an_unavailable_profile_before_fallback_details(comparison):
+    study = copy.deepcopy(comparison.study)
+    original_names = [name for name in study.equity if name.rsplit(" · ", 1)[-1] not in ("Low", "Medium", "Extreme")]
+    study.equity = study.equity[original_names]
+    study.metrics = study.metrics.loc[original_names]
+    study.settings.update(include_profiles=False, profile_return_objective=None)
+    selected = "Expanding window · Extreme"
+    document = report_html(
+        comparison.analysis, {}, study, comparison.profiles, comparison.benchmarks,
+        selected_profile="Extreme", selected_method="Expanding window",
+    )
+    summary = document.split('<section id="summary">')[1].split("</section>")[0]
+    assert story.decision_panel_html(study, selected, comparison.benchmarks) in summary
+    assert "The requested Highest profile was not included in this backtest." in summary
+    assert "The detailed result below shows Expanding window · Minimum volatility." in summary
 
 
 def test_omitted_market_comparison_is_explicit_without_fabricated_references(comparison):
