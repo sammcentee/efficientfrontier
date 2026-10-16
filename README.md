@@ -34,7 +34,7 @@ bash run.sh
 
 1. Keep **Nasdaq-100** and **5 years**, or select **Change** for your own data.
 2. Select **Show portfolios**. The app obtains prices, fits the portfolios, and runs the historical market test.
-3. Choose **Low**, **Medium**, or **Highest**. Open **Every stock and its exact weight** for the full allocation.
+3. Choose **Low**, **Medium**, or **Highest**. Read the test comparison first, then inspect the latest proposed holdings.
 4. Open **“Would this rule have beaten the market?”** Choose a **Rule**. **Test settings** changes the trade assumptions.
 5. Open **Research** for frontiers, risk, data coverage, all tests, and the method.
 6. Select **Export** for the report and data. The report includes the results on screen.
@@ -58,6 +58,8 @@ The primary model uses historical arithmetic mean returns and covariance, with t
 | Highest | Highest fitted arithmetic mean return. |
 
 These are relative model positions. Low can still contain risky assets, and profiles can coincide. Highest does not use leverage. CSV and JSON exports retain the name **Extreme** for Highest.
+
+**Highest is not a recommendation.** Without a holding limit, maximizing the fitted mean can put the whole portfolio in one stock. Medium can also have much more risk than either ETF. The overview compares the later results of these rules with maximum Sharpe, equal weight, SPY, and QQQ. It shows arithmetic mean, compound growth, volatility, and drawdown on the same test dates. It does not automatically select the past winner.
 
 Three historical windows show diagnostic mean returns. They do not select the primary weights. **Research** retains a separate weakest-window comparison. Its objective favors the lowest of the three window means.
 
