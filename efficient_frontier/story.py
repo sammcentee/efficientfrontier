@@ -133,6 +133,10 @@ def _pct(value: float, digits: int = 1, plus: bool = False) -> str:
     return _minus(f"{value:+.{digits}%}" if plus else f"{value:.{digits}%}")
 
 
+def _growth(value: float) -> str:
+    return f"{'lost' if value < 0 else 'grew'} {_pct(abs(value))}"
+
+
 def _date(value) -> str:
     """Show a date as "2 Oct 2026" (no %-d, which fails on Windows)."""
     day = pd.Timestamp(value)
@@ -312,7 +316,7 @@ def stats_html(latest: Any, profile: str, universe: str, names: dict | None = No
     weights = latest.portfolios[profile].weights
     largest = weights.idxmax()
     stats = (
-        (_pct(latest.summary.loc[profile, "expected_return"]), "Historical mean", "Annual arithmetic mean, fitted"),
+        (_pct(latest.summary.loc[profile, "expected_return"]), "Fitted annual mean", "Full-history estimate before fees"),
         (_pct(latest.portfolios[profile].volatility), "Volatility", "Yearly, from past prices"),
         (_pct(weights.max()), "Largest holding", (names or {}).get(largest, largest)),
     )
@@ -322,7 +326,7 @@ def stats_html(latest: Any, profile: str, universe: str, names: dict | None = No
 
 
 def list_html(weights: pd.Series, names: dict | None = None) -> str:
-    """The "What it holds" header and one bar row for each held position. More than 12 rows end in one rest row."""
+    """The proposed holdings and one bar row per position. More than 12 rows end in one rest row."""
     held = _held(weights)
     top = held.iloc[0]
     shown = held if len(held) <= 12 else held.iloc[:10]
@@ -339,7 +343,7 @@ def list_html(weights: pd.Series, names: dict | None = None) -> str:
                     f'<small>The largest of these is {_pct(held.iloc[10])}.</small></span>'
                     f'<span class="pl-bar"><i style="width:{min(rest / top, 1) * 100:.1f}%"></i></span>'
                     f'<span class="pl-pct">{_pct(rest)}</span></li>')
-    return ('<div class="pl-head"><h3 class="pl-title">What it holds</h3><small>Share of the portfolio</small></div>'
+    return ('<div class="pl-head"><h3 class="pl-title">Proposed holdings</h3><small>Share of the portfolio</small></div>'
             f'<ul class="pl-list">{"".join(rows)}</ul>')
 
 
@@ -402,11 +406,14 @@ def market_answer(study: Any, selected: str, benchmarks: Any) -> str:
     cagr = study.metrics.loc[selected, "cagr"]
     matched = _matched(benchmarks)
     if matched is None:
-        return f"It grew {_pct(cagr)} a year."
+        return f"It {_growth(cagr)} a year."
     outcomes = {}
     for name, row in matched.backtest_metrics.iterrows():
         mine, theirs = round(cagr * 1000), round(row["cagr"] * 1000)
         outcomes[_market(name)] = "beat" if mine > theirs else "trailed" if mine < theirs else "matched"
+    if len(outcomes) == 1:
+        name, outcome = next(iter(outcomes.items()))
+        return f"It {outcome} the {name} in this test."
     if len(set(outcomes.values())) == 1:
         outcome = next(iter(outcomes.values()))
         return {"trailed": "No. It trailed both markets.", "beat": "Yes. It beat both markets in this test.",
@@ -414,6 +421,104 @@ def market_answer(study: Any, selected: str, benchmarks: Any) -> str:
     rank = {"beat": 0, "matched": 1, "trailed": 2}
     (better, first), (worse, second) = sorted(((outcome, name) for name, outcome in outcomes.items()), key=lambda item: rank[item[0]])
     return f"Partly. It {better} the {first} but {worse} the {second}."
+
+
+def decision_panel_html(study: Any, selected: str, benchmarks: Any) -> str:
+    """Compare the requested rule with fixed alternatives, without choosing a winner."""
+    method, _, policy = str(selected).partition(" · ")
+    available = selected in study.equity and selected in study.metrics.index
+    matched = _matched(benchmarks)
+    if matched is not None and not matched.backtest_equity.index.equals(study.equity.index):
+        matched = None
+    methods = ("Low", "Medium", "Extreme", "Maximum Sharpe", "Equal weight")
+    rows = [(f"{method} · {name}", display_label(name), study.equity, study.metrics) for name in methods
+            if f"{method} · {name}" in study.equity and f"{method} · {name}" in study.metrics.index]
+    etf_count = 0
+    if matched is not None:
+        for ticker in ("SPY", "QQQ"):
+            name = next((name for name in matched.backtest_metrics.index
+                         if str(name) == ticker or str(name).endswith(f"({ticker})")), None)
+            if name is not None and name in matched.backtest_equity:
+                rows.append((name, str(name), matched.backtest_equity, matched.backtest_metrics))
+                etf_count += 1
+    table_rows = []
+    for name, label, equity, metrics in rows:
+        row = metrics.loc[name]
+        mean = equity[name].pct_change(fill_method=None).iloc[1:].mean() * study.settings["periods_per_year"]
+        css = ' class="on"' if name == selected else ""
+        label = _e(label) + (" · Selected" if name == selected else "")
+        values = (mean, row["cagr"], row["volatility"], row["max_drawdown"])
+        table_rows.append(f"<tr{css}><th scope=\"row\">{label}</th>"
+                          + "".join(f"<td>{_pct(value)}</td>" for value in values) + "</tr>")
+    if available:
+        verdict = market_answer(study, selected, matched)
+        implication = ""
+        if matched is not None and etf_count == len(matched.backtest_metrics) == 2 and all(
+            round(study.metrics.loc[selected, "cagr"] * 1000) < round(value * 1000)
+            for value in matched.backtest_metrics["cagr"]
+        ):
+            implication = " For compound growth, this test gives no reason to prefer this rule to either ETF."
+    else:
+        verdict = f"{strategy_label(selected)} was not backtested. Its result is unavailable."
+        implication = " The table shows the available comparisons; no other rule replaces the selection."
+    purpose = {
+        "Low": "Low targets the least fitted volatility.",
+        "Medium": "Medium selects the sampled frontier point nearest to the midpoint of Low and Highest fitted volatility. "
+                  "Medium is not the market average and can be riskier than both ETFs.",
+        "Extreme": "Highest maximises the fitted historical arithmetic mean return. Without a holding cap, it can allocate to one asset.",
+        "Maximum Sharpe": "Maximum Sharpe targets fitted excess return per unit of volatility.",
+        "Equal weight": "Equal weight assigns the same target weight to each asset.",
+    }.get(policy, "")
+    dates = study.equity.index
+    missing = ("<p>Matching ETF results are unavailable for these test dates.</p>" if matched is None else
+               "<p>One or both ETF comparisons are unavailable for these test dates.</p>" if etf_count < 2 else "")
+    return (
+        '<h3 class="pl-title">Compare rules and ETFs</h3>'
+        f'<p class="pl-sub">Selected: {_e(strategy_label(selected))}. Test returns: {_date(dates[1])} to {_date(dates[-1])}. '
+        f'Baseline: {_date(dates[0])}. Rule: {_e(RULE_LABELS.get(method, method))} ({_e(method)}).</p>'
+        f'<p class="pl-verdict">{_e(verdict)}{_e(implication)}</p>{missing}'
+        '<div class="scroll" style="overflow-x:auto"><table class="pl-ledger"><thead><tr><th>Rule / ETF</th>'
+        '<th>Test mean / year</th><th>Growth / year (CAGR)</th><th>Volatility / year</th><th>Maximum drawdown</th>'
+        f'</tr></thead><tbody>{"".join(table_rows)}</tbody></table></div>'
+        '<p class="pl-small">Test mean is the arithmetic mean of net portfolio returns, including the entry interval and fees, '
+        'scaled to a year. CAGR compounds the same net path. Rows follow a fixed order, not a performance ranking.</p>'
+        f'<p>{_e(purpose)} These are model rules, not recommendations. Risk differences are shown in the table.</p>'
+        '<p>Latest proposed weights fit all selected prices. This replay uses earlier fits, so its holdings and weights '
+        'can differ from the latest proposal.</p>'
+    )
+
+
+def result_drivers_html(study: Any, selected: str) -> str:
+    """Show gains and losses from the replay and reconcile all holdings less fees."""
+    heading = '<h3 class="pl-title">What drove the result?</h3>'
+    if selected not in study.holdings or selected not in study.metrics.index:
+        return heading + f"<p>Holding contributions for {_e(strategy_label(selected))} are unavailable.</p>"
+    contributions = study.holdings[selected]["pnl_contribution"]
+    visible = contributions[(contributions * 10_000).round(2) != 0]
+    gains = visible[visible > 0].sort_values(ascending=False, kind="stable").head(3)
+    losses = visible[visible < 0].sort_values(kind="stable").head(3)
+    shown = [*gains.index, *losses.index]
+    amounts = [(str(name), float(contributions.loc[name])) for name in shown]
+    other = float(contributions.drop(shown).sum())
+    if round(other * 10_000, 2):
+        amounts.append(("Other holdings", other))
+    amounts += [("Trading fees", -float(study.metrics.loc[selected, "total_cost"])),
+                ("Net change", float(study.metrics.loc[selected, "total_return"]))]
+    rows = "".join(
+        f'<tr><th scope="row">{_e(name)}</th><td>{_minus(f"{value * 10_000:+,.2f}") if value else "0.00"}</td></tr>'
+        for name, value in amounts
+    )
+    note = ("Up to three largest gains and three largest losses are shown, with gains first. "
+            "Remaining contributions are combined. Amounts that round to zero are not listed separately."
+            if len(visible) else "No holding contributed a gain or loss in this test." if not contributions.any() else
+            "No holding contribution is visible at this precision.")
+    return (
+        heading + f'<p class="pl-sub">{_e(strategy_label(selected))}. {note}</p>'
+        '<table class="pl-ledger"><thead><tr><th>Holding / cost</th><th>Gain or loss per initial 10,000</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+        '<p class="pl-small">These contributions come from holdings in the historical replay, not the latest proposed weights. '
+        'All holding contributions less trading fees equal the net change. Amounts use initial capital as the denominator.</p>'
+    )
 
 
 def market_lead(study: Any, selected: str) -> str:
@@ -439,7 +544,7 @@ def market_lead(study: Any, selected: str) -> str:
 
 
 def result_tile_html(study: Any, selected: str, benchmarks: Any, evidence: Any, metadata: dict) -> str:
-    """Kicker, big numbers, verdict, statistical clarity and the must-read note for the result tile."""
+    """Kicker, big numbers, realised result and the must-read note for the result tile."""
     matched = _matched(benchmarks)
     equity, metrics = study.equity, study.metrics.loc[selected]
     columns = [("rule", "Your rule", equity[selected].iloc[-1], metrics["total_return"], metrics["cagr"])]
@@ -453,14 +558,12 @@ def result_tile_html(study: Any, selected: str, benchmarks: Any, evidence: Any, 
         f'<span class="pl-sep"> · </span><span>{_pct(cagr)} a year</span></small></div>'
         for key, label, value, total, cagr in columns)
     if matched is not None:
-        markets = " and the ".join(f"{_e(label)} grew {_pct(cagr)}" for _, label, _, _, cagr in columns[1:])
-        verdict = f"It grew {_pct(metrics['cagr'])} a year. <span>The {markets}.</span>"
-        clarity = f'<p class="pl-clarity">{clarity_text(evidence, selected)}</p>'
+        markets = " and the ".join(f"{_e(label)} {_growth(cagr)} a year" for _, label, _, _, cagr in columns[1:])
+        verdict = f"It {_growth(metrics['cagr'])} a year. <span>The {markets}.</span>"
     else:
         # The section answer already gives the yearly growth. Without markets there is no gap to judge.
         total = metrics["total_return"]
         verdict = f"In total, it {'gained' if total >= 0 else 'lost'} {_pct(abs(total))}."
-        clarity = ""
     months = months_tested(study)
     nasdaq = metadata.get("universe") == "Nasdaq-100"
     if nasdaq:
@@ -473,7 +576,7 @@ def result_tile_html(study: Any, selected: str, benchmarks: Any, evidence: Any, 
     held_back = (f"Only the last {months} months ({_date(study.settings['test_start'])} to {_date(study.settings['test_end'])}) "
                  "were held back for this test.")
     return (f'<span class="pl-kicker">10,000 on {_date(equity.index[0])} became, by {_date(equity.index[-1])}</span>'
-            f'<div class="pl-bignums">{numbers}</div><p class="pl-verdict">{verdict}</p>{clarity}'
+            f'<div class="pl-bignums">{numbers}</div><p class="pl-verdict">{verdict}</p>'
             f'<p class="pl-mustread">{INFO_SVG}<span><b>{bold}</b> {held_back} {why}</span></p>')
 
 
@@ -512,7 +615,7 @@ def evidence_answer(evidence: Any, selected: str) -> str:
     statuses = _statuses(evidence, selected)
     categories = {category for _, category, _ in statuses}
     if len(categories) == 1:
-        return {"unclear": "No clear difference in mean return.", "behind": "Lower mean returns than both markets, in this sample.",
+        return {"unclear": "No statistically clear difference in mean return.", "behind": "Lower mean returns than both markets, in this sample.",
                 "ahead": "Higher mean returns than both markets, in this sample.",
                 "alpha": "Some evidence of alpha. No clear lead in average return.",
                 "insufficient": "Too little history to judge.",

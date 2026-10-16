@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, latest_profile_chart, report_html, report_zip, weights_frame
-from efficient_frontier.data import load_csv
+from efficient_frontier.data import load_csv, stale_price_notes
 
 
 @pytest.fixture
@@ -451,6 +451,8 @@ def test_report_summary_comes_first_and_names_the_selected_level(report_analysis
     assert document.index('id="summary"') < document.index('id="latest-profiles"')
     summary = document.split('<section id="summary">')[1].split("</section>")[0]
     assert 'The <span class="pl-nb">highest-risk</span> portfolio puts 80.0% in one asset.' in summary
+    assert "Latest proposed holdings · fitted through 1 Oct 2024" in summary
+    assert "These weights use all selected prices. The test replays earlier fits of this rule, with different holdings." in summary
     assert "Highest" in summary and "Extreme" not in summary
     assert "same objective with only history available before each trade" in summary
     assert "Three-window estimates are diagnostics" in summary
@@ -458,6 +460,22 @@ def test_report_summary_comes_first_and_names_the_selected_level(report_analysis
     assert "Efficient Frontier · Research Report" not in document
     assert "<title>Portfolio Lab · Research report</title>" in document
     assert document.count("* plotly.js v") == 1
+
+
+def test_report_shows_escaped_stale_price_notes_beside_proposed_holdings(report_analysis, latest_profiles):
+    label = '<script>alert("stale")</script>'
+    prices = pd.DataFrame({label: [100.0] * 31, "BBB": np.linspace(100, 110, 31)},
+                          index=pd.bdate_range("2024-01-01", periods=31))
+    before = prices.copy()
+    notes = stale_price_notes(prices)
+    assert notes
+    document = report_html(report_analysis, {}, prices=prices, latest_profiles=latest_profiles)
+    summary = document.split('<section id="summary">')[1].split("</section>")[0]
+    assert summary.index("Latest proposed holdings") < summary.index("Price checks")
+    for note in notes:
+        assert html.escape(note) in summary
+    assert label not in summary
+    pd.testing.assert_frame_equal(prices, before)
 
 
 def test_report_view_is_recorded_only_when_requested_and_files_keep_extreme(report_analysis, latest_profiles):

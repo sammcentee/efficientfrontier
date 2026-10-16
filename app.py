@@ -17,7 +17,7 @@ from efficient_frontier.backtest_report import HOLDINGS, METRICS, backtest_chart
 from efficient_frontier.benchmark_report import evidence_summary_frame
 from efficient_frontier.benchmarks import compare_benchmarks
 from efficient_frontier.core import CLASSIC_PROFILE_NAMES, analyze
-from efficient_frontier.data import BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, validate_benchmark_prices
+from efficient_frontier.data import BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, stale_price_notes, validate_benchmark_prices
 from efficient_frontier.evidence import analyze_evidence
 from efficient_frontier.historical_app import render_historical
 from efficient_frontier.presentation import csv_text, frontier_chart, holdout_chart, latest_profile_chart, weights_frame
@@ -616,8 +616,8 @@ def welcome_or_error():
         context_line(story.context_setup_html(setup))
         if error is None:
             st.html(f'<h1 class="pl-display">{story.welcome_headline_html(market)}</h1>'
-                    '<p class="pl-lead pl-center">Low, medium and highest relative risk. Built from past prices, '
-                    "then tested on prices that the model did not see.</p>")
+                    '<p class="pl-lead pl-center">Fit three portfolios to the selected history. Separately replay each selection rule '
+                    "with only the prices available before each trade.</p>")
             if not st.session_state.setup_open:
                 st.button("Show portfolios", key="build", type="primary", shortcut="Mod+Enter", on_click=start_build)
             note = ("The first Nasdaq-100 run downloads about 100 price series. It takes about 25 seconds. "
@@ -676,6 +676,17 @@ def overview():
             st.html(f'<p class="pl-note">Risk is relative to {story.these_assets(len(prices.columns), universe)}. '
                     "Historical mean and volatility set the levels. They do not forecast future returns.</p>")
 
+    with st.container(border=True, key="tile_decision"):
+        study = st.session_state.get("backtests")
+        if study is not None and not st.session_state.get("study_error"):
+            selected = f"{st.session_state.comparison_method} · {profile}"
+            st.html(story.decision_panel_html(study, selected, st.session_state.get("benchmarks")))
+            st.caption("Inspect the equal-weight and maximum-Sharpe holdings and charts in Research → All tests.")
+        else:
+            st.html(title_html("The historical rule test is unavailable"))
+            st.caption("The latest fitted holdings do not establish how the rule performed against the ETFs. Use Test settings to run the comparison.")
+        test_controls()
+
     if latest is not None:
         holdings_tiles(latest, prices, profile, universe, noun, names, coverage)
     market_section(result, prices, metadata, latest, profile)
@@ -694,6 +705,8 @@ def holdings_tiles(latest, prices, profile, universe, noun, names, coverage):
     weights = latest.portfolios[profile].weights
     allocations = weights.sort_values(ascending=False)
     with st.container(border=True, key="tile_holdings"):
+        st.html(title_html(f"Latest proposed holdings · fitted through {day(latest.as_of)}",
+                           "These weights use all selected prices. The test replays earlier fits of this rule, with different holdings."))
         callout = story.callout_html(weights, universe, names)
         if callout:
             st.html(callout)
@@ -726,6 +739,8 @@ def holdings_tiles(latest, prices, profile, universe, noun, names, coverage):
                     "years": st.column_config.NumberColumn("Years", format="%.1f")})
     st.caption(f"Weights fitted on all prices from {day(prices.index[0])} to {day(prices.index[-1])}. "
                "Very small weights can show as 0.0%.")
+    for note in stale_price_notes(prices):
+        st.warning(note)
     for note in latest.warnings:
         st.caption(note)
     with st.container(border=True, key="tile_levels"):
@@ -798,23 +813,32 @@ def market_section(result, prices, metadata, latest, profile):
 
     if st.session_state.get("study_error"):
         st.html(story.section_header_html("pl-market", eyebrow, "The market test did not run.",
-                                          "The settings below did not work for this data. Change them and run the test again."))
-        test_controls()
+                                          "The settings did not work for this data. Use Test settings above to change them and run the test again."))
         st.error(st.session_state.study_error)
         return
     if study is None:
         st.html(story.section_header_html("pl-market", eyebrow, "The market test did not run."))
-        test_controls()
         st.info("Select Test settings, then Run the test again.")
         return
 
     st.html(story.section_header_html("pl-market", eyebrow, story.market_answer(study, selected, benchmarks),
                                       story.market_lead(study, selected)))
-    test_controls()
     if fallback:
         st.info("This sample is too short for the risk profiles. The comparison shows minimum volatility.")
     with st.container(border=True, key="tile_result"):
         st.html(story.result_tile_html(study, selected, benchmarks, evidence, metadata))
+    with st.container(border=True, key="tile_drivers"):
+        st.html(story.result_drivers_html(study, selected))
+        with st.expander("Every historical holding's contribution"):
+            holdings = study.holdings[selected]
+            order = holdings.pnl_contribution.abs().sort_values(ascending=False, kind="stable").index
+            contributions = holdings.loc[order, ["pnl_contribution", "average_weight", "selection_frequency"]].copy()
+            contributions["pnl_contribution"] *= 10_000
+            st.dataframe(contributions.style.format({"pnl_contribution": "{:,.2f}", "average_weight": "{:.2%}",
+                                                     "selection_frequency": "{:.2%}"}), width="stretch", column_config={
+                "_index": "Symbol", "pnl_contribution": "Profit / loss per initial 10,000", "average_weight": "Average weight",
+                "selection_frequency": "Share of allocation dates selected"})
+            st.caption("Contributions measure the holdings used during the test. Their sum, less trading fees, equals the net profit or loss.")
     if matched is None:
         st.info(metadata.get("benchmarks_note", "Market benchmarks are unavailable."))
 

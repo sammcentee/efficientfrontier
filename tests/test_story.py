@@ -1,10 +1,13 @@
+import html
 from pathlib import Path
+import re
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from efficient_frontier import story
+from efficient_frontier.metrics import performance_metrics
 from efficient_frontier.story import (
     clarity_text, evidence_answer, evidence_lead, headline_html, headline_text, interval_html, list_html, market_answer,
     market_lead, short_company_name, stretch_table_html,
@@ -93,7 +96,7 @@ def test_market_answer_compares_growth_at_a_tenth_of_a_point(rule, spy, qqq, exp
 def test_market_answer_without_markets_states_growth():
     assert market_answer(market_study(.072), SELECTED, None) == "It grew 7.2% a year."
     no_test = SimpleNamespace(backtest_equity=None, backtest_metrics=None)
-    assert market_answer(market_study(-.031), SELECTED, no_test) == "It grew −3.1% a year."
+    assert market_answer(market_study(-.031), SELECTED, no_test) == "It lost 3.1% a year."
 
 
 def test_market_lead_describes_the_rule_and_its_costs():
@@ -121,7 +124,7 @@ def evidence(statuses, gaps=(-.19, -.32)):
 
 
 @pytest.mark.parametrize("statuses,answer", [
-    (["No clear statistical advantage"] * 2, "No clear difference in mean return."),
+    (["No clear statistical advantage"] * 2, "No statistically clear difference in mean return."),
     (["Historical mean underperformance"] * 2, "Lower mean returns than both markets, in this sample."),
     (["Historical mean advantage", "Historical mean advantage and alpha"], "Higher mean returns than both markets, in this sample."),
     (["Historical alpha"] * 2, "Some evidence of alpha. No clear lead in average return."),
@@ -234,8 +237,9 @@ def test_overview_uses_full_history_mean_even_when_worst_window_has_opposite_sig
     ledger = story.levels_ledger_html(latest, "Medium")
     for text in (stats, why, ledger):
         assert shown in text
-        assert "arithmetic mean" in text
         assert "worst stretch" not in text and "Weakest past stretch" not in text
+    assert "Fitted annual mean" in stats and "Full-history estimate before fees" in stats
+    assert "arithmetic mean" in why and "arithmetic mean" in ledger
     assert "all 3 years" in why
     assert "same prices that selected today's holdings" in why
     assert "not compound growth (CAGR) or a forecast" in why
@@ -300,6 +304,175 @@ def test_result_tile_without_markets_does_not_repeat_the_answer_or_claim_a_faile
     html = story.result_tile_html(study, SELECTED, None, None, {"universe": "Demo"})
     assert '<p class="pl-verdict">In total, it gained 7.3%.</p>' in html
     assert "a year," not in html and "could not be estimated" not in html and "pl-clarity" not in html
+
+
+@pytest.fixture
+def decision_study():
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    paths = {
+        "Equal weight": [1., .99, 1.04, 1.08],
+        "Extreme": [1., .99, 1.3, 1.05],
+        "Medium": [1., .99, .85, .93],
+        "Low": [1., .995, 1.01, 1.03],
+        "Maximum Sharpe": [1., .99, 1.08, 1.06],
+    }
+    equity = pd.DataFrame({f"Expanding window · {name}": path for name, path in paths.items()}, index=dates)
+    metrics = pd.DataFrame({name: performance_metrics(path, 0., 12) for name, path in equity.items()}).T
+    metrics["total_cost"] = .01
+    study = SimpleNamespace(
+        equity=equity, metrics=metrics,
+        settings={"periods_per_year": 12, "test_start": str(dates[1].date()), "test_end": str(dates[-1].date())},
+        holdings={SELECTED: pd.DataFrame({"pnl_contribution": [.09, -.14, -.03, .02, .015, -.01, -.005, 0.]},
+                                         index=["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "UNHELD"])},
+    )
+    market_equity = pd.DataFrame({QQQ: [1., .99, 1.04, 1.12], SPY: [1., .99, 1.05, 1.10]}, index=dates)
+    market_metrics = pd.DataFrame({name: performance_metrics(path, 0., 12) for name, path in market_equity.items()}).T
+    benchmarks = SimpleNamespace(backtest_equity=market_equity, backtest_metrics=market_metrics)
+    return study, benchmarks
+
+
+def table_rows(document):
+    return [[html.unescape(re.sub(r"<[^>]+>", "", cell)) for cell in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", row)]
+            for row in re.findall(r"<tr[^>]*>(.*?)</tr>", document)]
+
+
+def test_decision_panel_keeps_fixed_order_and_matches_net_paths_and_metrics(decision_study):
+    study, benchmarks = decision_study
+    document = story.decision_panel_html(study, SELECTED, benchmarks)
+    rows = table_rows(document)
+    assert rows[0] == ["Rule / ETF", "Test mean / year", "Growth / year (CAGR)", "Volatility / year", "Maximum drawdown"]
+    assert [row[0] for row in rows[1:]] == ["Low", "Medium · Selected", "Highest", "Maximum Sharpe", "Equal weight", SPY, QQQ]
+    assert document.count('class="on"') == 1
+    for cells, name in zip(rows[1:6], [f"Expanding window · {name}" for name in
+                                     ("Low", "Medium", "Extreme", "Maximum Sharpe", "Equal weight")]):
+        path = study.equity[name]
+        expected_mean = sum(path.iloc[i] / path.iloc[i - 1] - 1 for i in range(1, len(path))) * 12 / 3
+        expected = [expected_mean, *(study.metrics.loc[name, key] for key in ("cagr", "volatility", "max_drawdown"))]
+        assert cells[1:] == [f"{value:.1%}".replace("-", "−") for value in expected]
+    assert rows[-2][1:] == [f"{value:.1%}".replace("-", "−") for value in
+                           [(.99 - 1 + 1.05 / .99 - 1 + 1.10 / 1.05 - 1) * 4,
+                            *(benchmarks.backtest_metrics.loc[SPY, key] for key in ("cagr", "volatility", "max_drawdown"))]]
+    assert "Test returns: 3 Jan 2024 to 5 Jan 2024" in document
+    assert "Baseline: 2 Jan 2024" in document and "(Expanding window)" in document
+    assert "including the entry interval and fees" in document
+    assert "For compound growth, this test gives no reason to prefer this rule to either ETF" in document
+    assert "Medium is not the market average and can be riskier than both ETFs" in document
+    assert "Latest proposed weights fit all selected prices" in document
+    assert "replay uses earlier fits" in document
+    # Reversing the numerical ranking must not change row order or the chosen profile.
+    study.metrics["cagr"] = [-value for value in study.metrics.cagr]
+    changed = table_rows(story.decision_panel_html(study, SELECTED, benchmarks))
+    assert [row[0] for row in changed] == [row[0] for row in rows]
+
+
+@pytest.mark.parametrize("policy,purpose", [
+    ("Low", "Low targets the least fitted volatility"),
+    ("Extreme", "Without a holding cap, it can allocate to one asset"),
+])
+def test_decision_panel_explains_selected_rule_without_recommending_it(decision_study, policy, purpose):
+    study, benchmarks = decision_study
+    document = story.decision_panel_html(study, f"Expanding window · {policy}", benchmarks)
+    assert purpose in document
+    assert "These are model rules, not recommendations" in document
+    assert f"{story.display_label(policy)} · Selected" in document
+
+
+def test_decision_panel_qualifies_cagr_verdict_when_net_arithmetic_mean_beats_etfs(decision_study):
+    study, benchmarks = decision_study
+    study.equity[SELECTED] = [1., .99, .6, 1.09]
+    metrics = performance_metrics(study.equity[SELECTED], 0., 12)
+    study.metrics.loc[SELECTED, list(metrics)] = list(metrics.values())
+    rows = table_rows(story.decision_panel_html(study, SELECTED, benchmarks))
+    assert float(rows[2][1].rstrip("%")) > max(float(row[1].rstrip("%")) for row in rows[-2:])
+    document = story.decision_panel_html(study, SELECTED, benchmarks)
+    assert "No. It trailed both markets" in document
+    assert "For compound growth, this test gives no reason" in document
+    assert "no return-based reason" not in document
+
+
+def test_decision_panel_does_not_replace_a_missing_profile(decision_study):
+    study, benchmarks = decision_study
+    study.equity = study.equity.rename(columns={SELECTED: "Expanding window · Minimum volatility"})
+    study.metrics = study.metrics.rename(index={SELECTED: "Expanding window · Minimum volatility"})
+    document = story.decision_panel_html(study, SELECTED, benchmarks)
+    assert "Medium was not backtested. Its result is unavailable" in document
+    assert "no other rule replaces the selection" in document
+    assert "Minimum volatility" not in document
+    assert 'class="on"' not in document
+    assert "No. It trailed" not in document
+
+
+def test_decision_panel_handles_absent_or_unmatched_etfs_without_claiming_a_market_result(decision_study):
+    study, benchmarks = decision_study
+    for missing in (None, SimpleNamespace(backtest_equity=None, backtest_metrics=None)):
+        document = story.decision_panel_html(study, SELECTED, missing)
+        assert "Matching ETF results are unavailable" in document
+        assert "It lost" in document and "a year" in document
+        assert "trailed both markets" not in document
+        assert len(table_rows(document)) == 6
+    benchmarks.backtest_equity.index = benchmarks.backtest_equity.index + pd.Timedelta(days=1)
+    assert "Matching ETF results are unavailable" in story.decision_panel_html(study, SELECTED, benchmarks)
+
+
+def test_decision_panel_marks_partial_benchmark_coverage(decision_study):
+    study, benchmarks = decision_study
+    benchmarks.backtest_equity = benchmarks.backtest_equity.drop(columns=QQQ)
+    benchmarks.backtest_metrics = benchmarks.backtest_metrics.drop(index=QQQ)
+    document = story.decision_panel_html(study, SELECTED, benchmarks)
+    assert "It trailed the S&amp;P 500 in this test" in document
+    assert "One or both ETF comparisons are unavailable" in document
+    assert "either ETF" not in document
+
+
+def test_result_drivers_show_largest_gains_and_losses_and_reconcile_fees(decision_study):
+    study, _ = decision_study
+    document = story.result_drivers_html(study, SELECTED)
+    rows = table_rows(document)
+    assert rows[1:] == [["AAA", "+900.00"], ["DDD", "+200.00"], ["EEE", "+150.00"],
+                       ["BBB", "−1,400.00"], ["CCC", "−300.00"], ["FFF", "−100.00"],
+                       ["Other holdings", "−50.00"], ["Trading fees", "−100.00"], ["Net change", "−700.00"]]
+    amounts = [float(row[1].replace(",", "").replace("−", "-")) for row in rows[1:]]
+    assert sum(amounts[:-1]) == pytest.approx(amounts[-1])
+    assert amounts[-1] == pytest.approx((study.equity[SELECTED].iloc[-1] - 1) * 10_000)
+    assert "UNHELD" not in document
+    assert "historical replay, not the latest proposed weights" in document
+    assert "All holding contributions less trading fees equal the net change" in document
+
+
+def test_result_drivers_do_not_hide_losses_behind_larger_gains_or_show_rounding_residuals(decision_study):
+    study, _ = decision_study
+    study.holdings[SELECTED] = pd.DataFrame({"pnl_contribution": [.3, .2, .1, -.03, -.02, -.01, 1e-14, -1e-14]},
+                                          index=["GAIN1", "GAIN2", "GAIN3", "LOSS1", "LOSS2", "LOSS3", "TINY_GAIN", "TINY_LOSS"])
+    study.metrics.loc[SELECTED, "total_return"] = .53
+    document = story.result_drivers_html(study, SELECTED)
+    assert [row[0] for row in table_rows(document)[1:]] == ["GAIN1", "GAIN2", "GAIN3", "LOSS1", "LOSS2", "LOSS3", "Trading fees", "Net change"]
+    assert "TINY_" not in document
+    assert "three largest gains and three largest losses" in document
+
+
+def test_result_drivers_escape_names_and_show_explicit_missing_or_zero_results(decision_study):
+    study, _ = decision_study
+    label = '<img src=x onerror="bad()">'
+    study.holdings[SELECTED] = study.holdings[SELECTED].rename(index={"BBB": label})
+    document = story.result_drivers_html(study, SELECTED)
+    assert label not in document and html.escape(label) in document
+    assert "are unavailable" in story.result_drivers_html(study, "Expanding window · Extreme")
+    study.holdings[SELECTED]["pnl_contribution"] = 0.
+    study.metrics.loc[SELECTED, "total_return"] = -.01
+    document = story.result_drivers_html(study, SELECTED)
+    assert "No holding contributed a gain or loss" in document
+    assert table_rows(document)[1:] == [["Trading fees", "−100.00"], ["Net change", "−100.00"]]
+
+
+def test_result_tile_uses_loss_words_and_leaves_uncertainty_for_the_evidence_section(decision_study):
+    study, benchmarks = decision_study
+    benchmarks.backtest_metrics.loc[SPY, "cagr"] = -.02
+    document = story.result_tile_html(study, SELECTED, benchmarks, evidence(["Historical mean underperformance"] * 2),
+                                      {"universe": "Demo"})
+    assert "It lost" in document and "S&amp;P 500 lost 2.0% a year" in document
+    assert "grew −" not in document
+    assert "pl-clarity" not in document and "statistically" not in document
+    assert "How sure can we be" not in document
 
 
 def test_story_module_has_no_streamlit_dependency():

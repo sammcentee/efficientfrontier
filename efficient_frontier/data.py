@@ -28,6 +28,21 @@ def parse_tickers(text: str) -> list[str]:
     ))
 
 
+def stale_price_notes(prices: pd.DataFrame) -> list[str]:
+    """Flag long unchanged-price runs in a complete price frame without altering it."""
+    notes = []
+    for symbol in prices:
+        unchanged = prices[symbol].eq(prices[symbol].shift())
+        longest = int(unchanged.groupby((~unchanged).cumsum()).sum().max())
+        if longest >= 20:
+            notes.append(
+                f"{symbol}: {longest} consecutive price intervals had unchanged closes. "
+                "Flat stretches can understate measured volatility. Check for stale or illiquid quotes "
+                "before interpreting fitted risk. These prices remain in the study."
+            )
+    return notes
+
+
 def _normalize_price_dates(index: pd.Index) -> pd.DatetimeIndex:
     if pd.api.types.is_numeric_dtype(index.dtype):
         raise ValueError("The price index must contain dates, not row numbers.")

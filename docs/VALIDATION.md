@@ -1,5 +1,22 @@
 # Validation record
 
+## Overview decisions and replay audit: 16 October 2026
+
+**671 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
+The suite reports the existing pandas warning from the invalid-date rejection test.
+
+The overview and exported HTML now compare tested rules before proposed holdings. Tests check matched-date arithmetic means, CAGR, volatility, drawdown, explicit missing-profile results, and a fixed row order without automatic winner selection.
+A regime-change fixture verifies that Medium and Highest can trail both ETFs despite higher fitted means. Display selections preserve all numeric exports, including every allocation, holding, and trade file.
+Contribution tests verify visible gains and losses and reconciliation after fees. Unchanged-price diagnostics preserve the supplied prices and universe.
+
+An independent share-and-fee replay of a saved 92-asset study matched both selected equity paths within `1.4e-15` initial-capital units.
+Changing future prices left all earlier allocations unchanged. These checks establish calculation agreement, not future outperformance or freedom from current-membership selection bias.
+Targeted price checks found no obvious split discontinuity explaining the selected losses. A separate long flat price history remains flagged for review; provider accuracy is not certified.
+
+The open local study displayed the new comparison, selected Medium profile, replay contributions, and price warning without an app exception or keyboard-focus change.
+The desktop page had no horizontal overflow at 1280 pixels. The saved-price HTML report kept its comparison table within a scroll area at 390 pixels.
+The offline CLI completed all 24 strategies. Its 92 archive files matched the extracted outputs. Native operating-system and physical-device behavior remain outside these checks.
+
 ## Historical mean as the primary model: 15 October 2026
 
 **651 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
