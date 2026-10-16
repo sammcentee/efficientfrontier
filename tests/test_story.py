@@ -475,5 +475,17 @@ def test_result_tile_uses_loss_words_and_leaves_uncertainty_for_the_evidence_sec
     assert "How sure can we be" not in document
 
 
+def test_combined_universe_context_keeps_history_and_coverage_counts():
+    universe = "S&P 500 + Nasdaq-100"
+    prices = pd.DataFrame(100., index=pd.bdate_range("2021-10-18", "2026-10-15"), columns=["AAA", "BBB", "CCC"])
+    metadata = {"universe": universe, "universe_included": 3, "universe_requested": 5,
+                "requested_start": "2021-10-16", "requested_end_exclusive": "2026-10-16"}
+    result = story.context_result_html(metadata, prices)
+    assert "S&amp;P 500 + Nasdaq-100" in result and "3 of 5 stocks" in result
+    assert "5 years" in result and "15 Oct 2026" in result
+    assert "5 years" in story.context_setup_html({"market": universe, "history": "5 years"})
+    assert story.these_assets(3, universe) == "these 3 stocks"
+
+
 def test_story_module_has_no_streamlit_dependency():
     assert "streamlit" not in Path(story.__file__).read_text(encoding="utf-8")

@@ -127,7 +127,7 @@ def start():
 
 def test_historical_view_waits_for_submit_and_preserves_current_study():
     app = start().button(key="try_demo").click().run()
-    original_equity = app.session_state.backtests.equity.copy()
+    original_equity = app.session_state.selection.test.equity.copy()
     app.segmented_control(key="view").set_value("Historical membership").run()
     assert not app.exception and "historical_result" not in app.session_state
     assert not app.get("download_button")
@@ -142,7 +142,7 @@ def test_historical_view_waits_for_submit_and_preserves_current_study():
     app.button(key="historical_run").click().run()
     assert app.session_state.historical_result[3].metrics.total_cost.eq(0).all()
     app.segmented_control(key="view").set_value("Portfolio").run()
-    pd.testing.assert_frame_equal(app.session_state.backtests.equity, original_equity)
+    pd.testing.assert_frame_equal(app.session_state.selection.test.equity, original_equity)
     assert not app.exception
 
 
@@ -155,7 +155,7 @@ def test_welcome_route_and_missing_historical_input_are_clear():
     assert any("Choose an adjusted-price CSV" in item.value for item in app.error)
     assert "historical_result" not in app.session_state
     app.button(key="close_historical").click().run()
-    assert app.button(key="build").label == "Show portfolios"
+    assert app.button(key="build").label == "Build portfolio"
 
 
 def test_custom_upload_uses_declared_coverage_and_keeps_sparse_input(monkeypatch):
