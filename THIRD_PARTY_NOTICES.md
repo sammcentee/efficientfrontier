@@ -27,6 +27,8 @@ The generated JavaScript bundle also contains third-party components and retains
 
 ## Market data and original holdings
 
+Current stock-universe sources are the [Nasdaq-100 list](https://api.nasdaq.com/api/quote/list-type/nasdaq100) and [State Street's daily SPY holdings](https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx). SPY equity holdings serve as an S&P 500 proxy. They are not a certified historical index roster. The repository does not bundle downloaded source files. Reports retain source URLs, dates, and exclusions.
+
 Downloaded prices are not included in the repository. The [yfinance project](https://github.com/ranaroussi/yfinance) directs users to Yahoo's terms for rights to downloaded data and describes the API as intended for personal use. The software's license does not grant redistribution rights to market data. An exported report includes its input prices; review the provider's terms before sharing it.
 
 The integration is unofficial. [Yahoo's own terms](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html) restrict automated collection without permission, and its [redistribution guidance](https://help.yahoo.com/kb/SLN2352.html) restricts republishing supplied data. Neither this repository nor the yfinance software license grants permission to access or redistribute Yahoo data. Publishing this client source does not establish permission for a hosted data service or commercial data use.

@@ -3,6 +3,7 @@
 import argparse
 from datetime import date
 from pathlib import Path
+import shlex
 import sys
 from zipfile import ZipFile
 from io import BytesIO
@@ -19,7 +20,9 @@ from .historical_report import build_historical_report, historical_report_zip
 from .membership import bundled_membership, load_membership_csv
 from .presentation import report_zip
 from .profiles import build_profiles
-from .universe import download_universe_prices, fetch_nasdaq100
+from .selection import run_selection
+from .selection_report import selection_metrics_frame, selection_report_zip
+from .universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
 
 
 def write_report_bundle(bundle, output):
@@ -39,9 +42,14 @@ def write_report_bundle(bundle, output):
                                "benchmark_training_estimates.csv", "benchmark_latest_estimates.csv",
                                "benchmark_backtest_metrics.csv", "benchmark_backtest_curve.csv",
                                "evidence_summary.csv", "evidence_windows.csv", "evidence_relative_curve.csv",
-                               "universe_coverage.csv")]
+                               "universe_coverage.csv", "policy.json", "latest_weights.csv", "latest_estimates.csv",
+                               "eligibility.csv")]
         for kind in ("holdings", "allocations", "trades"):
             previous_backtests.extend((output / "backtests").glob(f"[0-9][0-9]_{kind}.csv"))
+            for phase in ("validation", "test"):
+                previous_backtests.extend((output / phase).glob(f"[0-9][0-9]_{kind}.csv"))
+        previous_backtests.extend(output / phase / name for phase in ("validation", "test")
+                                  for name in ("metrics.csv", "equity.csv"))
         for path in previous_backtests:
             if path.is_file() and path.relative_to(output).as_posix() not in current_files:
                 path.unlink()
@@ -92,6 +100,95 @@ def historical_cli(args, settings):
     return 0
 
 
+def selection_cli(args, settings):
+    """Run the separate risk-target selection and retain every reproducible result."""
+    if args.rolling_window is not None:
+        raise ValueError("--target-volatility uses expanding past-only fits; omit --rolling-window.")
+    synthetic = not (args.csv is not None or args.tickers is not None or args.original_holdings
+                     or args.nasdaq100 or args.sp500_nasdaq100)
+    if synthetic and (args.benchmark_csv is not None or args.download_benchmarks):
+        raise ValueError("Synthetic demo data cannot use real market benchmarks. Select --csv or a market source first.")
+    universe_prices = None
+    if args.sp500_nasdaq100 or args.nasdaq100:
+        snapshot = fetch_sp500_nasdaq100() if args.sp500_nasdaq100 else fetch_nasdaq100()
+        universe_prices = download_universe_prices(snapshot, args.start, args.end or date.today().isoformat())
+        prices = universe_prices.prices
+        source = "S&P 500 + Nasdaq-100 · Yahoo Finance" if args.sp500_nasdaq100 else "Nasdaq-100 · Yahoo Finance"
+    elif args.csv is not None:
+        prices, source = load_csv(args.csv), "CSV: " + args.csv.name
+    elif args.tickers is not None or args.original_holdings:
+        symbols = original_tickers(current_symbols=True) if args.original_holdings else parse_tickers(args.tickers)
+        prices = download_prices(symbols, args.start, args.end or date.today().isoformat())
+        source = "Yahoo Finance"
+    else:
+        prices, source = demo_prices(), "Demo · synthetic"
+    currency = args.currency.strip().upper()
+    metadata = dict(universe_prices.metadata) if universe_prices is not None else {}
+    metadata.update(source=source, price_currency=currency,
+                    currency_assumption=f"All prices are declared in {currency}. No currency conversion occurs.")
+    if universe_prices is not None:
+        metadata["universe_coverage"] = universe_prices.coverage.to_dict(orient="records")
+    if universe_prices is not None or source == "Yahoo Finance":
+        metadata.update(requested_start=args.start, requested_end_exclusive=args.end or date.today().isoformat())
+    benchmark_prices = None
+    if args.no_benchmarks:
+        metadata["benchmarks_note"] = "Market benchmarks are disabled by --no-benchmarks; ETF advantage cannot be established."
+    elif synthetic:
+        metadata["benchmarks_note"] = "Synthetic demo data has no real market comparison; ETF advantage cannot be established."
+    elif currency != "USD":
+        metadata["benchmarks_note"] = f"Market comparisons require USD prices. Declared currency: {currency}. No currency conversion occurs."
+    else:
+        try:
+            if args.benchmark_csv is not None:
+                benchmark_prices = load_csv(args.benchmark_csv)
+                metadata["benchmark_source"] = "CSV: " + args.benchmark_csv.name
+            elif args.download_benchmarks:
+                benchmark_prices = download_benchmarks(prices.index)
+                metadata["benchmark_source"] = "Yahoo Finance"
+            elif universe_prices is not None:
+                benchmark_prices = universe_prices.benchmarks
+                metadata["benchmark_source"] = "Yahoo Finance · universe download"
+            elif set(BENCHMARK_SYMBOLS).issubset(prices.columns):
+                benchmark_prices = prices.loc[:, list(BENCHMARK_SYMBOLS)]
+                metadata["benchmark_source"] = "Asset columns: SPY, QQQ"
+            elif source == "Yahoo Finance":
+                benchmark_prices = download_benchmarks(prices.index)
+                metadata["benchmark_source"] = "Yahoo Finance"
+            else:
+                metadata["benchmarks_note"] = "CSV analysis stays offline. Supply --benchmark-csv to establish ETF comparisons."
+            if benchmark_prices is not None:
+                benchmark_prices = validate_benchmark_prices(benchmark_prices, prices.index)
+        except (ValueError, RuntimeError, OSError) as exc:
+            benchmark_prices = None
+            metadata["benchmarks_note"] = f"Market benchmarks are unavailable: {exc}"
+    study = run_selection(prices, benchmark_prices, target_volatility=args.target_volatility, **settings,
+                          rebalance_every=args.rebalance_every, cost_bps=args.cost_bps)
+    export_directory = args.output.resolve()
+    reproduce = ["python", "-m", "efficient_frontier", "--csv", str(export_directory / "prices.csv"),
+                 "--target-volatility", str(args.target_volatility)]
+    for key in ("train_fraction", "risk_free_rate", "max_weight", "shrinkage", "periods_per_year"):
+        reproduce.extend(["--" + key.replace("_", "-"), str(settings[key])])
+    reproduce.extend(["--rebalance-every", str(args.rebalance_every), "--cost-bps", str(args.cost_bps), "--currency", currency])
+    reproduce.extend(["--benchmark-csv", str(export_directory / "benchmark_prices.csv")] if benchmark_prices is not None else ["--no-benchmarks"])
+    reproduce.extend(["--output", str(export_directory / "reproduced")])
+    metadata["reproduce_command"] = shlex.join(reproduce)
+    metadata["reproduce_note"] = "Run from the project checkout with the same dependencies. Update file paths if the export folder moves."
+    write_report_bundle(selection_report_zip(study, prices, metadata), args.output)
+    print(f"Source: {source}")
+    print(f"Annual volatility target: {args.target_volatility:.1%}; holding cap: {settings['max_weight']:.1%}")
+    print(f"Frozen historical-mean blend: {study.policy.blend:.1%}")
+    print("Passed the descriptive support screen." if study.supported else "No supported stock selection.")
+    for note in dict.fromkeys([*study.policy.reasons, *study.reasons, *study.warnings]):
+        print(f"Note: {note}")
+    if "benchmarks_note" in metadata:
+        print(f"Note: {metadata['benchmarks_note']}")
+    print("\nLater test (not used to choose the blend):")
+    print(selection_metrics_frame(study.test).round(4).to_string())
+    print("Earlier research on these dates can introduce hindsight. A historical test alone is not unseen prospective evidence.")
+    print(f"Report: {(args.output / 'report.html').resolve()}")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build portfolio frontiers, market comparisons, and historical evidence.")
     sources = parser.add_mutually_exclusive_group()
@@ -99,6 +196,7 @@ def main():
     sources.add_argument("--tickers", help="Comma-separated Yahoo Finance symbols; no ticker-count cap")
     sources.add_argument("--original-holdings", action="store_true", help="Use the original 60 tickers from spy_holdings.ods")
     sources.add_argument("--nasdaq100", action="store_true", help="Fetch current Nasdaq-100 members and retain securities with complete prices for the selected period")
+    sources.add_argument("--sp500-nasdaq100", action="store_true", help="With --target-volatility, use the deduplicated S&P 500 (SPY holdings proxy) and Nasdaq-100 stock universe")
     membership_sources = parser.add_mutually_exclusive_group()
     membership_sources.add_argument("--historical-membership", action="store_true", help="Use bundled historical Nasdaq-100 membership with supplied --csv prices; stays offline")
     membership_sources.add_argument("--membership-csv", type=Path, help="Complete dated membership snapshots; requires --csv prices and --membership-end")
@@ -113,8 +211,10 @@ def main():
     parser.add_argument("--end", help="Yahoo end date, exclusive; defaults to today")
     parser.add_argument("--train-fraction", type=float, default=.7)
     parser.add_argument("--risk-free-rate", type=float, default=.02, help="Annual decimal, e.g. .02")
-    parser.add_argument("--max-weight", type=float, default=1.0,
-                        help="Optional per-asset cap as a decimal; default 1 means no additional cap")
+    parser.add_argument("--max-weight", type=float,
+                        help="Per-asset cap as a decimal; default .10 with --target-volatility, otherwise 1 (no additional cap)")
+    parser.add_argument("--target-volatility", type=float,
+                        help="Run single-portfolio selection with an annual volatility target as a decimal, e.g. .20 for 20 percent; omit a source flag to use the offline demo")
     parser.add_argument("--shrinkage", type=float, default=.1,
                         help="Covariance shrinkage toward zero correlations: 0 uses sample covariance; 1 keeps only individual variances")
     parser.add_argument("--periods-per-year", type=float, default=252,
@@ -125,15 +225,23 @@ def main():
     parser.add_argument("--cost-bps", type=float, default=10., help="Backtest fee per unit of bought or sold notional, in basis points")
     parser.add_argument("--output", type=Path, default=Path("results/latest"))
     args = parser.parse_args()
+    if args.max_weight is None:
+        args.max_weight = .1 if args.target_volatility is not None else 1.0
     settings = {key: getattr(args, key) for key in ("train_fraction", "risk_free_rate", "max_weight", "shrinkage", "periods_per_year")}
     try:
         currency = args.currency.strip().upper()
         if not currency:
             raise ValueError("currency must identify the common price currency, such as USD or EUR.")
         if args.historical_demo or args.historical_membership or args.membership_csv is not None:
+            if args.target_volatility is not None or args.sp500_nasdaq100:
+                raise ValueError("Historical membership is a separate study; omit --target-volatility and --sp500-nasdaq100.")
             return historical_cli(args, settings)
         if args.membership_end is not None:
             raise ValueError("--membership-end requires --membership-csv.")
+        if args.target_volatility is not None:
+            return selection_cli(args, settings)
+        if args.sp500_nasdaq100:
+            raise ValueError("--sp500-nasdaq100 requires --target-volatility, for example .20 for 20% annual volatility.")
         synthetic = args.csv is None and args.tickers is None and not args.original_holdings and not args.nasdaq100
         if synthetic and (args.benchmark_csv is not None or args.download_benchmarks):
             raise ValueError("Synthetic demo data cannot use real market benchmarks. Select --csv or --tickers first.")

@@ -1,7 +1,10 @@
 import json
+import io
 from pathlib import Path
+import shlex
 import subprocess
 import sys
+import zipfile
 
 import pandas as pd
 import numpy as np
@@ -574,3 +577,123 @@ def test_nasdaq100_failure_does_not_fall_back_to_demo(tmp_path, monkeypatch, cap
     assert cli.main() == 1
     assert error in capsys.readouterr().err
     assert not output.exists()
+
+
+def test_risk_target_cli_exports_complete_offline_inputs_and_reproduces(tmp_path, monkeypatch, benchmark_inputs):
+    from efficient_frontier import __main__ as cli
+
+    prices, benchmarks = benchmark_inputs
+    source, market = tmp_path / "stocks.csv", tmp_path / "markets.csv"
+    prices.to_csv(source)
+    benchmarks.to_csv(market)
+    for name in ("download_prices", "download_benchmarks", "fetch_nasdaq100", "fetch_sp500_nasdaq100", "download_universe_prices"):
+        monkeypatch.setattr(cli, name, forbid_download)
+    output = tmp_path / "risk target"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--csv", str(source), "--benchmark-csv", str(market),
+                                      "--target-volatility", ".20", "--max-weight", ".5", "--output", str(output)])
+    assert cli.main() == 0
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["settings"]["target_volatility"] == .20
+    assert metadata["settings"]["max_weight"] == .5
+    assert metadata["selected"] == "Selected stock rule"
+    assert not (output / "latest_profile_weights.csv").exists()
+    pd.testing.assert_frame_equal(pd.read_csv(output / "prices.csv", index_col=0, parse_dates=True), prices, check_freq=False)
+    pd.testing.assert_frame_equal(pd.read_csv(output / "benchmark_prices.csv", index_col=0, parse_dates=True), benchmarks, check_freq=False)
+    assert (output / "eligibility.csv").is_file()
+    assert json.loads((output / "policy.json").read_text()) == metadata["policy"]
+    assert {key.split("/")[0] for key in metadata["result_files"]} == {"validation", "test"}
+    command = shlex.split(metadata["reproduce_command"])
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", *command[3:]])
+    assert cli.main() == 0
+    for name in ("latest_weights.csv", "validation/metrics.csv", "test/metrics.csv"):
+        pd.testing.assert_frame_equal(pd.read_csv(output / name, index_col=0),
+                                      pd.read_csv(output / "reproduced" / name, index_col=0), atol=1e-8, rtol=1e-8)
+
+
+def test_risk_target_combined_source_is_explicit_and_reuses_matching_etf_prices(tmp_path, monkeypatch, nasdaq_universe):
+    from efficient_frontier import __main__ as cli
+
+    snapshot, universe = nasdaq_universe
+    calls = []
+    monkeypatch.setattr(cli, "fetch_sp500_nasdaq100", lambda: snapshot)
+    monkeypatch.setattr(cli, "fetch_nasdaq100", forbid_download)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    monkeypatch.setattr(cli, "download_universe_prices", lambda *args: calls.append(args) or universe)
+    output = tmp_path / "combined"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--sp500-nasdaq100", "--target-volatility", ".20",
+                                      "--max-weight", ".5", "--start", "2022-01-01", "--end", "2023-01-01", "--output", str(output)])
+    assert cli.main() == 0
+    assert calls == [(snapshot, "2022-01-01", "2023-01-01")]
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["source"] == "S&P 500 + Nasdaq-100 · Yahoo Finance"
+    assert metadata["universe_coverage"] == universe.coverage.to_dict(orient="records")
+    assert metadata["benchmark_source"] == "Yahoo Finance · universe download"
+    pd.testing.assert_frame_equal(pd.read_csv(output / "benchmark_prices.csv", index_col=0, parse_dates=True),
+                                  universe.benchmarks, check_freq=False)
+
+
+def test_risk_target_csv_without_markets_is_explicitly_unsupported(tmp_path, monkeypatch, benchmark_inputs, capsys):
+    from efficient_frontier import __main__ as cli
+
+    source = tmp_path / "stocks.csv"
+    benchmark_inputs[0].to_csv(source)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    output = tmp_path / "uncompared"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--csv", str(source), "--target-volatility", ".20",
+                                      "--max-weight", ".5", "--output", str(output)])
+    assert cli.main() == 0
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["supported"] is False
+    assert "stays offline" in metadata["benchmarks_note"]
+    assert any("benchmark" in reason.lower() and "unavailable" in reason.lower()
+               for reason in metadata["reasons"])
+    assert not (output / "benchmark_prices.csv").exists()
+    assert "No supported stock selection" in capsys.readouterr().out
+
+
+def test_risk_target_default_cap_is_not_silently_relaxed_for_demo(tmp_path, monkeypatch, capsys):
+    from efficient_frontier import __main__ as cli
+
+    monkeypatch.setattr(cli, "fetch_sp500_nasdaq100", forbid_download)
+    output = tmp_path / "infeasible"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--target-volatility", ".20", "--output", str(output)])
+    assert cli.main() == 1
+    assert "10.0%" in capsys.readouterr().err
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("flags,message", [
+    (["--target-volatility", ".2", "--historical-demo"], "Historical membership is a separate study"),
+    (["--sp500-nasdaq100"], "requires --target-volatility"),
+    (["--target-volatility", ".2", "--rolling-window", "20"], "omit --rolling-window"),
+])
+def test_risk_target_rejects_incompatible_modes_before_download(tmp_path, monkeypatch, capsys, flags, message):
+    from efficient_frontier import __main__ as cli
+
+    for name in ("demo_prices", "fetch_sp500_nasdaq100", "download_prices"):
+        monkeypatch.setattr(cli, name, forbid_download)
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", *flags, "--output", str(tmp_path / "invalid")])
+    assert cli.main() == 1
+    assert message in capsys.readouterr().err
+
+
+def test_reruns_clean_only_known_selection_exports(tmp_path):
+    from efficient_frontier.__main__ import write_report_bundle
+
+    def bundle(names):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name in names:
+                archive.writestr(name, "generated\n")
+        return buffer.getvalue()
+
+    generated = ["policy.json", "latest_weights.csv", "latest_estimates.csv", "eligibility.csv",
+                 "validation/metrics.csv", "validation/equity.csv", "validation/01_allocations.csv",
+                 "test/metrics.csv", "test/equity.csv", "test/01_holdings.csv", "test/01_trades.csv"]
+    write_report_bundle(bundle(["report.html", *generated]), tmp_path)
+    notes = [tmp_path / "notes.txt", tmp_path / "validation" / "notes.csv", tmp_path / "test" / "01_custom.csv"]
+    for path in notes:
+        path.write_text("Keep this user file.\n")
+    write_report_bundle(bundle(["report.html", "weights.csv"]), tmp_path)
+    assert all(not (tmp_path / name).exists() for name in generated)
+    assert all(path.read_text() == "Keep this user file.\n" for path in notes)

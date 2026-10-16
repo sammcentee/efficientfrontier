@@ -1,8 +1,39 @@
 # Backtesting methods and accounting
 
-In the app, **Show portfolios** calculates four methods as part of the study. The CLI enables this comparison with `--backtests`. The original targets are minimum volatility, maximum Sharpe, and equal weight. With sufficient history, the app and CLI also include Low, Medium, and Extreme profiles. The app's **Risk level** control calls Extreme **Highest**.
+The app uses the risk-budget method below. The CLI enables it with `--target-volatility`, for example `.20` for 20% annual volatility. The earlier frontier and backtest APIs remain available for legacy diagnostics.
 
-Every asset in the accepted price dataset remains eligible. Nasdaq-100 input first excludes members without complete prices for the selected period. The [coverage rules](../README.md#the-full-nasdaq-100-universe) explain this step and its historical selection bias. There is no fixed ticker-count or holdings-count cap.
+## Risk-budget selection
+
+The user sets an annual volatility ceiling and a per-stock holding limit before the calculation. Stock portfolios are long-only and fully invested. The default holding limit is 10%. An infeasible budget or insufficient eligible stocks stops the calculation with an explanation. The engine does not relax either constraint or add stock-portfolio cash silently.
+
+Each fit estimates annual arithmetic means `mu` and covariance `Sigma` from its available past returns. Covariance uses the selected diagonal shrinkage. The historical-mean endpoint solves:
+
+```text
+maximize: mu @ w
+subject to: sum(w) = 1
+            0 <= w <= holding_limit
+            w.T @ Sigma @ w <= volatility_budget ** 2
+```
+
+The diversified endpoint minimizes squared distance from equal stock weights under those same constraints. The three predefined candidates put 0%, 50%, or 100% in the historical-mean endpoint. Each blend also satisfies the convex constraints. This provides actual diversification pressure while retaining historical means. Uniformly shrinking all means toward one common value would not change this fully invested mean-maximization problem.
+
+With `T` return intervals, the development block ends at `floor(train_fraction × T)`. Its first two thirds form the initial fit. Its remaining third is validation. Every candidate follows the same expanding-window refits, delayed execution, and fees. The blend with the highest net validation CAGR wins. Numerical ties favor the diversified endpoint. The selected blend stays fixed for the remaining historical test.
+
+All later weight refits still use only prices through the prior close. The later test cannot change the selected blend. Latest candidate weights use all observed prices with that frozen blend. Historical data examined during research is not fresh prospective evidence, even when the algorithm excludes it from blend selection.
+
+The support flag is a descriptive product screen. It requires both ETF references and at least `ceil(periods_per_year)` return intervals in both validation and the later test. It also checks the selected rule's net growth against the diversified and risk-matched ETF baselines, plus realized volatility against the chosen budget in both periods. Failure produces an unsupported research candidate, not a forced stock recommendation. These conditions do not establish statistical significance or future skill.
+
+The risk-matched ETF rules invest `min(1, budget / past_estimated_volatility)` in SPY or QQQ and retain the balance as zero-interest cash. They use the same delayed monthly refits and per-dollar trading fees. They never borrow to reach the budget. Separate raw ETF references buy once after the same initial cash interval and entry fee. Estimated risk matching does not guarantee equal realized risk.
+
+At every fit, the engine excludes stocks with at least 20 consecutive unchanged price intervals in the past sample. It retains the original input prices and exports each dated eligibility decision. Repeated quotes do not prove false data. If a held stock later triggers the screen, the study stops rather than assume a verified sale at that quote.
+
+Weight constraints can reduce estimation problems without ensuring superior returns. See [Jagannathan and Ma's research](https://www.nber.org/papers/w8922) and the [CVXPY portfolio formulation](https://www.cvxgrp.org/cvx_short_course/docs/applications/notebooks/portfolio_optimization.html). The live input universe still uses current members and complete-history eligibility, so it retains selection and survivorship bias.
+
+## Legacy strategy comparison
+
+The CLI's `--backtests` option compares four execution methods. Its original targets are minimum volatility, maximum Sharpe, and equal weight. The legacy CLI can also include Low, Medium, and Extreme profiles. The app no longer uses a three-level risk selector.
+
+Every asset in the accepted legacy price dataset remains eligible. The stock-universe loaders first record members without complete prices. The [coverage rules](../README.md#stocks-from-spy-and-the-nasdaq-100) explain this step and its historical selection bias.
 
 | Method | Target weights | Estimation sample |
 | --- | --- | --- |
@@ -30,9 +61,9 @@ The `--periods-per-year` option controls annualization. Its default is 252, and 
 
 Both engines need at least two training returns and two holdout returns. The CSV reader accepts at least five price rows. The chosen split must still meet both return counts. Results include a warning for fewer than 30 training returns. They also include a warning when the asset count equals or exceeds the training return count.
 
-## Latest model holdings and profiles
+## Legacy model holdings and profiles
 
-The primary model uses historical arithmetic mean return. Latest holdings fit all supplied returns through the final price date. For weights `w`, the fitted annual mean is `mu @ w`, where `mu` is the annualized arithmetic mean of each asset over the complete fit period. This estimate is not compound growth (CAGR) or a forecast.
+The legacy frontier model uses historical arithmetic mean return. Latest holdings fit all supplied returns through the final price date. For weights `w`, the fitted annual mean is `mu @ w`, where `mu` is the annualized arithmetic mean of each asset over the complete fit period. This estimate is not compound growth (CAGR) or a forecast.
 
 Covariance uses the same fit period and the selected shrinkage. Weights are long-only, sum to one, and obey the chosen per-asset cap. For each arithmetic mean return target, the frontier minimizes portfolio variance:
 
