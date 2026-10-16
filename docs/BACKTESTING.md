@@ -140,6 +140,8 @@ The report highlights the highest net return, the smallest maximum drawdown, hol
 
 A fixed list chosen later in history creates universe-selection and survivorship bias even when every fit respects time order. Changing settings after seeing results also contaminates the evaluation period. The methods do not repair either problem. Different start dates, fee assumptions and market regimes can change the comparison.
 
+The overview keeps the profile, maximum-Sharpe, and equal-weight comparisons in a fixed order. It does not use the test winner to select the next allocation. A sample-mean optimum can concentrate in past winners and perform poorly later. Estimation error is a known limitation of optimized portfolios; see the [DeMiguel, Garlappi, and Uppal research paper](https://warwick.ac.uk/fac/soc/wbs/subjects/finance/events/recentevents/pastevents/behaviouralfinance1day/uppal_paper_06.pdf). Equal weight is a comparison rule, not a claim of future outperformance.
+
 ## Reproduce and inspect
 
 In the app, open **Test settings** in the market test to set trade intervals, costs, and rolling history. Select **Run the test again** after you change these assumptions. Use **Research → All tests** for every strategy, holding, and trade.

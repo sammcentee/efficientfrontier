@@ -6,7 +6,7 @@ import pytest
 
 from efficient_frontier.data import (
     BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices, load_csv,
-    original_tickers, parse_tickers, validate_benchmark_prices, validate_prices,
+    original_tickers, parse_tickers, stale_price_notes, validate_benchmark_prices, validate_prices,
 )
 
 
@@ -21,6 +21,24 @@ def test_demo_is_complete_deterministic_and_clearly_synthetic():
     assert data.shape == (1000, 6)
     assert all(name.startswith("DEMO_") for name in data.columns)
     pd.testing.assert_frame_equal(validate_prices(data), data, check_freq=False)
+
+
+def test_stale_price_note_counts_intervals_and_preserves_prices():
+    prices = pd.DataFrame({"FLAT": [100.] * 21 + [101., 102.],
+                           "ACTIVE": np.arange(100., 123.)},
+                          index=pd.bdate_range("2020-01-01", periods=23))
+    original = prices.copy()
+    notes = stale_price_notes(prices)
+    assert len(notes) == 1
+    assert "FLAT: 20 consecutive price intervals" in notes[0]
+    assert "remain in the study" in notes[0]
+    pd.testing.assert_frame_equal(prices, original)
+
+
+def test_short_flat_runs_do_not_accumulate_across_price_changes():
+    prices = pd.DataFrame({"ACTIVE": [100.] * 20 + [101.] * 20})
+    assert stale_price_notes(prices) == []
+    assert stale_price_notes(demo_prices()) == []
 
 
 def test_validation_sorts_and_normalizes_daily_dates_without_changing_values(prices):

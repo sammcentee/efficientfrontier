@@ -17,6 +17,7 @@ from . import story
 from .backtest_report import backtest_html, findings_markdown
 from .benchmark_report import add_benchmark_estimates, add_benchmark_paths, benchmark_html
 from .core import CLASSIC_PROFILE_NAMES
+from .data import stale_price_notes
 from .risk import risk_contributions, risk_summary
 from .style import COLORS, INK, INK_2, PLOTLY_CONFIG, REPORT_CSS, REST, display_label, style_chart
 
@@ -245,26 +246,37 @@ def _latest_profiles_html(profiles: Any, benchmark_estimates=None, selected: str
 
 def _summary_html(analysis: Any, metadata: dict, prices, study, latest_profiles, benchmarks, evidence,
                   profile: str, method: str) -> str:
-    """Answers first: what the selected level holds, how its rule did against the markets and how sure we can be."""
+    """Show measured rule outcomes before proposed holdings and the detailed selected result."""
     universe = str(metadata.get("universe", ""))
     names = story.company_names(metadata.get("universe_coverage"))
     parts = ['<section id="summary">']
     if prices is not None:
         parts.append(story.context_result_html(metadata, prices))
-    if latest_profiles is not None:
-        weights = latest_profiles.portfolios[profile].weights
-        parts.append(f"<h2>{story.headline_html(weights, profile, universe)}</h2>")
-        if not _window_objective(latest_profiles):
-            parts.append(
-                '<p class="source">The primary profiles use the historical arithmetic mean return objective. '
-                'Latest holdings fit all supplied history. Profile backtests use the same objective with only history available before each trade. '
-                'Three-window estimates are diagnostics.</p>'
-            )
-    else:
-        parts.append("<h2>There is not enough history to set risk levels.</h2>")
     items = story.fine_print_items(metadata, prices if prices is not None else analysis.train_returns,
                                    coverage_place="Universe coverage in Data and assumptions")
     parts.append('<aside class="pl-read"><h3>Read this first</h3>' + "".join(f"<p>{item}</p>" for item in items) + "</aside>")
+    if study is not None:
+        parts.append(f'<div class="tile" id="decision-context">'
+                     f'{story.decision_panel_html(study, f"{method} · {profile}", benchmarks)}</div>')
+    if latest_profiles is not None:
+        weights = latest_profiles.portfolios[profile].weights
+        as_of = pd.Timestamp(latest_profiles.as_of)
+        parts.append(f'<p class="pl-eyebrow">Latest proposed holdings · fitted through {as_of.day} {as_of:%b %Y}</p>')
+        parts.append(f"<h2>{story.headline_html(weights, profile, universe)}</h2>")
+        parts.append('<p class="source">These weights use all selected prices. '
+                     'The test replays earlier fits of this rule, with different holdings.</p>')
+        if not _window_objective(latest_profiles):
+            parts.append(
+                '<p class="source">The primary profiles use the historical arithmetic mean return objective. '
+                'Profile backtests use the same objective with only history available before each trade. '
+                'Three-window estimates are diagnostics.</p>'
+            )
+        notes = stale_price_notes(prices) if prices is not None and not prices.empty else []
+        if notes:
+            parts.append('<aside class="pl-read"><h3>Price checks</h3>'
+                         + "".join(f"<p>{html.escape(note)}</p>" for note in notes) + '</aside>')
+    else:
+        parts.append("<h2>There is not enough history to set risk levels.</h2>")
     if latest_profiles is not None:
         parts.append(f'<div class="tile">{story.stats_html(latest_profiles, profile, universe, names)}'
                      f'{story.list_html(weights, names)}</div>')
@@ -274,6 +286,10 @@ def _summary_html(analysis: Any, metadata: dict, prices, study, latest_profiles,
         selected = f"{method} · {profile}"
         if selected not in study.equity:
             selected = f"{method} · Minimum volatility"
+            parts.append(
+                f'<p class="source">The requested {html.escape(display_label(profile))} profile was not included in this backtest. '
+                f'The detailed result below shows {html.escape(display_label(selected))}.</p>'
+            )
         markets = benchmarks is not None and benchmarks.backtest_equity is not None
         if evidence is not None and selected not in evidence.summary.index.get_level_values("strategy"):
             evidence = None
@@ -290,6 +306,7 @@ def _summary_html(analysis: Any, metadata: dict, prices, study, latest_profiles,
             f'<h3 class="pl-answer">{html.escape(story.market_answer(study, selected, benchmarks))}</h3>',
             f'<p class="pl-lead">{html.escape(story.market_lead(study, selected))}</p>',
             f'<div class="tile">{story.result_tile_html(study, selected, benchmarks, evidence, metadata)}</div>',
+            f'<div class="tile">{story.result_drivers_html(study, selected)}</div>',
             f'<div class="tile"><h3 class="pl-title">Growth of 10,000</h3><div class="chart">{chart}</div>'
             f'<p class="pl-small">{html.escape(story.chart_footnote(study, benchmarks))}</p></div>',
             '<p class="pl-eyebrow">How sure can we be?</p>',
@@ -312,7 +329,7 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
                 selected_profile=None, selected_method=None, prices=None) -> str:
     """Return an offline HTML report with a single embedded Plotly bundle.
 
-    The summary shows the selected risk level (default Medium) and rule (default Expanding window) first.
+    The summary compares measured rule outcomes before the selected level's proposed holdings.
     Prices are optional and only supply the dates and counts in the summary context line.
     """
     profile, method = selected_profile or "Medium", selected_method or "Expanding window"

@@ -225,9 +225,9 @@ def test_risk_choice_changes_display_without_refitting_or_dropping_holdings(monk
         held = int((portfolio.weights >= .0005).sum())
         assert f'<span class="pl-num">{portfolio.volatility:.1%}</span><span class="pl-lbl">Volatility</span>' in page
         mean = f"{portfolio.expected_return:.1%}".replace("-", "−")
-        assert f'<span class="pl-num">{mean}</span><span class="pl-lbl">Historical mean</span>' in page
+        assert f'<span class="pl-num">{mean}</span><span class="pl-lbl">Fitted annual mean</span>' in page
         assert f'<span class="pl-nb">{LEVEL[profile]}-risk</span>' in page
-        selected_row = page.split('<tr class="on">')[1].split("</tr>")[0]
+        selected_row = page.split("How the three levels compare")[1].split('<tr class="on">')[1].split("</tr>")[0]
         assert f"{latest.summary.loc[profile, 'volatility']:.1%}" in selected_row and f"<td>{held}</td>" in selected_row
     assert initial_calls > 0 and len(calls) == initial_calls
     app.button(key="key_market").click().run()
@@ -936,6 +936,56 @@ def test_classic_higher_fit_return_can_lose_to_etfs_on_the_later_dates(monkeypat
                        analysis.test_returns.index[0], analysis.test_returns.index[-1]):
         assert f"{date_value.day} {date_value:%b %Y}" in captions
     assert any("does not show which mix won on the later test dates" in item.value for item in app.markdown)
+    app.segmented_control(key="view").set_value("Portfolio").run()
+    study = app.session_state.backtests
+    for profile in ("Medium", "Extreme"):
+        app.segmented_control(key="risk_profile").set_value(profile).run()
+        assert not app.exception and not app.error
+        selected = f"Expanding window · {profile}"
+        assert study.metrics.loc[selected, "cagr"] < benchmarks.backtest_metrics.cagr.min()
+        page = html_text(app)
+        assert page.index("Compare rules and ETFs") < page.index("Latest proposed holdings")
+        assert page.index("No. It trailed both markets.") < page.index("Latest proposed holdings")
+        assert "For compound growth, this test gives no reason to prefer" in page
+        assert "The test replays earlier fits of this rule, with different holdings" in page
+        assert "grew −" not in page
+        assert "What drove the result?" in page
+        contributions = next(item.value for item in app.dataframe if list(item.value.columns) == [
+            "pnl_contribution", "average_weight", "selection_frequency"])
+        expected = study.holdings[selected]
+        np.testing.assert_allclose(contributions.pnl_contribution,
+                                   expected.loc[contributions.index, "pnl_contribution"] * 10_000)
+        assert contributions.pnl_contribution.sum() - study.metrics.loc[selected, "total_cost"] * 10_000 == pytest.approx(
+            study.metrics.loc[selected, "total_return"] * 10_000)
+
+
+def test_decision_panel_follows_the_selected_rule_without_changing_latest_weights(monkeypatch, market_prices):
+    from efficient_frontier import story
+
+    app = market_app(monkeypatch, market_prices)
+    weights = app.session_state.latest_profiles.frontier_weights.copy()
+    study = app.session_state.backtests
+    benchmarks = app.session_state.benchmarks
+    for method in ("Rolling window", "Buy and hold", "Expanding window"):
+        app.selectbox(key="comparison_method").select(method).run()
+        assert not app.exception and not app.error
+        selected = f"{method} · Medium"
+        page = html_text(app)
+        assert story.decision_panel_html(study, selected, benchmarks) in page
+        assert page.index("Compare rules and ETFs") < page.index("Latest proposed holdings")
+        assert app.session_state.risk_profile == "Medium"
+        assert app.session_state.backtests is study
+        pd.testing.assert_frame_equal(app.session_state.latest_profiles.frontier_weights, weights)
+
+
+def test_stale_price_warning_preserves_the_supplied_universe(monkeypatch, market_prices):
+    prices = market_prices.copy()
+    prices.loc[prices.index[10:36], "FUND_X"] = prices.loc[prices.index[10], "FUND_X"]
+    app = market_app(monkeypatch, prices)
+    assert not app.exception and not app.error
+    assert any("FUND_X" in item.value and "unchanged" in item.value for item in app.warning)
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
+    assert set(app.session_state.latest_profiles.portfolios["Medium"].weights.index) == set(prices.columns)
 
 
 def test_weakest_window_comparison_is_lazy_and_does_not_change_primary_results(monkeypatch, market_prices):

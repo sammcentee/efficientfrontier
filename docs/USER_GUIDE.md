@@ -60,6 +60,14 @@ The app evaluates four allocation rules: buy and hold, fixed rebalance, expandin
 
 The primary profiles use historical arithmetic mean return and covariance. Low has the least fitted volatility. Medium is the sampled frontier point nearest the midpoint of Low and Highest volatility. Highest has the largest fitted arithmetic mean return. Latest holdings fit all supplied history. The allocation rules use the same objective with only the data available before each trade.
 
+The overview first shows how each rule performed in the test, beside maximum Sharpe, equal weight, and the available ETFs. Rows stay in a fixed order. A higher risk level does not mean a better test result. Compare volatility and the largest fall from a peak as well as growth. Medium describes a position on this frontier; it is not a moderate risk rating against the market.
+
+**Latest proposed holdings** use prices through the final date. The replay held earlier selections, which can be different stocks. Its holding contributions explain the profit and loss during the test. Those contributions add up to the total return before fees; subtracting fees gives the net total return.
+
+**Test mean / year** is the annual arithmetic mean of the actual net test returns. **Growth / year (CAGR)** compounds those same returns. For example, a gain of 50% followed by a loss of 50% has a zero arithmetic mean but loses 25% of the starting value. The larger fitted mean above the latest holdings uses a different period and different weights.
+
+The app flags stretches of at least 20 consecutive unchanged price intervals. This is a diagnostic for possible stale or illiquid quotes. It does not prove an error, exclude an asset, or change its prices. A long flat history can make fitted volatility look too low for the intended trading assumptions.
+
 Three historical windows show diagnostic mean returns. They do not select primary weights. **Research → Efficient frontiers** retains an optional **Weakest-window frontier**, which optimizes the lowest window mean. That comparison does not change the primary holdings or backtests. Both objectives describe past data; neither estimates compound growth or guarantees future returns.
 
 **Research → Risk breakdown** uses the initial model weights and the covariance from the training period. It describes the initial model, rather than later weight drift. Latest-profile estimates use all supplied history. These are different fits. See the [risk definitions](BACKTESTING.md#portfolio-risk-and-diversification).
