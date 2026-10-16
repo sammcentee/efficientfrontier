@@ -521,13 +521,44 @@ def test_old_study_waits_for_intentional_migration_and_retains_input_prices(monk
     monkeypatch.setattr(selection, "run_selection", unexpected)
     app.run()
     assert not app.exception and "selection" not in app.session_state
-    assert any("previous three-profile model" in item.value for item in app.info)
+    assert any("previous selection model" in item.value for item in app.info)
     assert not app.get("download_button")
     pd.testing.assert_frame_equal(app.session_state.result[1], prices)
     app.button(key="migrate_selection").click().run()
     assert not app.exception and app.session_state.setup_open
     assert app.slider(key="target_vol").value == 20. and app.number_input(key="cap").value == 10.
     assert "selection" not in app.session_state and offline_app == []
+
+
+def test_changed_model_blocks_old_results_and_rebuilds_identical_inputs(monkeypatch, offline_app):
+    from efficient_frontier import selection
+
+    calls = []
+    original = selection.run_selection
+
+    def select(*args, **kwargs):
+        calls.append("selection")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(selection, "run_selection", select)
+    app = demo_app()
+    prices = app.session_state.result[1].copy()
+    setup = dict(app.session_state.setup)
+    assert calls == ["selection"] and app.get("download_button")
+    monkeypatch.setattr(selection, "MODEL_REVISION", "test_new_revision")
+    app.run()
+    assert not app.exception and calls == ["selection"]
+    assert any("previous selection model" in item.value for item in app.info)
+    assert not app.get("download_button")
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
+    assert app.session_state.setup == setup
+    app.button(key="migrate_selection").click().run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error and calls == ["selection", "selection"]
+    assert app.session_state.result[2]["selection_model_revision"] == "test_new_revision"
+    assert app.session_state.selection.settings["model_revision"] == "test_new_revision"
+    assert app.get("download_button") and offline_app == []
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
 
 
 def test_research_is_lazy_and_passive_views_do_not_refit_selection(monkeypatch):

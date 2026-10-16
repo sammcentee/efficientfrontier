@@ -57,6 +57,8 @@ Historical arithmetic means still drive the return objective. The method fits a 
 
 The result status checks the selected rule against the diversified baseline and available ETFs at the selected risk budget. A failed comparison produces **no supported stock-selection advantage**, rather than a forced recommendation. This is a descriptive screen, not statistical proof of investment skill.
 
+The screen also compares the selected stock rule with raw SPY and QQQ in validation and the later test. Support fails if a raw ETF has strictly higher net CAGR with no more realized volatility in either period. This check does not change the selected blend or its weights.
+
 The latest candidate uses all observed prices with the frozen blend. Its weights can differ from those held in the historical replay. Fitted arithmetic means, realized arithmetic means, and compound growth (CAGR) have separate labels. See the [risk-budget method](docs/BACKTESTING.md#risk-budget-selection).
 
 ## Stocks from SPY and the Nasdaq-100

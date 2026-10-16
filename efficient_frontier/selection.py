@@ -13,6 +13,7 @@ from .metrics import performance_metrics, validate_periods_per_year
 
 SELECTED = "Selected stock rule"
 BASELINE = "Diversified baseline"
+MODEL_REVISION = "risk_budget_v2"
 CANDIDATE_NAMES = {
     0.0: BASELINE,
     0.5: "50% historical-mean blend",
@@ -279,6 +280,7 @@ def run_selection(
     if min(initial_end, development_end - initial_end, count - development_end) < 2:
         raise ValueError("Selection needs at least two returns in each initial training, validation, and later test period.")
     settings = {
+        "model_revision": MODEL_REVISION,
         "target_volatility": float(target_volatility), "risk_target": float(target_volatility),
         "max_weight": float(max_weight), "train_fraction": float(train_fraction),
         "rebalance_every": int(rebalance_every), "cost_bps": float(cost_bps),
@@ -333,6 +335,14 @@ def run_selection(
     for name in comparisons:
         if name != chosen and validation.metrics.loc[chosen, "cagr"] <= validation.metrics.loc[name, "cagr"] + 1e-10:
             policy_reasons.append(f"The selected stock rule did not beat {name} on net validation CAGR.")
+    raw_symbols = list(benchmark_prices) if benchmark_prices is not None else []
+    for symbol in raw_symbols:
+        raw = validation.metrics.loc[BENCHMARK_NAMES[symbol]]
+        candidate = validation.metrics.loc[chosen]
+        if raw.cagr > candidate.cagr + 1e-10 and raw.volatility <= candidate.volatility + 1e-10:
+            policy_reasons.append(
+                f"Raw {symbol} had higher compound growth and no more realized volatility in earlier validation."
+            )
     policy = SelectionPolicy(blend, not policy_reasons, tuple(policy_reasons))
     test = _simulate(prices, benchmark_prices, development_end, count, fit, settings)
     reasons = list(policy_reasons)
@@ -343,6 +353,11 @@ def run_selection(
             reasons.append(f"The selected stock rule did not beat {name} on net CAGR in the later test.")
     if test.metrics.loc[chosen, "volatility"] > target_volatility + 1e-10:
         reasons.append("Realized annual volatility in the later test exceeded the requested target.")
+    for symbol in raw_symbols:
+        raw = test.metrics.loc[BENCHMARK_NAMES[symbol]]
+        candidate = test.metrics.loc[chosen]
+        if raw.cagr > candidate.cagr + 1e-10 and raw.volatility <= candidate.volatility + 1e-10:
+            reasons.append(f"Raw {symbol} had higher compound growth and no more realized volatility in the later test.")
     _selected_alias(validation, chosen)
     _selected_alias(test, chosen)
     baseline, maximum, mean, covariance, _, _ = fit(count)

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from efficient_frontier.selection import (
-    BASELINE, BENCHMARK_NAMES, CANDIDATE_NAMES, RISK_MATCHED_NAMES, SELECTED,
+    BASELINE, BENCHMARK_NAMES, CANDIDATE_NAMES, MODEL_REVISION, RISK_MATCHED_NAMES, SELECTED,
     _fit_targets, run_selection,
 )
 
@@ -129,6 +129,8 @@ def test_validation_ties_choose_baseline_and_missing_markets_never_pass_gate():
     assert any("baseline" in reason for reason in result.reasons)
     assert any("benchmark prices are unavailable" in reason for reason in result.reasons)
     assert list(result.latest) == [SELECTED, BASELINE]
+    assert result.settings["model_revision"] == MODEL_REVISION == "risk_budget_v2"
+    assert result.validation.settings["model_revision"] == result.test.settings["model_revision"] == MODEL_REVISION
     json.dumps(asdict(result.policy))
     json.dumps(result.settings)
 
@@ -297,3 +299,34 @@ def test_validation_risk_breach_blocks_support_even_when_later_returns_and_risk_
         assert result.test.metrics.loc[SELECTED, "cagr"] > result.test.metrics.loc[comparator, "cagr"]
     assert not result.policy.validation_passed and not result.supported
     assert result.reasons == ["Realized annual volatility in earlier validation exceeded the requested target."]
+
+
+@pytest.mark.parametrize("market_noise, dominated", [(.003, True), (.06, False)])
+def test_raw_etf_dominance_blocks_support_but_a_higher_risk_return_tradeoff_does_not(market_noise, dominated):
+    sign = np.tile([-1., 1.], 80)
+    a = .02 + sign * np.r_[np.full(80, .01), np.full(80, .02)]
+    b = .002 - sign * .001
+    stocks = prices_from_returns(np.column_stack([a, b]))
+    market = .03 + sign * np.r_[np.full(80, .2), np.full(80, market_noise)]
+    markets = prices_from_returns(np.column_stack([market, market]), ["SPY", "QQQ"])
+    result = run_selection(stocks, markets, target_volatility=.25, max_weight=1,
+                           train_fraction=.75, periods_per_year=12, rebalance_every=1000)
+    assert result.policy.blend == 1
+    for phase in (result.validation, result.test):
+        candidate = phase.metrics.loc[SELECTED]
+        assert candidate.volatility < .25
+        for comparator in (BASELINE, *RISK_MATCHED_NAMES.values()):
+            assert candidate.cagr > phase.metrics.loc[comparator, "cagr"]
+        for comparator in BENCHMARK_NAMES.values():
+            raw = phase.metrics.loc[comparator]
+            assert raw.cagr > candidate.cagr
+            assert bool(raw.volatility <= candidate.volatility) is dominated
+    assert result.supported is not dominated
+    assert result.policy.validation_passed is not dominated
+    if dominated:
+        assert len(result.reasons) == 4
+        assert all("higher compound growth and no more realized volatility" in reason for reason in result.reasons)
+        assert any("earlier validation" in reason for reason in result.reasons)
+        assert any("later test" in reason for reason in result.reasons)
+    else:
+        assert not result.reasons
