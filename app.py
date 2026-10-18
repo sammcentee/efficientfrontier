@@ -12,12 +12,12 @@ import streamlit as st
 
 from efficient_frontier import story
 from efficient_frontier.backtest_report import HOLDINGS
-from efficient_frontier.data import BENCHMARK_SYMBOLS, demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, stale_price_notes, validate_benchmark_prices
+from efficient_frontier.data import demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, stale_price_notes
 from efficient_frontier.presentation import csv_text
 from efficient_frontier.style import APP_CSS, PLOTLY_CONFIG
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
-from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates
-from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_fit_summary_html, selection_benchmark_note, FIT_METRIC_LABELS
+from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates, selection_frontier, split_stock_prices, validate_selection_benchmarks
+from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_fit_summary_html, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html
 
 
 st.set_page_config(page_title="Portfolio Lab", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
@@ -29,11 +29,11 @@ MARKET_CAPTIONS = ["Today’s combined members, without duplicate symbols. Price
                    "Your own adjusted prices. Stays offline.", "Six simulated assets. Works offline."]
 FREQUENCIES = {"Daily market prices": 252, "Daily calendar prices": 365, "Weekly": 52, "Monthly": 12, "Custom": None}
 DEFAULT_TEST = {"rebalance_every": 21, "cost_bps": 10.0}
-FIXED_ASSUMPTIONS = {"train_pct": 70, "shrink": 10, "risk_free": 2.0}
+FIXED_ASSUMPTIONS = {"train_pct": 70, "shrink": 0, "risk_free": 2.0}
 DEFAULT_SETUP = {
     "market": "S&P 500 + Nasdaq-100", "history": "5 years", "ticker_text": "AAPL, MSFT, AMZN, GOOGL, NVDA, META, JPM, XOM, JNJ, PG, KO, UNH",
     "start": date(2020, 1, 1), "end": date.today(), "use_cap": True, "cap": 10.0, "target_vol": 20.0, "risk_free": 2.0,
-    "train_pct": 70, "shrink": 10, "frequency": "Daily market prices", "periods_per_year": 252.0,
+    "train_pct": 70, "shrink": 0, "frequency": "Daily market prices", "periods_per_year": 252.0,
     "price_currency": "USD", "compare_market": True, "download_benchmarks": False,
     "prices_file": None, "benchmark_file": None,
 }
@@ -97,6 +97,12 @@ def calculate_selection(prices, benchmark_prices, settings, target_volatility, m
                          **settings, rebalance_every=DEFAULT_TEST["rebalance_every"], cost_bps=DEFAULT_TEST["cost_bps"])
 
 
+@st.cache_data(show_spinner=False, max_entries=2)
+def calculate_frontier(study, prices, model_revision):
+    """Retain the latest fitted frontier across view changes and exports."""
+    return selection_frontier(study, prices)
+
+
 # ----------------------------------------------------------------------------- state and callbacks
 
 def init_state():
@@ -106,9 +112,10 @@ def init_state():
     if st.session_state.view not in ("Portfolio", "Data & method"):
         st.session_state.view = "Portfolio"
     if "target_vol" not in st.session_state.setup:
-        # Stage the new defaults; retained input prices remain available for a deliberate rebuild.
-        st.session_state.setup = {**st.session_state.setup, "market": DEFAULT_SETUP["market"],
-                                  "target_vol": 20.0, "use_cap": True, "cap": 10.0}
+        # Add the new risk input without changing the saved source, files or holding limit.
+        setup = st.session_state.setup
+        st.session_state.setup = {**DEFAULT_SETUP, **setup, "target_vol": 20.0, "use_cap": True,
+                                  "cap": setup.get("cap", 10.0) if setup.get("use_cap", True) else 100.0}
 
 
 def set_state(name, value):
@@ -227,7 +234,8 @@ def make_report_callable():
     """Capture the completed selection and its inputs without recalculating on export."""
     _, prices, metadata = st.session_state.result
     selection = st.session_state.selection
-    return lambda: selection_report_zip(selection, prices, metadata)
+    return lambda: selection_report_zip(selection, prices, metadata,
+                                        frontier_data=calculate_frontier(selection, prices, SELECTION_MODEL_REVISION))
 
 
 def settings_frame(metadata):
@@ -255,6 +263,8 @@ def error_kind(exc):
         return "infeasible"
     if message == "Choose an adjusted-price CSV first.":
         return "no_file"
+    if message.startswith("Provide stock price columns"):
+        return "no_stocks"
     return "other"
 
 
@@ -291,6 +301,10 @@ def build(plan, mark, progress_slot):
             metadata["input_file"] = plan["prices_file"][0]
         mark(3)
         mark(4)
+        prices, embedded_benchmarks = split_stock_prices(prices)
+        if embedded_benchmarks is not None:
+            metadata["excluded_candidate_symbols"] = list(embedded_benchmarks.columns)
+            metadata["candidate_note"] = "Comparison ETFs excluded from candidate holdings: " + ", ".join(embedded_benchmarks.columns) + "."
         benchmark_prices = None
         if market == "Demo":
             metadata["benchmarks_note"] = "Synthetic prices have no real-market benchmark comparison."
@@ -301,23 +315,25 @@ def build(plan, mark, progress_slot):
         else:
             try:
                 if plan["benchmark_file"] is not None:
-                    benchmark_prices = validate_benchmark_prices(load_csv(BytesIO(plan["benchmark_file"][1])), prices.index)
+                    benchmark_prices = load_csv(BytesIO(plan["benchmark_file"][1]))
                     metadata["benchmark_source"] = "CSV: " + plan["benchmark_file"][0]
+                elif embedded_benchmarks is not None:
+                    benchmark_prices = embedded_benchmarks
+                    metadata["benchmark_source"] = "Input columns: " + ", ".join(embedded_benchmarks.columns)
                 elif plan["download_for_csv"]:
                     benchmark_prices = fetch_benchmarks(prices.index)
                     metadata["benchmark_source"] = "Yahoo Finance"
                 elif universe_benchmarks is not None:
                     benchmark_prices = universe_benchmarks
                     metadata["benchmark_source"] = "Yahoo Finance"
-                elif set(BENCHMARK_SYMBOLS).issubset(prices.columns):
-                    benchmark_prices = prices.loc[:, list(BENCHMARK_SYMBOLS)]
-                    metadata["benchmark_source"] = "SPY and QQQ input columns"
                 elif source == "Yahoo Finance":
                     benchmark_prices = fetch_benchmarks(prices.index)
                     metadata["benchmark_source"] = "Yahoo Finance"
                 else:
                     metadata["benchmarks_note"] = ("Add a market prices file, include SPY and QQQ columns, or turn on the Yahoo download. "
                                                    "Select Change, then Data options.")
+                if benchmark_prices is not None:
+                    benchmark_prices = validate_selection_benchmarks(benchmark_prices, prices.index)
             except (ValueError, RuntimeError, OSError) as exc:
                 metadata["benchmarks_note"] = f"Market comparison unavailable: {exc}"
                 benchmark_prices = None
@@ -402,11 +418,12 @@ def setup_sheet():
     market = st.radio("Stocks", MARKETS, index=MARKETS.index(setup["market"]), key="market", captions=MARKET_CAPTIONS, on_change=change_market)
     if market == "My tickers":
         st.text_area("Stock symbols", setup["ticker_text"], key="ticker_text",
-                     help="Separate Yahoo Finance symbols with commas. Exchange suffixes such as .L work.")
+                     help="Separate Yahoo Finance symbols with commas. Exchange suffixes such as .L work. SPY and QQQ serve only as comparisons.")
     elif market == "Upload CSV":
         uploads["prices_file"] = file_slot(
             "Adjusted prices (.csv)", "prices_upload", "prices_file", "clear_prices_file",
-            caption="Use Date as the first column, then one asset per column. Prices must be complete and use a common currency.")
+            caption="Use Date as the first column, then one stock per column. Prices must be complete and use a common currency. "
+                    "SPY and QQQ columns serve only as comparisons and cannot become holdings.")
     if market in ("S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings"):
         history = st.segmented_control("History", ["5 years", "10 years", "Custom dates"], default=setup["history"], key="history",
                                        required=True, format_func=lambda value: "Custom" if value == "Custom dates" else value)
@@ -440,9 +457,9 @@ def setup_sheet():
         st.checkbox("Compare with the S&P 500 and the Nasdaq-100", setup["compare_market"], key="compare_market", disabled=market == "Demo")
         if market == "Upload CSV":
             uploads["benchmark_file"] = file_slot("Market prices (optional)", "benchmark_upload", "benchmark_file",
-                                                  "clear_benchmark_file", help="Use Date,SPY,QQQ on exactly the same dates as your asset file.")
+                                                  "clear_benchmark_file", help="Use Date with SPY, QQQ, or both on exactly the same dates as your stock file.")
             st.checkbox("Download SPY and QQQ from Yahoo Finance for this file", setup["download_benchmarks"], key="download_benchmarks")
-            st.caption("CSV analysis stays offline unless you select this download. SPY and QQQ columns in your asset file also work.")
+            st.caption("CSV analysis stays offline unless you select this download. Local comparison columns take priority over a download.")
     draft = read_draft(uploads)
     if "result" in state and differs(resolve(draft)):
         st.info("Your setup differs from this result. Select Build portfolio to apply it.")
@@ -502,7 +519,8 @@ def welcome_or_error():
             return
         kind = st.session_state.get("build_error_kind", "other")
         headline = {"yahoo": "We could not reach Yahoo Finance.", "no_prices": "Yahoo Finance had no prices for these symbols.",
-                    "infeasible": "These settings have no solution.", "no_file": "The study needs a price file."}.get(
+                    "infeasible": "These settings have no solution.", "no_file": "The study needs a price file.",
+                    "no_stocks": "The portfolio needs stock prices."}.get(
             kind, "The study could not run.")
         st.html(f'<h1 class="pl-display">{html.escape(headline)}</h1>')
         st.error(error)
@@ -511,7 +529,7 @@ def welcome_or_error():
             need = (f"A {cap:g}% limit needs at least {math.ceil(100 / cap - 1e-9)} "
                     f"{'assets' if market in ('Demo', 'Upload CSV') else 'stocks'}. " if cap > 0 else "")
             st.html(f'<p class="pl-lead pl-center">{need}Review the holding limit and annual volatility budget in Change the study. No constraint is relaxed automatically.</p>')
-        try_buttons(fix=kind in ("no_prices", "infeasible", "no_file"))
+        try_buttons(fix=kind in ("no_prices", "infeasible", "no_file", "no_stocks"))
     coverage = st.session_state.get("coverage")
     if coverage is not None:
         with st.container(border=True, key="tile_missing"):
@@ -529,7 +547,7 @@ def risk_reference():
     periods = st.session_state.result[2]["periods_per_year"]
     volatility = benchmark_prices.pct_change(fill_method=None).dropna().std() * math.sqrt(periods)
     st.caption("Reference from the saved input history: " + ", ".join(f"{name} {value:.1%}" for name, value in volatility.items())
-               + " annual historical volatility, without the model's covariance adjustment. "
+               + " annual historical volatility from ordinary sample covariance. "
                "These are observations over the full input history, not the later test or future limits.")
 
 
@@ -557,10 +575,29 @@ def overview():
                             (f"{metadata['max_weight']:.0%}", "Holding limit", "Maximum target weight"))))
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
-    with st.container(border=True, key="tile_selection_decision"):
-        st.html(selection_summary_html(selection, metadata))
+        if metadata.get("candidate_note"):
+            st.info(metadata["candidate_note"])
+    with st.container(border=True, key="tile_fitted_frontier"):
+        frontier_data = calculate_frontier(selection, prices, SELECTION_MODEL_REVISION)
+        st.html(selection_frontier_summary_html(selection, prices, frontier_data))
+        st.plotly_chart(selection_frontier_chart(frontier_data, selection), width="stretch", theme=None, config=PLOTLY_CONFIG)
     with st.container(border=True, key="tile_fitted_estimates"):
         st.html(selection_fit_summary_html(selection, prices))
+    names = story.company_names(st.session_state.get("coverage"))
+    portfolio = selection.latest[selection.selected]
+    with st.expander(f"Latest fitted holdings · fitted through {day(prices.index[-1])}", expanded=True):
+        st.caption("These weights use all supplied prices. The later test used older fits with different holdings. "
+                   "The fitted mean estimates average annual return. It is not the test’s compound growth rate (CAGR).")
+        if not selection.supported:
+            st.warning("The later test of this rule did not meet the performance checks. It used earlier weights.")
+        frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
+        if names:
+            frame.insert(1, "Company", frame.Symbol.map(names))
+        st.dataframe(frame, hide_index=True, width="stretch", column_config={"Weight": st.column_config.NumberColumn("Weight", format="percent")})
+        for note in stale_price_notes(prices):
+            st.warning(note)
+    with st.container(border=True, key="tile_selection_decision"):
+        st.html(selection_summary_html(selection, metadata))
     st.html('<div id="pl-market"></div>')
     with st.container(border=True, key="tile_final_test"):
         selection_period(selection.test, "Later historical test", selection_benchmark_note(selection))
@@ -573,20 +610,6 @@ def overview():
         with st.expander("What drove the stock rule’s test result?"):
             st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
                          column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}})
-    names = story.company_names(st.session_state.get("coverage"))
-    portfolio = selection.latest[selection.selected]
-    with st.expander(f"Latest fitted holdings · fitted through {day(prices.index[-1])}",
-                     expanded=selection.supported):
-        st.caption("These weights use all supplied prices. The later test used older fits with different holdings. "
-                   "The fitted mean estimates average annual return. It is not the test’s compound growth rate (CAGR).")
-        if not selection.supported:
-            st.warning("This portfolio does not pass the historical check. These fitted weights are experimental.")
-        frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
-        if names:
-            frame.insert(1, "Company", frame.Symbol.map(names))
-        st.dataframe(frame, hide_index=True, width="stretch", column_config={"Weight": st.column_config.NumberColumn("Weight", format="percent")})
-        for note in stale_price_notes(prices):
-            st.warning(note)
     if selection.warnings:
         st.warning(selection.warnings[0])
         with st.expander("All data and model notes"):
@@ -612,7 +635,7 @@ def data_method():
         st.html(title_html("One stock model"))
         st.markdown(
             "1. **Estimate returns and risk.** Use average past returns and the relationships between stocks. "
-            "Reduce the measured stock-to-stock covariance by 10% to limit noise.\n"
+            "Use sample covariance, as in the original R model.\n"
             "2. **Choose stock weights.** Maximize estimated average return within your volatility budget and holding limit. "
             "Keep the portfolio fully invested, with no borrowing or short sales. "
             "This does not maximize compound growth or the return-to-volatility ratio.\n"
@@ -634,7 +657,7 @@ def data_method():
                    "This checks later performance, not whether the fitted optimization was solved correctly.")
     with st.expander("Estimates at every fit"):
         st.caption("Each row uses only prices available at its fit date and the saved target weights. "
-                   "Model volatility includes the covariance adjustment. Historical volatility uses ordinary sample covariance. "
+                   "Both volatility estimates use ordinary sample covariance because this model has no covariance shrinkage. "
                    "Neither is the later realized volatility. The same table is exported as fit_estimates.csv.")
         st.dataframe(selection_fit_estimates(selection, prices).style.format(
             {key: "{:.2%}" for key in (*FIT_METRIC_LABELS, "max_weight")}), width="stretch",

@@ -47,6 +47,10 @@ def test_frontier_references_use_the_matching_estimation_objective(comparison):
         assert trace.y[0] == pytest.approx(comparison.benchmarks.training_estimates.loc[name, "expected_return"])
         assert latest.data[-2 + position].y[0] == pytest.approx(comparison.benchmarks.latest_estimates.loc[name, "expected_return"])
         assert "Full-history arithmetic mean" in latest.data[-2 + position].hovertemplate
+        assert "Historical volatility, yearly" in trace.hovertemplate
+        assert "Historical volatility, yearly" in latest.data[-2 + position].hovertemplate
+    assert all("Model volatility, yearly" in trace.hovertemplate for trace in training.data[:-2])
+    assert all("Model volatility, yearly" in trace.hovertemplate for trace in latest.data[:-2])
 
 
 def test_optional_weakest_window_frontier_keeps_matched_benchmark_estimates(comparison):
@@ -113,6 +117,8 @@ def test_html_and_markdown_explain_matched_costs_and_statistical_limits(comparis
         assert "Holm correction covers 96 tests" in document
         assert "at least 60 return observations" in document
         assert "same entry fee rate" in document
+        assert "With covariance shrinkage, these are different risk estimates" in document
+        assert "not scaled to match portfolio volatility" in document
         assert "not measure the probability of future outperformance" in document
         assert "Positive alpha does not establish investment skill" in document
         assert "Inference omits the first evaluation session" in document

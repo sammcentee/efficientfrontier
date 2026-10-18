@@ -7,13 +7,13 @@ import numpy as np
 import pandas as pd
 
 from .backtest import BacktestStudy, _after_cost
-from .core import Portfolio, TRADING_DAYS, _solve, _validate_price_frame
+from .core import Portfolio, TRADING_DAYS, _solve, _validate_price_frame, optimize
 from .metrics import performance_metrics, validate_periods_per_year
 
 
 SELECTED = "Historical-mean portfolio"
 BASELINE = "Equal-weight stocks"
-MODEL_REVISION = "single_mean_v1"
+MODEL_REVISION = "stock_mean_v2"
 BENCHMARK_NAMES = {"SPY": "S&P 500 (SPY)", "QQQ": "Nasdaq-100 (QQQ)"}
 STALE_INTERVALS = 20
 
@@ -29,6 +29,73 @@ class SelectionStudy:
     warnings: list[str]
     benchmark_prices: pd.DataFrame | None
     eligibility: pd.DataFrame
+
+
+def split_stock_prices(prices: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """Separate known benchmark ETFs from the stock candidates without a download."""
+    prices = _validate_price_frame(prices)
+    names = {column: str(column).strip().upper() for column in prices.columns}
+    reference_columns = [column for column in prices if names[column] in BENCHMARK_NAMES]
+    stocks = prices.drop(columns=reference_columns).copy()
+    if stocks.empty:
+        raise ValueError("Provide stock price columns as well as SPY or QQQ. The ETFs are comparison benchmarks, not portfolio holdings.")
+    references = None
+    if reference_columns:
+        references = validate_selection_benchmarks(prices[reference_columns].rename(columns=names), prices.index)
+    return stocks, references
+
+
+def validate_selection_benchmarks(prices: pd.DataFrame, expected_dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """Accept either or both comparison ETFs, with exactly the stock price dates."""
+    prices = _validate_price_frame(prices)
+    prices.columns = [str(column).strip().upper() for column in prices.columns]
+    if (not prices.columns.is_unique or not prices.index.equals(expected_dates)
+            or not set(prices.columns).issubset(BENCHMARK_NAMES)):
+        raise ValueError("Benchmark prices must contain SPY and/or QQQ with exactly the stock price dates.")
+    return prices.loc[:, [symbol for symbol in BENCHMARK_NAMES if symbol in prices]].copy()
+
+
+def selection_frontier(study: SelectionStudy, prices: pd.DataFrame, frontier_points: int = 30):
+    """Return the latest fitted frontier, its stock weights, and same-date references.
+
+    All rows use annual arithmetic means. The main model uses sample covariance.
+    Explicit research shrinkage changes stock model risk, not ETF sample risk.
+    This describes the fit period, not the returns of the later historical test.
+    """
+    prices = _validate_price_frame(prices)
+    latest_date = study.settings["latest_as_of"]
+    if str(prices.index[-1].date()) != latest_date:
+        raise ValueError("Frontier prices must end on the saved latest fit date.")
+    coverage = study.eligibility.loc[study.eligibility.fit_date == latest_date]
+    labels = coverage.loc[coverage.eligible, "symbol"].tolist()
+    returns = prices.loc[:, labels].pct_change(fill_method=None).iloc[1:]
+    periods = study.settings["periods_per_year"]
+    mean = returns.mean() * periods
+    sample = returns.cov() * periods
+    shrinkage = study.settings["shrinkage"]
+    covariance = (1 - shrinkage) * sample + shrinkage * pd.DataFrame(
+        np.diag(np.diag(sample)), index=labels, columns=labels,
+    )
+    _, frontier, weights, warnings = optimize(
+        mean, covariance, risk_free_rate=study.settings["risk_free_rate"],
+        max_weight=study.settings["max_weight"], frontier_points=frontier_points,
+    )
+    frontier = frontier.rename(columns={"expected_return": "fitted_mean", "volatility": "model_volatility"})
+    frontier["historical_volatility"] = np.sqrt(np.maximum(
+        np.einsum("ij,jk,ik->i", weights.to_numpy(), sample.to_numpy(), weights.to_numpy()), 0,
+    ))
+    weights = weights.reindex(columns=prices.columns, fill_value=0.0)
+    fitted = selection_fit_estimates(study, prices).iloc[-1]
+    rows = [{"portfolio": SELECTED, **fitted[["fitted_mean", "model_volatility", "historical_volatility"]].to_dict()}]
+    if study.benchmark_prices is not None:
+        benchmarks = validate_selection_benchmarks(study.benchmark_prices, prices.index)
+        benchmark_returns = benchmarks.pct_change(fill_method=None).iloc[1:]
+        for symbol in benchmarks:
+            volatility = float(benchmark_returns[symbol].std(ddof=1) * np.sqrt(periods))
+            rows.append({"portfolio": BENCHMARK_NAMES[symbol],
+                         "fitted_mean": float(benchmark_returns[symbol].mean() * periods),
+                         "model_volatility": volatility, "historical_volatility": volatility})
+    return frontier, weights, pd.DataFrame(rows).set_index("portfolio"), warnings
 
 
 def selection_fit_estimates(study: SelectionStudy, prices: pd.DataFrame) -> pd.DataFrame:
@@ -76,7 +143,11 @@ def _longest_unchanged(prices):
 
 
 def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_year):
-    """Maximize historical mean within the cap and risk limit, using past prices."""
+    """Maximize historical mean within the cap and risk limit, using past prices.
+
+    At a tied maximum mean, minimize variance. The secondary solve permits a
+    normalized mean shortfall of 1e-8, checked within 2e-8 for numerical error.
+    """
     longest = _longest_unchanged(prices)
     eligible = longest < STALE_INTERVALS
     labels = prices.columns[eligible]
@@ -94,7 +165,11 @@ def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_y
     weights = cp.Variable(len(labels))
     budget = [weights >= 0, weights <= max_weight, cp.sum(weights) == 1]
     variance = cp.quad_form(weights, cp.psd_wrap(covariance / scale))
-    constraints = budget + [variance <= target_volatility ** 2 / scale]
+    constraints = budget.copy()
+    # A long-only portfolio's variance cannot exceed the largest asset variance.
+    # Omit this redundant bound to avoid huge ratios for near-constant returns.
+    if target_volatility ** 2 < float(np.diag(covariance).max()):
+        constraints.append(variance <= target_volatility ** 2 / scale)
     warnings = []
 
     def solve(problem):
@@ -125,9 +200,27 @@ def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_y
             raise RuntimeError("Selection solver exceeded the requested estimated volatility.")
         return pd.Series(value, index=labels).reindex(prices.columns, fill_value=0.0)
 
-    objective = cp.Maximize((mean / (float(np.max(np.abs(mean))) or 1.0)) @ weights)
+    scores = mean / (float(np.max(np.abs(mean))) or 1.0)
+    objective = cp.Maximize(scores @ weights)
     solve(cp.Problem(objective, constraints))
     selected = checked()
+    # Risk can only improve at the same maximum mean when the risk ceiling does
+    # not prevent the capped, risk-unconstrained maximum. Check that face first.
+    ordered = np.sort(scores)[::-1]
+    greedy = np.clip(1 - max_weight * np.arange(len(labels)), 0, max_weight)
+    highest_score = float(ordered @ greedy)
+    tolerance = 1e-8
+    marginal = ordered[np.flatnonzero(greedy > tolerance)[-1]]
+    tied = np.abs(scores - marginal) <= tolerance
+    tied_weight = 1 - max_weight * np.count_nonzero(scores > marginal + tolerance)
+    if (tied.sum() > 1 and tolerance < tied_weight < max_weight * tied.sum() - tolerance
+            and scores @ selected.loc[labels].to_numpy() >= highest_score - tolerance):
+        # Minimum variance itself enforces the existing risk ceiling. Omitting
+        # the redundant ceiling avoids a second solve at a tangential boundary.
+        solve(cp.Problem(cp.Minimize(variance / 2), budget + [scores @ weights >= highest_score - tolerance]))
+        selected = checked()
+        if scores @ selected.loc[labels].to_numpy() < highest_score - 2 * tolerance:
+            raise RuntimeError("Selection risk tie-break missed the maximum historical mean.")
     equal = pd.Series(1 / len(labels), index=labels).reindex(prices.columns, fill_value=0.0)
     full_mean = pd.Series(mean, index=labels).reindex(prices.columns, fill_value=0.0)
     full_covariance = pd.DataFrame(covariance, index=labels, columns=labels).reindex(
@@ -236,7 +329,7 @@ def run_selection(
     train_fraction: float = 0.7,
     rebalance_every: int = 21,
     cost_bps: float = 10.0,
-    shrinkage: float = 0.1,
+    shrinkage: float = 0.0,
     periods_per_year: float = TRADING_DAYS,
     risk_free_rate: float = 0.02,
 ) -> SelectionStudy:
@@ -250,6 +343,8 @@ def run_selection(
     This historical replay is not a claim of prospective validation.
     """
     prices = _validate_price_frame(prices)
+    if any(str(column).strip().upper() in BENCHMARK_NAMES for column in prices.columns):
+        raise ValueError("SPY and QQQ are comparison benchmarks, not stock holdings. Use split_stock_prices before run_selection.")
     if "CASH" in prices.columns:
         raise ValueError("CASH is reserved for the zero-interest cash allocation.")
     periods_per_year = validate_periods_per_year(periods_per_year)
@@ -269,10 +364,7 @@ def run_selection(
     if isinstance(rebalance_every, (bool, np.bool_)) or not isinstance(rebalance_every, (int, np.integer)) or rebalance_every < 1:
         raise ValueError("rebalance_every must be a positive integer.")
     if benchmark_prices is not None:
-        benchmark_prices = _validate_price_frame(benchmark_prices)
-        if not benchmark_prices.index.equals(prices.index) or not set(benchmark_prices.columns).issubset(BENCHMARK_NAMES):
-            raise ValueError("Benchmark prices must contain SPY and/or QQQ with exactly the stock price dates.")
-        benchmark_prices = benchmark_prices.loc[:, [s for s in BENCHMARK_NAMES if s in benchmark_prices]].copy()
+        benchmark_prices = validate_selection_benchmarks(benchmark_prices, prices.index)
     count = len(prices) - 1
     initial_end = int(np.floor(count * train_fraction))
     if min(initial_end, count - initial_end) < 2:

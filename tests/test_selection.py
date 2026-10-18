@@ -236,7 +236,7 @@ def test_one_stock_method_has_no_policy_validation_or_alias_duplicates():
     assert list(result.latest) == [SELECTED]
     assert result.selected == SELECTED == "Historical-mean portfolio"
     assert BASELINE == "Equal-weight stocks"
-    assert result.settings["model_revision"] == MODEL_REVISION == "single_mean_v1"
+    assert result.settings["model_revision"] == MODEL_REVISION == "stock_mean_v2"
     assert result.test.settings["model_revision"] == MODEL_REVISION
     assert not any("blend" in key or "validation" in key for key in result.settings)
     assert "arithmetic mean" in result.settings["model_objective"]

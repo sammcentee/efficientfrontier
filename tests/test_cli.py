@@ -58,6 +58,7 @@ def test_cli_offline_export_and_csv_reproduction(tmp_path):
     metadata = json.loads((output / "metadata.json").read_text())
     assert metadata["training_end"] < metadata["holdout_start"]
     assert metadata["max_weight"] == 1.0
+    assert metadata["shrinkage"] == .1
     assert metadata["latest_profiles"]["as_of"] == "2023-10-31"
     assert metadata["latest_profiles"]["settings"]["return_objective"] == "historical_mean"
     assert "Latest model holdings" in run.stdout
@@ -579,7 +580,8 @@ def test_nasdaq100_failure_does_not_fall_back_to_demo(tmp_path, monkeypatch, cap
     assert not output.exists()
 
 
-def test_risk_target_cli_exports_complete_offline_inputs_and_reproduces(tmp_path, monkeypatch, benchmark_inputs):
+@pytest.mark.parametrize("shrinkage", [None, .25])
+def test_risk_target_cli_exports_complete_offline_inputs_and_reproduces(tmp_path, monkeypatch, benchmark_inputs, shrinkage):
     from efficient_frontier import __main__ as cli
 
     prices, benchmarks = benchmark_inputs
@@ -589,12 +591,14 @@ def test_risk_target_cli_exports_complete_offline_inputs_and_reproduces(tmp_path
     for name in ("download_prices", "download_benchmarks", "fetch_nasdaq100", "fetch_sp500_nasdaq100", "download_universe_prices"):
         monkeypatch.setattr(cli, name, forbid_download)
     output = tmp_path / "risk target"
+    shrinkage_flags = [] if shrinkage is None else ["--shrinkage", str(shrinkage)]
     monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--csv", str(source), "--benchmark-csv", str(market),
-                                      "--target-volatility", ".20", "--max-weight", ".5", "--output", str(output)])
+                                      "--target-volatility", ".20", "--max-weight", ".5", *shrinkage_flags, "--output", str(output)])
     assert cli.main() == 0
     metadata = json.loads((output / "metadata.json").read_text())
     assert metadata["settings"]["target_volatility"] == .20
     assert metadata["settings"]["max_weight"] == .5
+    assert metadata["settings"]["shrinkage"] == (0 if shrinkage is None else shrinkage)
     assert metadata["selected"] == "Historical-mean portfolio"
     assert not (output / "latest_profile_weights.csv").exists()
     pd.testing.assert_frame_equal(pd.read_csv(output / "prices.csv", index_col=0, parse_dates=True), prices, check_freq=False)
@@ -653,6 +657,78 @@ def test_risk_target_csv_without_markets_is_explicitly_unsupported(tmp_path, mon
     assert "Historical checks did not pass" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("symbols", [["SPY"], ["QQQ"], ["SPY", "QQQ"]])
+def test_risk_target_separates_embedded_etfs_offline_and_reproduces(tmp_path, monkeypatch, benchmark_inputs, symbols, capsys):
+    from efficient_frontier import __main__ as cli
+
+    prices, benchmarks = benchmark_inputs
+    source, output = tmp_path / "combined.csv", tmp_path / "study"
+    pd.concat([prices, benchmarks[symbols]], axis=1).to_csv(source)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--csv", str(source), "--target-volatility", ".2",
+                                      "--max-weight", ".5", "--download-benchmarks", "--output", str(output)])
+    assert cli.main() == 0
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["excluded_candidate_symbols"] == symbols
+    assert "excluded from candidate holdings" in capsys.readouterr().out
+    pd.testing.assert_frame_equal(pd.read_csv(output / "prices.csv", index_col=0, parse_dates=True), prices, check_freq=False)
+    pd.testing.assert_frame_equal(pd.read_csv(output / "benchmark_prices.csv", index_col=0, parse_dates=True), benchmarks[symbols], check_freq=False)
+    assert not set(symbols).intersection(pd.read_csv(output / "latest_weights.csv", index_col=0).index)
+    command = shlex.split(metadata["reproduce_command"])
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", *command[3:]])
+    assert cli.main() == 0
+    pd.testing.assert_frame_equal(pd.read_csv(output / "test/equity.csv", index_col=0),
+                                  pd.read_csv(output / "reproduced/test/equity.csv", index_col=0), atol=1e-8, rtol=1e-8)
+
+
+@pytest.mark.parametrize("flags", [["--no-benchmarks"], ["--currency", "EUR"]])
+def test_risk_target_excludes_etfs_even_when_comparisons_are_off(tmp_path, monkeypatch, benchmark_inputs, flags):
+    from efficient_frontier import __main__ as cli
+
+    prices, benchmarks = benchmark_inputs
+    source, output = tmp_path / "combined.csv", tmp_path / "study"
+    pd.concat([prices, benchmarks], axis=1).to_csv(source)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--csv", str(source), "--target-volatility", ".2",
+                                      "--max-weight", ".5", *flags, "--output", str(output)])
+    assert cli.main() == 0
+    pd.testing.assert_frame_equal(pd.read_csv(output / "prices.csv", index_col=0, parse_dates=True), prices, check_freq=False)
+    assert not (output / "benchmark_prices.csv").exists()
+
+
+def test_risk_target_preserves_partial_universe_benchmark(tmp_path, monkeypatch, nasdaq_universe):
+    from efficient_frontier import __main__ as cli
+    from efficient_frontier.universe import UniversePrices
+
+    snapshot, loaded = nasdaq_universe
+    partial = UniversePrices(loaded.prices, loaded.coverage, loaded.benchmarks[["QQQ"]], loaded.metadata)
+    monkeypatch.setattr(cli, "fetch_sp500_nasdaq100", lambda: snapshot)
+    monkeypatch.setattr(cli, "download_universe_prices", lambda *args: partial)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    output = tmp_path / "partial"
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--sp500-nasdaq100", "--target-volatility", ".2",
+                                      "--max-weight", ".5", "--output", str(output)])
+    assert cli.main() == 0
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert not metadata["supported"]
+    assert any("SPY" in reason and "unavailable" in reason for reason in metadata["reasons"])
+    pd.testing.assert_frame_equal(pd.read_csv(output / "benchmark_prices.csv", index_col=0, parse_dates=True),
+                                  partial.benchmarks, check_freq=False)
+
+
+def test_risk_target_rejects_only_etf_inputs_before_export(tmp_path, monkeypatch, benchmark_inputs, capsys):
+    from efficient_frontier import __main__ as cli
+
+    source, output = tmp_path / "funds.csv", tmp_path / "invalid"
+    benchmark_inputs[1].to_csv(source)
+    monkeypatch.setattr(cli, "download_benchmarks", forbid_download)
+    monkeypatch.setattr(sys, "argv", ["efficient_frontier", "--csv", str(source), "--target-volatility", ".2",
+                                      "--output", str(output)])
+    assert cli.main() == 1 and not output.exists()
+    error = capsys.readouterr().err
+    assert "stock" in error.lower() and "SPY" in error
+
+
 def test_risk_target_default_cap_is_not_silently_relaxed_for_demo(tmp_path, monkeypatch, capsys):
     from efficient_frontier import __main__ as cli
 
@@ -689,7 +765,8 @@ def test_reruns_clean_only_known_selection_exports(tmp_path):
                 archive.writestr(name, "generated\n")
         return buffer.getvalue()
 
-    generated = ["policy.json", "latest_weights.csv", "latest_estimates.csv", "eligibility.csv",
+    generated = ["policy.json", "latest_weights.csv", "latest_estimates.csv", "fit_estimates.csv", "eligibility.csv",
+                 "latest/frontier.csv", "latest/frontier_weights.csv", "latest/fitted_comparison.csv",
                  "validation/metrics.csv", "validation/equity.csv", "validation/01_allocations.csv",
                  "test/metrics.csv", "test/equity.csv", "test/01_holdings.csv", "test/01_trades.csv"]
     write_report_bundle(bundle(["report.html", *generated]), tmp_path)

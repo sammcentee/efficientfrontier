@@ -42,7 +42,8 @@ def _ticker(name) -> str:
     return text[text.rfind("(") + 1:-1] if text.endswith(")") and "(" in text else text
 
 
-def add_benchmark_estimates(figure: go.Figure, estimates: pd.DataFrame | None, objective: str) -> None:
+def add_benchmark_estimates(figure: go.Figure, estimates: pd.DataFrame | None, objective: str, *,
+                            return_label: str | None = None) -> None:
     if estimates is None:
         return
     for name, row in estimates.iterrows():
@@ -50,8 +51,8 @@ def add_benchmark_estimates(figure: go.Figure, estimates: pd.DataFrame | None, o
             x=[row["volatility"]], y=[row[objective]], name=html.escape(str(name)), mode="markers+text",
             marker={"symbol": "diamond", "size": 11, "color": BENCHMARK_COLORS.get(name, "#737b85")},
             text=[html.escape(_ticker(name))], textposition="bottom center", textfont={"size": 12, "color": INK_2},
-            hovertemplate="Annual volatility: %{x:.2%}<br>"
-            + ("Lowest annual window mean" if objective == "worst_window_return" else "Historical arithmetic mean, yearly")
+            hovertemplate="Historical volatility, yearly: %{x:.2%}<br>"
+            + (return_label or ("Lowest annual window mean" if objective == "worst_window_return" else "Historical arithmetic mean, yearly"))
             + ": %{y:.2%}<extra>%{fullData.name}</extra>",
         ))
 
@@ -156,6 +157,8 @@ def _comparison_parts(benchmarks: Any, backtest: bool) -> tuple[pd.DataFrame, li
         "Benchmark paths use the same dates as the portfolio paths.",
         "SPY and QQQ are USD ETF proxies for the S&P 500 and Nasdaq-100. They are not index series.",
         "Benchmark markers use the same dates and return objective as each frontier chart. The independent ETF references do not follow portfolio weight limits.",
+        "Stock frontier volatility uses the configured model covariance. ETF marker volatility uses the ordinary sample variance. "
+        "With covariance shrinkage, these are different risk estimates. ETF positions are not scaled to match portfolio volatility.",
         ("Backtest benchmarks stay in cash for the first interval, pay the same entry fee rate as the portfolios, then hold. No terminal sale occurs."
          if backtest else "The original holdout and its benchmarks allocate at the initial close. Both exclude fees."),
     ]

@@ -13,9 +13,10 @@ import pytest
 
 from efficient_frontier.backtest import BacktestStudy
 from efficient_frontier.core import Portfolio
-from efficient_frontier.selection import selection_fit_estimates
+from efficient_frontier.selection import selection_fit_estimates, selection_frontier
 from efficient_frontier.selection_report import (
-    selection_benchmark_note, selection_chart, selection_fit_summary_html,
+    selection_benchmark_note, selection_chart, selection_fit_summary_html, selection_frontier_chart,
+    selection_frontier_summary_html,
     selection_report_html, selection_report_zip,
 )
 
@@ -65,11 +66,12 @@ def selection_inputs():
         supported=False, reasons=["The later test did not clear the descriptive screen."],
         settings={"target_volatility": .15, "max_weight": .6, "cost_bps": 10., "periods_per_year": 252,
                   "model_revision": "single_mean_v1", "train_fraction": .7, "shrinkage": .1,
+                  "latest_as_of": str(dates[-1].date()), "risk_free_rate": .02,
                   "initial_training_start": str(dates[1].date()), "initial_training_end": str(dates[8].date()),
                   "test_start": str(dates[9].date()), "rebalance_every": 21},
         warnings=["Current constituents can introduce survivorship bias."], benchmark_prices=benchmarks,
-        eligibility=pd.DataFrame({"date": dates[[3, 8]], "ticker": ["AAA", "BBB"],
-                                  "eligible": [True, False], "reason": ["", "Long unchanged-price run"]}),
+        eligibility=pd.DataFrame({"fit_date": [str(dates[-1].date())] * 2, "symbol": ["AAA", "BBB"],
+                                  "eligible": [True, True], "reason": ["", ""]}),
     )
     metadata = {
         "source": "Synthetic adjusted prices", "universe": "Fixture stocks", "revision": "fixture-123",
@@ -112,8 +114,7 @@ def test_zip_preserves_every_test_strategy_and_numeric_result(selection_inputs):
             pd.testing.assert_frame_equal(recovered, expected, check_freq=False, check_names=False)
         coverage = pd.read_csv(archive.open("universe_coverage.csv"), index_col=0, keep_default_na=False)
         pd.testing.assert_frame_equal(coverage, pd.DataFrame(metadata["universe_coverage"]))
-        eligibility = pd.read_csv(archive.open("eligibility.csv"), index_col=0,
-                                  parse_dates=["date"], keep_default_na=False)
+        eligibility = pd.read_csv(archive.open("eligibility.csv"), index_col=0, keep_default_na=False)
         pd.testing.assert_frame_equal(eligibility, study.eligibility)
         fits = pd.read_csv(archive.open("fit_estimates.csv"), index_col=0, parse_dates=[0, "execution_date"])
         pd.testing.assert_frame_equal(fits, selection_fit_estimates(study, prices))
@@ -212,20 +213,21 @@ def test_result_tables_keep_backend_order_and_show_net_mean_separately_from_cagr
     assert re.search(r"historical.{0,100}reviewed|reviewed.{0,100}historical", document, re.I | re.S)
     assert "descriptive checks" in document.lower()
     assert study.reasons[0] in document
-    assert document.index('id="test"') < document.index('id="latest-selection"')
+    assert document.index('id="latest-selection"') < document.index('id="test"')
     report_body = document.split("</head>", 1)[1].lower()
     for old_choice in ("blend", "risk-matched", 'id="validation"', "policy.json"):
         assert old_choice not in report_body
 
 
-def test_unsupported_latest_holdings_are_inside_closed_details(selection_inputs):
+@pytest.mark.parametrize("supported", [False, True])
+def test_latest_holdings_stay_visible_before_later_checks(selection_inputs, supported):
+    selection_inputs[0].supported = supported
     document = selection_report_html(*selection_inputs)
     section = document.split('id="latest-selection"', 1)[1].split("</section>", 1)[0]
-    match = re.search(r"<details\b([^>]*)>(.*?)</details>", section, re.S)
-    assert match is not None and not re.search(r"\bopen\b", match[1])
-    assert "Experimental latest holdings" in match[2]
-    assert "AAA" in match[2] and "BBB" in match[2]
-    assert "60.00%" in match[2] and "40.00%" in match[2]
+    assert "<details" not in section
+    assert "AAA" in section and "BBB" in section
+    assert "60.00%" in section and "40.00%" in section
+    assert document.index('id="latest-frontier"') < document.index('id="latest-selection"') < document.index('id="selection-decision"')
 
 
 def test_report_discloses_actual_test_assumptions(selection_inputs):
@@ -257,7 +259,7 @@ def test_report_is_offline_and_includes_plotly_license_once(selection_inputs):
         assert not parser.external_resources
         assert document.lower().startswith("<!doctype html>")
         assert document.count("* plotly.js v") == 1
-        assert document.count('class="plotly-graph-div"') == 1
+        assert document.count('class="plotly-graph-div"') == 2
         license_line = "Permission is hereby granted, free of charge"
         assert license_line in document
         assert license_line in archive.read("THIRD_PARTY_NOTICES.txt").decode()
@@ -287,3 +289,62 @@ def test_coverage_csv_escapes_formulas_and_preserves_numeric_losses(selection_in
         assert metrics.loc[study.selected, "max_drawdown"] == -.025
         holdings = pd.read_csv(archive.open("test/01_holdings.csv"), index_col=0)
         assert holdings.loc["BBB", "pnl_contribution"] == -.004
+
+
+def test_latest_frontier_chart_uses_fitted_means_and_matching_volatilities(selection_inputs):
+    study, prices, _ = selection_inputs
+    study.settings["shrinkage"] = 0.0
+    data = selection_frontier(study, prices, frontier_points=5)
+    frontier, _, comparisons, _ = data
+    figure = selection_frontier_chart(data, study)
+    np.testing.assert_allclose(figure.data[0].x, frontier.model_volatility)
+    np.testing.assert_allclose(figure.data[0].y, frontier.fitted_mean)
+    for trace, (name, row) in zip(figure.data[1:], comparisons.iterrows()):
+        np.testing.assert_allclose(trace.x, [row.historical_volatility])
+        np.testing.assert_allclose(trace.y, [row.fitted_mean])
+        assert trace.marker.symbol == ("circle" if name == study.selected else "diamond")
+        assert "Annual arithmetic mean" in trace.hovertemplate
+    assert figure.layout.xaxis.title.text == "Annual volatility"
+    assert figure.layout.yaxis.title.text == "Annual arithmetic mean"
+    assert figure.layout.shapes[0].x0 == study.settings["target_volatility"]
+    summary = selection_frontier_summary_html(study, prices, data)
+    assert "same return dates" in summary and "ordinary sample covariance" in summary
+    assert "before trading fees" in summary and "not forecasts or later test results" in summary
+    assert "not portfolio candidates" in summary
+    assert "None of the ETF positions is scaled" in summary
+    assert "Model volatility" not in summary
+    assert "2024-01-03 to 2024-01-17" in summary
+    for row in comparisons.itertuples():
+        assert f"{row.fitted_mean:.2%}" in summary and f"{row.historical_volatility:.2%}" in summary
+
+
+def test_frontier_export_reuses_cached_points_and_preserves_every_weight(selection_inputs, monkeypatch):
+    study, prices, _ = selection_inputs
+    data = selection_frontier(study, prices, frontier_points=5)
+    saved = copy.deepcopy(data)
+
+    def unexpected_refit(*args, **kwargs):
+        raise AssertionError("Cached report export must not solve the frontier again")
+
+    monkeypatch.setattr("efficient_frontier.selection_report.selection_frontier", unexpected_refit)
+    with zipfile.ZipFile(io.BytesIO(selection_report_zip(*selection_inputs, frontier_data=data))) as archive:
+        for filename, frame in zip(("latest/frontier.csv", "latest/frontier_weights.csv", "latest/fitted_comparison.csv"), data[:3]):
+            recovered = pd.read_csv(archive.open(filename), index_col=0)
+            pd.testing.assert_frame_equal(recovered, frame)
+        document = archive.read("report.html").decode()
+        assert document.index('id="latest-frontier"') < document.index('id="selection-decision"') < document.index('id="test"')
+        assert "Stock model volatility uses 10% covariance shrinkage" in document
+    for actual, expected in zip(data[:3], saved[:3]):
+        pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_frontier_summary_escapes_reference_names_and_solver_warnings(selection_inputs):
+    study, prices, _ = selection_inputs
+    data = list(selection_frontier(study, prices, frontier_points=3))
+    unsafe = '<img src=x onerror="reference()">'
+    data[2] = data[2].rename(index={"S&P 500 (SPY)": unsafe})
+    data[3] = ['<script>solver()</script>']
+    document = selection_frontier_summary_html(study, prices, data)
+    assert unsafe not in document and "&lt;img src=x" in document
+    assert "<script>solver()</script>" not in document and "&lt;script&gt;solver()&lt;/script&gt;" in document
+    assert selection_frontier_chart(data, study).data[2].name == html.escape(unsafe)

@@ -38,6 +38,7 @@ def build_profiles(
     By default, minimize variance at each full-sample arithmetic mean target.
     Low has minimum volatility. Medium is the sampled point nearest halfway
     between the endpoint volatilities. Extreme has maximum feasible mean return.
+    At tied minimum risk, prefer the highest objective return.
     Three chronological windows supply diagnostics for these same allocations.
 
     The optional worst_window objective maximizes the weakest window return.
@@ -122,9 +123,19 @@ def build_profiles(
         objective = cp.Minimize(cp.quad_form(weights, cp.psd_wrap(solver_covariance)) / 2)
         solve(cp.Problem(objective, constraints))
         minimum = portfolio("Low", weights.value)
+        try:
+            singular_covariance = np.diag(np.linalg.cholesky(solver_covariance)).min() <= 1e-7
+        except np.linalg.LinAlgError:
+            singular_covariance = True
+        score = cp.Variable()
+        if singular_covariance:
+            solve(cp.Problem(cp.Maximize(score), constraints + [
+                solver_means @ weights >= score,
+                solver_covariance @ weights == solver_covariance @ minimum.weights.to_numpy(),
+            ]))
+            minimum = portfolio("Low", weights.value)
         low_score = float(np.min(solver_means @ minimum.weights.to_numpy()))
 
-        score = cp.Variable()
         solve(cp.Problem(cp.Maximize(score), constraints + [solver_means @ weights >= score]))
         endpoint = portfolio("Extreme", weights.value)
         high_score = max(low_score, float(np.min(solver_means @ endpoint.weights.to_numpy())))
