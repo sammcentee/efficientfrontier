@@ -1,12 +1,12 @@
-# Backtesting methods and accounting
+# Model, historical test, and accounting
 
-The app uses the risk-budget method below. The CLI enables it with `--target-volatility`, for example `.20` for 20% annual volatility. The earlier frontier and backtest APIs remain available for legacy diagnostics.
+The app uses one historical-mean portfolio model and one later test. The CLI runs the same model with `--target-volatility .20`. Earlier frontier and backtest APIs remain separate research tools.
 
-## Risk-budget selection
+## Single model and later test
 
-The user sets an annual volatility ceiling and a per-stock holding limit before the calculation. Stock portfolios are long-only and fully invested. The default holding limit is 10%. An infeasible budget or insufficient eligible stocks stops the calculation with an explanation. The engine does not relax either constraint or add stock-portfolio cash silently.
+Set an annual volatility budget and a per-stock holding limit before the calculation. The app defaults to 20% volatility and 10% per stock. Stock weights are long-only and sum to one. An infeasible limit stops the calculation.
 
-Each fit estimates annual arithmetic means `mu` and covariance `Sigma` from its available past returns. Covariance uses the selected diagonal shrinkage. The historical-mean endpoint solves:
+Each fit estimates annual arithmetic means `mu` and covariance `Sigma` from the available earlier returns. The app uses 10% covariance shrinkage. This preserves each asset's variance and reduces cross-asset covariances. The model solves one problem:
 
 ```text
 maximize: mu @ w
@@ -15,25 +15,67 @@ subject to: sum(w) = 1
             w.T @ Sigma @ w <= volatility_budget ** 2
 ```
 
-The diversified endpoint minimizes squared distance from equal stock weights under those same constraints. The three predefined candidates put 0%, 50%, or 100% in the historical-mean endpoint. Each blend also satisfies the convex constraints. This provides actual diversification pressure while retaining historical means. Uniformly shrinking all means toward one common value would not change this fully invested mean-maximization problem.
+Historical arithmetic mean is the only return objective. A higher fitted mean does not establish higher future returns. The volatility budget constrains the estimate, not future realized volatility or losses.
 
-With `T` return intervals, the development block ends at `floor(train_fraction × T)`. Its first two thirds form the initial fit. Its remaining third is validation. Every candidate follows the same expanding-window refits, delayed execution, and fees. The blend with the highest net validation CAGR wins. Numerical ties favor the diversified endpoint. The selected blend stays fixed for the remaining historical test.
+With `T` return intervals, the first `floor(0.7 × T)` form the initial training sample. The remaining 30% form one later test. Every 21 observations, the model refits with all returns through the close before execution. The same rule applies throughout. Latest weights use all supplied history and never enter earlier trades.
 
-All later weight refits still use only prices through the prior close. The later test cannot change the selected blend. Latest candidate weights use all observed prices with that frozen blend. Historical data examined during research is not fresh prospective evidence, even when the algorithm excludes it from blend selection.
+The test has four paths:
 
-The support flag is a descriptive product screen. It requires both ETF references and at least `ceil(periods_per_year)` return intervals in both validation and the later test. It also checks the selected rule's net growth against the diversified and risk-matched ETF baselines, plus realized volatility against the chosen budget in both periods. Failure produces an unsupported research candidate, not a forced stock recommendation. These conditions do not establish statistical significance or future skill.
+| Path | Rule |
+| --- | --- |
+| Historical-mean portfolio | Refit the one model every 21 observations. |
+| Equal-weight stocks | Hold equal target weights across eligible stocks, with the same eligibility checks and trade schedule. |
+| S&P 500 (SPY) | Buy once and hold. |
+| Nasdaq-100 (QQQ) | Buy once and hold. |
 
-The risk-matched ETF rules invest `min(1, budget / past_estimated_volatility)` in SPY or QQQ and retain the balance as zero-interest cash. They use the same delayed monthly refits and per-dollar trading fees. They never borrow to reach the budget. Separate raw ETF references buy once after the same initial cash interval and entry fee. Estimated risk matching does not guarantee equal realized risk.
+The three references have no volatility budget. Equal weights satisfy the holding cap when the stock model is feasible. ETF weights remain separate from the stock holding cap. Missing benchmark data leaves only the available paths and prevents a pass.
 
-The support screen also compares the selected stock rule with raw SPY and QQQ in validation and the later test. Support fails if a raw ETF has strictly higher net CAGR with no more realized volatility in either period. This check does not change the selected blend or its weights.
+All paths share the test dates, initial cash interval, and fee rate. The app charges 10 basis points on bought and sold amounts. It does not charge a terminal sale. See [trade timing](#timing-and-information) and [fee accounting](#costs-and-constraints).
 
-At every fit, the engine excludes stocks with at least 20 consecutive unchanged price intervals in the past sample. It retains the original input prices and exports each dated eligibility decision. Repeated quotes do not prove false data. If a held stock later triggers the screen, the study stops rather than assume a verified sale at that quote.
+The result status is a descriptive check of that test period. A pass requires both ETFs, at least `ceil(periods_per_year)` test intervals, and model volatility within the budget. It also requires that no reference has strictly higher net CAGR with no more realized volatility. Equal returns can pass. A lower-return, lower-risk model can also pass. This status does not mean the model beats every reference, and it does not establish statistical significance or future skill.
 
-Weight constraints can reduce estimation problems without ensuring superior returns. See [Jagannathan and Ma's research](https://www.nber.org/papers/w8922) and the [CVXPY portfolio formulation](https://www.cvxgrp.org/cvx_short_course/docs/applications/notebooks/portfolio_optimization.html). The live input universe still uses current members and complete-history eligibility, so it retains selection and survivorship bias.
+At every fit, the engine excludes stocks with at least 20 consecutive unchanged price intervals in the past sample. It preserves the original prices and exports each dated eligibility decision. Repeated quotes do not prove false data. If a held stock later triggers the screen, the study stops. It does not assume a verified sale at that quote.
+
+Current membership and complete-history requirements create selection and survivorship bias. Prior review of the test dates also creates research hindsight. Correct time order alone does not make those dates fresh prospective evidence.
+
+## Single-model exports
+
+The ZIP contains an offline HTML report and exact CSV data. `metadata.json` records `model_revision: single_mean_v1`, all settings, initial training dates, test dates, sources, warnings, and test reasons.
+
+| File | Contents |
+| --- | --- |
+| `prices.csv` | All original stock prices, including excluded columns |
+| `benchmark_prices.csv` | Supplied benchmark prices, when present |
+| `eligibility.csv` | Dated stock eligibility decisions |
+| `latest_weights.csv` | Latest weights for the one model |
+| `latest_estimates.csv` | Latest fitted estimates |
+| `test/metrics.csv` | Net performance for each path |
+| `test/equity.csv` | Exact portfolio values through the later test |
+| `test/NN_allocations.csv` | Target weights for one path |
+| `test/NN_holdings.csv` | Asset exposures and profit contributions |
+| `test/NN_trades.csv` | Fits, trade dates, turnover, and fees |
+| `universe_coverage.csv` | Source coverage and exclusions, when supplied |
+
+`metadata.json` maps each numbered file prefix to its path name. Keep the input CSVs and all recorded settings to reproduce the calculation. The CLI accepts explicit assumptions even though the app fixes its training share, refit schedule, fees, and shrinkage.
+
+## Timing and information
+
+1. Split the observed returns in time order. Use the first `floor(train_fraction × T)` for the initial fit.
+2. Set initial wealth to one at the final training close. Hold cash until the next supplied close. Deduct entry fees there.
+3. At each execution close, value existing holdings first. Fit new targets with returns only through the preceding close. Deduct fees and establish the new holdings.
+4. Let new targets earn returns from the next interval. Refit every `rebalance_every` observations. Do not add an unused trade at the final close.
+
+This one-interval delay prevents a signal from receiving a return already in its fit. Execution still assumes the next supplied adjusted close, fractional holdings, and unlimited capacity. Fees approximate spreads, slippage, and commissions. The model has no market-impact, tax, or currency-conversion calculation.
+
+The schedule counts supplied rows. Twenty-one observations approximate one month only for daily market data. With weekly data, a CLI interval of four means four weekly observations. Missing dates can make these intervals longer.
+
+`--periods-per-year` controls annualization and defaults to 252. It does not resample prices or change trade dates. The app uses daily market prices and 252 observations per year for Yahoo input. CSV presets are 252, 365, 52, and 12. Custom app values must be finite and at least one. The CLI accepts any positive finite value.
+
+The model needs at least two initial training returns and two later returns. Five price rows meet that minimum only with a suitable split. The app's fixed 70/30 split needs at least six rows. Short histories and large asset counts make estimates less reliable.
 
 ## Legacy strategy comparison
 
-The CLI's `--backtests` option compares four execution methods. Its original targets are minimum volatility, maximum Sharpe, and equal weight. The legacy CLI can also include Low, Medium, and Extreme profiles. The app no longer uses a three-level risk selector.
+The CLI's `--backtests` option compares four execution methods. Its original targets are minimum volatility, maximum Sharpe, and equal weight. The legacy CLI can also include Low, Medium, and Extreme profiles. These choices are available only in the separate legacy tools.
 
 Every asset in the accepted legacy price dataset remains eligible. The stock-universe loaders first record members without complete prices. The [coverage rules](../README.md#stocks-from-spy-and-the-nasdaq-100) explain this step and its historical selection bias.
 
@@ -44,24 +86,9 @@ Every asset in the accepted legacy price dataset remains eligible. The stock-uni
 | Expanding window | Estimate new targets every N observations | All returns available before the execution close |
 | Rolling window | Estimate new targets every N observations | Latest L returns available before the execution close |
 
-The original targets give 12 method/portfolio combinations. With the three profiles, the comparison contains 24 combinations. Equal-weight targets do not depend on estimated returns, so the fixed, expanding and rolling equal-weight paths intentionally coincide. This is not three independent pieces of evidence. The original **holdout** remains a separate, cost-free calculation with its original entry timing. Find it under **Research → Frontier → Classic holdout, no trading costs**.
+The original targets give 12 method/portfolio combinations. With the three profiles, the comparison contains 24 combinations. Equal-weight targets do not depend on estimated returns, so the fixed, expanding and rolling equal-weight paths intentionally coincide. This is not three independent pieces of evidence. The original **holdout** remains a separate, cost-free calculation with its original entry timing. The legacy report retains this original holdout separately.
 
-## Timing and information
-
-1. With `T` observed returns, the first `floor(train_fraction × T)` form the initial estimation period. The remaining dates form the common evaluation period.
-2. Set initial wealth to one at the last initial-training close. Hold cash at zero interest until the next observed close. Deduct entry fees at that close. Establish positions there. The first evaluation interval therefore earns no asset return.
-3. At each later execution close, value the old holdings with the latest observed price changes. Fit new targets with observations **only through the preceding close**. Deduct trading fees. Establish the new holdings. The new targets earn returns from the next observed interval.
-4. Rebalance every `N` observed intervals. The default is 21. This is not an exact calendar-month schedule. Do not rebalance at the final close merely to report an unused target. The engine does not charge terminal liquidation fees.
-
-The engine delays execution by one observed interval. A signal cannot receive a return that the fit already includes. It still assumes execution at the next supplied adjusted close, fractional holdings, and unlimited capacity. Spreads, slippage and commissions can be approximated by the fee setting; there is no volume-dependent market impact, tax or FX model. Input adjustments are accepted as supplied rather than independently reconstructing corporate actions.
-
-`--rolling-window L` counts observed returns. The window must contain at least two returns and cannot exceed the initial training length. By default it equals that initial length. A shorter window changes both the initial rolling allocation and later allocations. A comparison with the expanding method therefore measures the full configuration and its different initial sample.
-
-All schedules use the supplied price rows. With weekly data, `--rebalance-every 4` means four observed weekly intervals. With monthly data, it means four observed monthly intervals. Missing dates can make these intervals longer than the named calendar period.
-
-The `--periods-per-year` option controls annualization. Its default is 252, and it accepts positive, finite numbers. For CSV input, **Change → Model assumptions → Price frequency** provides app presets of 252, 365, 52, and 12. Custom app values must be finite and at least 1. This setting does not resample prices or change trade dates. Yahoo inputs use daily prices and 252 observations per year in the app.
-
-Both engines need at least two training returns and two holdout returns. The CSV reader accepts at least five price rows. The chosen split must still meet both return counts. Results include a warning for fewer than 30 training returns. They also include a warning when the asset count equals or exceeds the training return count.
+The legacy `--rolling-window L` setting counts observed returns. It needs at least two returns and cannot exceed the initial training length. Its default is the initial training length. A shorter window changes both the initial allocation and later allocations. Profile comparisons require at least six returns per fit.
 
 ## Legacy model holdings and profiles
 
@@ -84,9 +111,11 @@ The profiles use the same selection rule as the classic mean-return frontier, wi
 | Medium | Sampled point nearest the midpoint of Low and Extreme volatility |
 | Extreme | Endpoint with the highest fitted arithmetic mean return |
 
-The app calls Extreme **Highest**. These labels are relative to the supplied assets and model. Highest does not add leverage or seek the largest possible variance. When the frontier has no volatility range, all three profiles use the same highest-return mix. Numerical ties can produce several equivalent allocations.
+Earlier app versions called Extreme **Highest**. These labels are relative to the supplied assets and model. Highest does not add leverage or seek the largest possible variance. When the frontier has no volatility range, all three profiles use the same highest-return mix. Numerical ties can produce several equivalent allocations.
 
-The three chronological, nonoverlapping windows remain diagnostic checks. Their observation counts are nearly equal. Each needs at least two returns, so profiles need at least six returns in total. Window dates identify the first and last return observations. Each annualized window mean is `mu_window @ w`; `worst_window_return` is the smallest of those three portfolio means. These diagnostics do not select primary weights. They are not confidence bounds or forecasts.
+The three chronological, nonoverlapping windows remain diagnostic checks. Their observation counts are nearly equal. Each needs at least two returns, so profiles need at least six returns in total. Window dates identify the first and last return observations.
+
+Each annualized window mean is `mu_window @ w`. `worst_window_return` is the smallest of those three portfolio means. These diagnostics do not select primary weights. They are not confidence bounds or forecasts.
 
 Reports warn when a window has fewer observations than the selected periods per year. They also identify profiles without distinct risk levels. Solver warnings remain visible, and tables report the actual estimates of the computed weights.
 
@@ -94,23 +123,23 @@ Reports warn when a window has fewer observations than the selected periods per 
 
 Historical profile backtests use the same historical-mean objective, but each fit uses only returns through the close before execution. Fixed rebalance retains the initial profile targets. Expanding and rolling methods rebuild their profiles at each scheduled fit. Latest full-history weights never enter those earlier trades. Three-window diagnostics also use only each fit's history.
 
-The initial sample and rolling window each need at least six returns for the complete profile comparison. If either is too short, the app and CLI retain the original 12 combinations and explain why they omitted the profiles. A latest full-history fit can still be available when the earlier backtest fit is too short.
+The initial sample and rolling window each need at least six returns for the complete profile comparison. If either is too short, the legacy CLI retains the original 12 combinations and explains why it omitted the profiles. A latest full-history fit can still be available when the earlier backtest fit is too short.
 
-The Python API keeps `include_profiles=False` as its compatibility default. `run_backtests(..., include_profiles=True)` requests the additional profiles. Direct API calls reject shorter fits. The app and CLI use the fallback above.
+The Python API keeps `include_profiles=False` as its compatibility default. `run_backtests(..., include_profiles=True)` requests the additional profiles. Direct API calls reject shorter fits. The legacy CLI uses the fallback above.
 
 ### Optional weakest-window comparison
 
-**Research → Efficient frontiers** retains a separate weakest-window comparison. The Python API selects it with `build_profiles(..., return_objective="worst_window")`. It does not change the primary model or its backtests.
+The Python API retains a separate weakest-window comparison through `build_profiles(..., return_objective="worst_window")`. This is separate from the app's single model.
 
 This objective maximizes the lowest of the three portfolio window means. At each frontier target, it minimizes variance subject to `mu_window @ w >= target` in every window. Low uses the minimum-variance endpoint. Medium uses the midpoint of the endpoint return targets. Highest uses the maximum feasible weakest-window target, with minimum variance among tied solutions. Medium therefore uses a return midpoint in this optional model.
 
 For this optional objective, the solver allows return-target slack of `1e-8 * S`. Here, `S` is the largest absolute annual asset mean across the three windows, or one if all means are zero. The final check rejects target shortfalls greater than `2e-8 * S`. This preserves the minimum-variance tie-break near numerical ties. A warning identifies cases where no feasible portfolio has positive estimated means in all three windows.
 
-The optional chart is **Weakest-window frontier**. Its ETF markers use the same lowest-window-mean measure. The primary **Historical mean frontier** and its ETF markers use full-history arithmetic means. Neither chart guarantees future returns or minimum drawdown.
+The legacy report labels this optional chart **Weakest-window frontier**. Its ETF markers use the same lowest-window-mean measure. The legacy **Historical mean frontier** and its ETF markers use full-history arithmetic means. Neither chart guarantees future returns or minimum drawdown.
 
 ## Costs and constraints
 
-All targets are long-only and fully invested after execution. An optional weight cap applies at each trade; price movements can take actual weights above it. The risk-free rate is a constant annual assumption for Sharpe and Sortino. It does not create an investable cash strategy.
+All targets are long-only and fully invested after execution. A weight cap applies at each trade. Price movements can take actual weights above it. The risk-free rate is a constant annual assumption for Sharpe and Sortino. The app fixes it at 2% for exported metrics. It does not affect the single-model weights or create an investable cash strategy.
 
 Let `V` be wealth before a trade, `h` the current dollar holdings, `w` the target weights, and `c = cost_bps / 10000`. Post-trade wealth `V_after` solves:
 
@@ -122,17 +151,17 @@ Fees charge both bought and sold notional. Entry from cash leaves `1 / (1 + c)` 
 
 **Gross turnover** sums each trade's absolute notional divided by its own pretrade wealth. **Total fees** sum fee payments in units of initial capital. These denominators differ as wealth changes. Fees are also different from the full performance gap against a zero-fee counterfactual, which includes foregone compounding.
 
-When no feasible maximum-Sharpe portfolio has positive estimated excess return, that strategy uses minimum-volatility weights for that execution. The warning and fallback count remain in the results; the interval is never discarded. Fixed rebalancing continues to restore its original target, including any original fallback.
+In legacy backtests, when no feasible maximum-Sharpe portfolio has positive estimated excess return, that strategy uses minimum-volatility weights for that execution. The warning and fallback count remain in the results. The engine retains the interval. Fixed rebalancing continues to restore its original target, including any original fallback.
 
 ## Passive benchmarks and evidence
 
 SPY and QQQ comparisons use the same evaluation dates as each strategy. The backtest benchmarks stay in cash through the first evaluation interval, then buy at its close. The selected entry cost leaves `1 / (1 + cost_bps / 10000)` invested. The original holdout benchmarks enter at the final training close without costs. Neither benchmark path includes a final sale.
 
-Benchmarks remain separate from the eligible assets and portfolio weight cap. The statistical comparison uses all strategies in the current run, even when chart selections display fewer curves. Latest model holdings remain an in-sample fit. [Benchmark methods and evidence](BENCHMARKS.md) explains the USD assumption, data coverage, HAC estimates, Holm correction, and limits on inference.
+Benchmarks remain separate from the eligible assets and portfolio weight cap. The separate legacy statistical comparison uses all strategies in its run, even when chart selections display fewer curves. Latest model holdings remain an in-sample fit. [Benchmark methods and evidence](BENCHMARKS.md) explains the USD assumption, data coverage, HAC estimates, Holm correction, and limits on inference.
 
 ## Return and risk metrics
 
-The original holdout and the backtests use the same metric definitions. Backtest returns include the selected fees. Let `p` denote observations per year, `r` the observed portfolio returns, and `rf` the annual risk-free rate.
+The single-model test and legacy backtests use the same metric definitions. Backtest returns include the selected fees. Let `p` denote observations per year, `r` the observed portfolio returns, and `rf` the annual risk-free rate.
 
 | Metric | Definition |
 | --- | --- |
@@ -142,13 +171,13 @@ The original holdout and the backtests use the same metric definitions. Backtest
 | Sortino | `(mean(r) * p - rf) / (sqrt(mean(min(r - rf / p, 0)^2)) * sqrt(p))` |
 | Calmar | `CAGR / abs(max_drawdown)` |
 
-Sortino measures downside relative to the risk-free rate per observation. Its denominator includes all observations, with zero contributions from returns at or above that threshold. Calmar compares compound growth with the largest observed fall from a previous peak. A zero denominator makes these ratios undefined. The app shows no finite ratio in that case.
+Sortino measures downside relative to the risk-free rate per observation. Its denominator includes all observations, with zero contributions from returns at or above that threshold. Calmar compares compound growth with the largest observed fall from a previous peak. A zero denominator makes these ratios undefined. The exports contain no finite ratio in that case.
 
 Annualized metrics use observation counts. They do not infer elapsed calendar years from dates. All input prices must use a common currency. The app does not perform currency conversion.
 
-## Portfolio risk and diversification
+## Legacy portfolio risk and diversification
 
-Risk analysis describes the initial portfolio, with weights `w` and the annual covariance estimate `Sigma` from its training period. It uses the same covariance shrinkage as the optimizer.
+The legacy risk analysis describes the initial portfolio, with weights `w` and the annual covariance estimate `Sigma` from its training period. It uses the same covariance shrinkage as the optimizer.
 
 | Metric | Definition |
 | --- | --- |
@@ -169,17 +198,15 @@ The variance shares use the [MOSEK portfolio cookbook's risk-contribution defini
 - **Selection frequency:** fraction of allocation events with target weight above `1e-6` (0.0001%). It is not the fraction of observations with a position.
 - **Maximum target weight / maximum realized weight:** largest requested allocation and largest observed closing allocation, respectively. Realized weight includes the value just before a rebalance.
 
-The report highlights the highest net return, the smallest maximum drawdown, holding contributions and concentration. Its leading strategy is selected **after** observing the results. This is descriptive evidence, not a forecast or a recommended stock portfolio. Tiny solver residuals are excluded from displayed contributor/detractor headlines; full numeric holdings remain in the CSVs.
+The legacy report highlights the highest net return, the smallest maximum drawdown, holding contributions and concentration. Its leading strategy is selected **after** observing the results. This is descriptive evidence, not a forecast or a recommended stock portfolio. Contributor and detractor headlines exclude tiny solver residuals. Full numeric holdings remain in the CSVs.
 
 A fixed list chosen later in history creates universe-selection and survivorship bias even when every fit respects time order. Changing settings after seeing results also contaminates the evaluation period. The methods do not repair either problem. Different start dates, fee assumptions and market regimes can change the comparison.
 
-The overview keeps the profile, maximum-Sharpe, and equal-weight comparisons in a fixed order. It does not use the test winner to select the next allocation. A sample-mean optimum can concentrate in past winners and perform poorly later. Estimation error is a known limitation of optimized portfolios; see the [DeMiguel, Garlappi, and Uppal research paper](https://warwick.ac.uk/fac/soc/wbs/subjects/finance/events/recentevents/pastevents/behaviouralfinance1day/uppal_paper_06.pdf). Equal weight is a comparison rule, not a claim of future outperformance.
+The legacy overview keeps the profile, maximum-Sharpe, and equal-weight comparisons in a fixed order. It does not use the test winner to select the next allocation. A sample-mean optimum can concentrate in past winners and perform poorly later. Estimation error is a known limitation of optimized portfolios. See the [DeMiguel, Garlappi, and Uppal research paper](https://warwick.ac.uk/fac/soc/wbs/subjects/finance/events/recentevents/pastevents/behaviouralfinance1day/uppal_paper_06.pdf). Equal weight is a comparison rule, not a claim of future outperformance.
 
-## Reproduce and inspect
+## Legacy exports and reproduction
 
-In the app, open **Test settings** in the market test to set trade intervals, costs, and rolling history. Select **Run the test again** after you change these assumptions. Use **Research → All tests** for every strategy, holding, and trade.
-
-Select **Export** (or press E) to download the report and data. The bundle includes the market test on screen. A new portfolio calculation runs a new market test.
+Run the separate legacy comparison from the command line:
 
 ```bash
 .venv/bin/python -m efficient_frontier --csv data/holdings.csv \
@@ -202,8 +229,8 @@ Latest profile exports contain:
 
 The backtest report includes `findings.md`, `backtest_metrics.csv`, `backtest_curve.csv` and one set of allocation, holdings and trade CSVs per combination under `backtests/`. `metadata.json` maps numbered file prefixes to strategy names. Trade logs record the exact estimation start/end dates as well as wealth, fees and turnover. All exports include the full input universe.
 
-The selected risk level, allocation rule, and chart change the displayed results. They do not remove calculated strategies or assets from the exports.
+Legacy exports retain every calculated strategy and asset.
 
-Open `report.html` and use **Print / save PDF** to create a static report; the HTML charts remain interactive and work offline. Keep source data and generated reports local unless their redistribution is authorized.
+Open `report.html` and use **Print / save PDF** to create a static report. The HTML charts remain interactive and work offline. Keep source data and generated reports local unless their redistribution is authorized.
 
 Method references: [time-series cross-validation](https://otexts.com/fpp3/tscv.html), [self-financing portfolios and transaction costs](https://web.stanford.edu/~boyd/papers/pdf/cvx_portfolio.pdf), and [portfolio simulation conventions](https://www.cvxportfolio.com/en/stable/simulator.html).
