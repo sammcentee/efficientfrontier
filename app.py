@@ -553,84 +553,84 @@ def risk_reference():
 
 def selection_fit_math(study):
     settings = study.settings
-    with st.expander("Mathematics · portfolio selection", expanded=True):
-        with st.container(key="math_fit"):
-            st.markdown("**Estimate returns and covariance**")
-            st.write("For each stock, use simple returns between consecutive adjusted prices. "
-                     "The fit contains m return observations. A is the number of observations per year.")
-            st.latex(r"r_{i,s}=\frac{p_{i,s}}{p_{i,s-1}}-1,\qquad "
-                     r"\bar r=\frac{1}{m}\sum_{s=1}^{m}r_s")
-            st.latex(r"\widehat\mu=A\bar r,\qquad "
-                     rf"A={settings['periods_per_year']:g}")
-            st.latex(r"\widehat\Sigma=\frac{A}{m-1}\sum_{s=1}^{m}"
-                     r"(r_s-\bar r)(r_s-\bar r)^{\mathsf T}")
-            st.caption("μ̂ contains annual arithmetic mean returns. Σ̂ is the annual sample covariance matrix. "
-                       "This app uses no covariance shrinkage.")
-            st.markdown("**Choose the highest fitted mean within your limits**")
-            st.latex(r"\begin{aligned}"
-                     r"w^*&=\underset{w}{\operatorname{arg\,max}}\;\widehat\mu^{\mathsf T}w\\[6pt]"
-                     r"\text{subject to}\quad&\mathbf 1^{\mathsf T}w=1,\\"
-                     r"&0\le w_i\le h,\\"
-                     r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
-                     r"\end{aligned}")
-            st.latex(rf"b={settings['target_volatility']:g}\;"
-                     rf"({settings['target_volatility']:.0%}),\qquad "
-                     rf"h={settings['max_weight']:g}\;({settings['max_weight']:.0%})".replace("%", r"\%"))
-            st.write("The weights w sum to one, with no short sales. h caps each initial holding. "
-                     "b caps estimated annual volatility when the allocation is chosen. "
-                     "After purchase, weights drift and realized volatility can exceed b. "
-                     "Neither limit triggers a trade.")
-            st.markdown("**An estimate and a replay answer different questions**")
-            st.write(f"The replay chooses its initial weights from the first {settings['train_fraction']:.0%} of return observations. "
-                     "The latest fit uses all supplied history, including the replay dates, and describes a separate starting allocation.")
-            st.latex(r"\widehat\mu_p=\widehat\mu^{\mathsf T}w,\qquad "
-                     r"\widehat\sigma_p=\sqrt{w^{\mathsf T}\widehat\Sigma w}")
-            st.caption("These fitted moments apply one fixed weight vector to each historical return observation, before fees. "
-                       "They are not the result of buying once and letting weights drift through that history. "
-                       "The optimizer maximizes fitted arithmetic mean, not CAGR or the Sharpe ratio.")
+    with st.container(key="math_fit"):
+        st.html(title_html("Mathematics · portfolio selection"))
+        st.markdown("**Estimate returns and covariance**")
+        st.write("For each stock, use simple returns between consecutive adjusted prices. "
+                 "The fit contains m return observations. A is the number of observations per year.")
+        st.latex(r"r_{i,s}=\frac{p_{i,s}}{p_{i,s-1}}-1,\qquad "
+                 r"\bar r=\frac{1}{m}\sum_{s=1}^{m}r_s")
+        st.latex(r"\widehat\mu=A\bar r,\qquad "
+                 rf"A={settings['periods_per_year']:g}")
+        st.latex(r"\widehat\Sigma=\frac{A}{m-1}\sum_{s=1}^{m}"
+                 r"(r_s-\bar r)(r_s-\bar r)^{\mathsf T}")
+        st.caption("μ̂ contains annual arithmetic mean returns. Σ̂ is the annual sample covariance matrix. "
+                   "This app uses no covariance shrinkage.")
+        st.markdown("**Choose the highest fitted mean within your limits**")
+        st.latex(r"\begin{aligned}"
+                 r"w^*&=\underset{w}{\operatorname{arg\,max}}\;\widehat\mu^{\mathsf T}w\\[6pt]"
+                 r"\text{subject to}\quad&\mathbf 1^{\mathsf T}w=1,\\"
+                 r"&0\le w_i\le h,\\"
+                 r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
+                 r"\end{aligned}")
+        st.latex(rf"b={settings['target_volatility']:g}\;"
+                 rf"({settings['target_volatility']:.0%}),\qquad "
+                 rf"h={settings['max_weight']:g}\;({settings['max_weight']:.0%})".replace("%", r"\%"))
+        st.write("The weights w sum to one, with no short sales. h caps each initial holding. "
+                 "b caps estimated annual volatility when the allocation is chosen. "
+                 "After purchase, weights drift and realized volatility can exceed b. "
+                 "Neither limit triggers a trade.")
+        st.markdown("**An estimate and a replay answer different questions**")
+        st.write(f"The replay chooses its initial weights from the first {settings['train_fraction']:.0%} of return observations. "
+                 "The latest fit uses all supplied history, including the replay dates, and describes a separate starting allocation.")
+        st.latex(r"\widehat\mu_p=\widehat\mu^{\mathsf T}w,\qquad "
+                 r"\widehat\sigma_p=\sqrt{w^{\mathsf T}\widehat\Sigma w}")
+        st.caption("These fitted moments apply one fixed weight vector to each historical return observation, before fees. "
+                   "They are not the result of buying once and letting weights drift through that history. "
+                   "The optimizer maximizes fitted arithmetic mean, not CAGR or the Sharpe ratio.")
 
 
 def selection_replay_math(study):
     settings = study.settings
     fee = settings["cost_bps"] / 10_000
-    with st.expander("Mathematics · buy-and-hold returns", expanded=True):
-        with st.container(key="math_replay"):
-            st.markdown("**One purchase, then no rebalancing**")
-            st.write(f"Fit once through {day(settings['initial_training_end'])}. "
-                     f"Buy at the next close, {day(settings['test_start'])}. "
-                     "The portfolio stays in cash until that purchase. "
-                     "There are no later refits, trades, volatility adjustments, or final liquidation.")
-            st.write("Let e be the entry close, wᵢ the initial stock weights, and pᵢ,ₜ the adjusted prices. "
-                     "Vstart is the starting cash and c is the fee per unit invested.")
-            st.latex(r"V_e=\frac{V_{\mathrm{start}}}{1+c},\qquad "
-                     rf"c={fee:g}\;({fee:.2%})".replace("%", r"\%"))
-            st.caption("The entry fee is c × Vₑ. It comes out of starting cash before the holdings begin to earn returns.")
-            st.latex(r"\begin{aligned}"
-                     r"g_{i,t}&=\frac{p_{i,t}}{p_{i,e}}\\[8pt]"
-                     r"V_t&=V_e\sum_i w_i g_{i,t}\quad(t\ge e)"
-                     r"\end{aligned}")
-            st.latex(r"a_{i,t}=\frac{w_i g_{i,t}}{\sum_j w_j g_{j,t}}")
-            st.write("gᵢ,ₜ is each stock’s growth factor since entry. aᵢ,ₜ is its actual portfolio weight. "
-                     "Faster-growing holdings gain weight without a new trade. "
-                     "The initial holding limit can therefore be exceeded later.")
-            st.caption("The calculation follows the supplied adjusted-price convention. "
-                       "For Yahoo prices, this includes split and dividend adjustments. "
-                       "It does not separately model cash dividends or literal share counts across corporate actions.")
-            st.markdown("**Measure the completed net-return path**")
-            st.write("The table uses N observed returns, including the entry-fee interval. "
-                     "The chart starts at Vstart. The entry interval has the fee but no stock return.")
-            st.latex(r"R_t=\frac{V_t}{V_{t-1}}-1,\qquad "
-                     r"\bar R=\frac{1}{N}\sum_{t=1}^{N}R_t")
-            st.latex(r"\mu_{\mathrm{realized}}=A\bar R,\qquad "
-                     rf"A={settings['periods_per_year']:g}")
-            st.latex(r"\sigma_{\mathrm{realized}}="
-                     r"\sqrt{\frac{A}{N-1}\sum_{t=1}^{N}(R_t-\bar R)^2}")
-            st.latex(r"\mathrm{CAGR}=\left(\frac{V_N}{V_{\mathrm{start}}}\right)^{A/N}-1")
-            st.latex(r"\mathrm{MDD}=\min_{0\le t\le N}"
-                     r"\left(\frac{V_t}{\max_{0\le s\le t}V_s}-1\right)")
-            st.caption("The annual mean scales the average one-period return. CAGR compounds the observed path. "
-                       "Maximum drawdown is the worst fall from a previous peak, including starting cash. "
-                       "The budget constrains fitted volatility, not this realized sample standard deviation.")
+    with st.container(key="math_replay"):
+        st.html(title_html("Mathematics · buy-and-hold returns"))
+        st.markdown("**One purchase, then no rebalancing**")
+        st.write(f"Fit once through {day(settings['initial_training_end'])}. "
+                 f"Buy at the next close, {day(settings['test_start'])}. "
+                 "The portfolio stays in cash until that purchase. "
+                 "There are no later refits, trades, volatility adjustments, or final liquidation.")
+        st.write("Let e be the entry close, wᵢ the initial stock weights, and pᵢ,ₜ the adjusted prices. "
+                 "Vstart is the starting cash and c is the fee per unit invested.")
+        st.latex(r"V_e=\frac{V_{\mathrm{start}}}{1+c},\qquad "
+                 rf"c={fee:g}\;({fee:.2%})".replace("%", r"\%"))
+        st.caption("The entry fee is c × Vₑ. It comes out of starting cash before the holdings begin to earn returns.")
+        st.latex(r"\begin{aligned}"
+                 r"g_{i,t}&=\frac{p_{i,t}}{p_{i,e}}\\[8pt]"
+                 r"V_t&=V_e\sum_i w_i g_{i,t}\quad(t\ge e)"
+                 r"\end{aligned}")
+        st.latex(r"a_{i,t}=\frac{w_i g_{i,t}}{\sum_j w_j g_{j,t}}")
+        st.write("gᵢ,ₜ is each stock’s growth factor since entry. aᵢ,ₜ is its actual portfolio weight. "
+                 "Faster-growing holdings gain weight without a new trade. "
+                 "The initial holding limit can therefore be exceeded later.")
+        st.caption("The calculation follows the supplied adjusted-price convention. "
+                   "For Yahoo prices, this includes split and dividend adjustments. "
+                   "It does not separately model cash dividends or literal share counts across corporate actions.")
+        st.markdown("**Measure the completed net-return path**")
+        st.write("The table uses N observed returns, including the entry-fee interval. "
+                 "The chart starts at Vstart. The entry interval has the fee but no stock return.")
+        st.latex(r"R_t=\frac{V_t}{V_{t-1}}-1,\qquad "
+                 r"\bar R=\frac{1}{N}\sum_{t=1}^{N}R_t")
+        st.latex(r"\mu_{\mathrm{realized}}=A\bar R,\qquad "
+                 rf"A={settings['periods_per_year']:g}")
+        st.latex(r"\sigma_{\mathrm{realized}}="
+                 r"\sqrt{\frac{A}{N-1}\sum_{t=1}^{N}(R_t-\bar R)^2}")
+        st.latex(r"\mathrm{CAGR}=\left(\frac{V_N}{V_{\mathrm{start}}}\right)^{A/N}-1")
+        st.latex(r"\mathrm{MDD}=\min_{0\le t\le N}"
+                 r"\left(\frac{V_t}{\max_{0\le s\le t}V_s}-1\right)")
+        st.caption("The annual mean scales the average one-period return. CAGR compounds the observed path. "
+                   "Maximum drawdown is the worst fall from a previous peak, including starting cash. "
+                   "The budget constrains fitted volatility, not this realized sample standard deviation.")
 
 
 def selection_period(study, title, benchmark_note):
@@ -660,8 +660,6 @@ def overview():
         st.html(f'<h1 class="pl-display">{metadata["target_volatility"]:.0%} annual volatility budget.</h1>')
         st.html(stat_strip(((f"{metadata['target_volatility']:.0%}", "Annual volatility budget", "Fitted ceiling"),
                             (f"{metadata['max_weight']:.0%}", "Holding limit", "Maximum target weight"))))
-        st.button("View mathematics", key="open_mathematics", on_click=jump,
-                  args=("Data & method", "pl-mathematics"))
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
         if metadata.get("candidate_note"):
@@ -737,7 +735,6 @@ def data_method():
         st.caption("The fixed 2% risk-free rate affects Sharpe and Sortino metrics in the export only. "
                    "It does not change stock weights or pay interest on cash. "
                    "Taxes, currency conversion, liquidity, and future membership changes are excluded.")
-    st.html('<div id="pl-mathematics"></div>')
     selection_fit_math(selection)
     selection_replay_math(selection)
     with st.expander("Historical performance checks"):
