@@ -109,6 +109,7 @@ APP_ONLY_CSS = """
 /* Compact landing; result and work layouts keep their existing spacing. */
 .st-key-landing{gap:12px;padding:22px 0 20px;text-align:left}
 .st-key-landing .pl-display{margin:0;max-width:none;font-size:40px;line-height:44px;text-align:left}
+.st-key-landing .pl-method-title{display:block;margin-top:3px;font-size:21px;line-height:27px;font-weight:500;color:var(--pl-ink-2)}
 .st-key-landing [data-testid="stHorizontalBlock"]{gap:28px}
 .st-key-landing_math{gap:12px;min-width:0}
 .st-key-landing_estimates,.st-key-landing_optimization,.st-key-landing_growth{gap:8px;min-width:0}
@@ -155,6 +156,7 @@ APP_ONLY_CSS = """
 @media (max-width:640px){
  .st-key-landing{padding:22px 0 12px;gap:14px}
  .st-key-landing .pl-display{font-size:34px;line-height:38px}
+ .st-key-landing .pl-method-title{font-size:18px;line-height:24px}
  .st-key-landing [data-testid="stHorizontalBlock"]{gap:16px}
  .st-key-landing_math .katex{font-size:.96em}
  .st-key-landing_controls{padding:16px}
@@ -211,6 +213,15 @@ APP_ONLY_CSS = """
 [class*="st-key-math_"] .katex-display{margin:0;padding:4px 0}
 [class*="st-key-math_"] .katex{font-size:1.15em;letter-spacing:normal}
 [class*="st-key-math_"] [data-testid="stCaptionContainer"] p{font-size:13px;line-height:1.6;color:var(--pl-ink-3)}
+.st-key-math_diagnosis{margin-top:12px;padding-top:24px;border-top:1px solid var(--pl-hair-soft);min-width:0}
+.st-key-math_diagnosis [data-testid="stLayoutWrapper"]:has(.katex-display),
+.st-key-math_diagnosis [data-testid="stElementContainer"]:has(.katex-display),
+.st-key-math_diagnosis [data-testid="stMarkdown"]>div:has(.katex-display){width:100%!important;min-width:0}
+.st-key-math_diagnosis [data-testid="stMarkdownContainer"]{margin:0}
+.st-key-math_diagnosis [data-testid="stMarkdownContainer"] p{font-size:16px;line-height:1.6}
+.st-key-math_diagnosis [data-testid="stMarkdownContainer"] p .katex{font-size:1em}
+.st-key-math_diagnosis [data-testid="stMarkdownContainer"]:has(.katex-display){width:100%;box-sizing:border-box}
+.st-key-math_diagnosis .katex-display{overflow:visible}
 
 /* 8 Buttons, inputs, alerts, tables, captions */
 button[data-testid="stBaseButton-primary"]{background:var(--pl-ink);border-color:var(--pl-ink)}

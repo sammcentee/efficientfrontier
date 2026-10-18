@@ -13,9 +13,10 @@ import pytest
 
 from efficient_frontier.backtest import BacktestStudy
 from efficient_frontier.core import Portfolio
-from efficient_frontier.selection import BENCHMARK_NAMES, SELECTED, selection_fit_estimates, selection_frontier
+from efficient_frontier.selection import BENCHMARK_NAMES, SELECTED, run_selection, selection_fit_estimates, selection_frontier
 from efficient_frontier.selection_report import (
-    LATEST_LABEL, REPLAY_LABEL, selection_replay_findings_html, selection_replay_verdict_html,
+    LATEST_LABEL, REPLAY_LABEL, selection_replay_dominance, selection_replay_findings_html,
+    selection_replay_return_bridge, selection_replay_verdict_html,
     selection_benchmark_note, selection_chart, selection_fit_summary_html, selection_frontier_chart,
     selection_frontier_summary_html,
     selection_report_html, selection_report_zip,
@@ -187,6 +188,101 @@ def test_replay_verdict_uses_mean_volatility_dominance_not_cagr(selection_inputs
         assert "QQQ dominated the stock rule" in verdict
         assert f"{mean:.2%} versus 28.27%" in verdict
         assert f"{volatility:.2%} versus 19.22%" in verdict
+
+
+@pytest.mark.parametrize("mean,volatility,classification", [
+    (.30, .18, "reference_dominates"),
+    (.30, .20, "reference_dominates"),
+    (.28, .18, "reference_dominates"),
+    (.26, .22, "portfolio_dominates"),
+    (.26, .20, "portfolio_dominates"),
+    (.28, .22, "portfolio_dominates"),
+    (.28, .20, "equal"),
+    (.30, .22, "tradeoff"),  # Higher-return, higher-volatility QQQ is not dominant.
+    (.26, .18, "tradeoff"),
+    (np.nextafter(.28, np.inf), .20, "reference_dominates"),
+    (.28, np.nextafter(.20, -np.inf), "reference_dominates"),
+    (np.nextafter(.28, -np.inf), .20, "portfolio_dominates"),
+    (np.nextafter(.28, np.inf), np.nextafter(.20, np.inf), "tradeoff"),
+])
+def test_replay_dominance_uses_unrounded_mean_and_volatility(selection_inputs, mean, volatility, classification):
+    study = selection_inputs[0].test
+    study.metrics = study.metrics.loc[[SELECTED, "QQQ"]].copy()
+    study.metrics.loc[SELECTED, ["annual_mean", "volatility", "cagr", "total_return"]] = [.28, .20, -.50, -.40]
+    study.metrics.loc["QQQ", ["annual_mean", "volatility", "cagr", "total_return"]] = [mean, volatility, .60, .70]
+    study.settings["periods_per_year"] = 52
+    before = study.metrics.copy(deep=True)
+    comparisons = selection_replay_dominance(study)
+    assert list(comparisons.columns) == ["annual_mean", "volatility", "classification"]
+    pd.testing.assert_frame_equal(comparisons[["annual_mean", "volatility"]], before[["annual_mean", "volatility"]])
+    assert comparisons.loc[SELECTED, "classification"] == "equal"
+    assert comparisons.loc["QQQ", "classification"] == classification
+    pd.testing.assert_frame_equal(study.metrics, before)
+
+
+def test_replay_dominance_keeps_each_available_baseline_without_inventing_missing_etfs(selection_inputs):
+    study = selection_inputs[0].test
+    study.metrics = study.metrics.loc[["Equal-weight stocks", SELECTED, "SPY"]].copy()
+    study.metrics.loc[SELECTED, ["annual_mean", "volatility"]] = [.28, .20]
+    study.metrics.loc["Equal-weight stocks", ["annual_mean", "volatility"]] = [.26, .22]
+    study.metrics.loc["SPY", ["annual_mean", "volatility"]] = [.30, .18]
+    comparisons = selection_replay_dominance(study)
+    assert comparisons.index.equals(study.metrics.index)
+    assert comparisons.classification.to_dict() == {
+        "Equal-weight stocks": "portfolio_dominates", SELECTED: "equal", "SPY": "reference_dominates",
+    }
+    comparisons.loc[SELECTED, "annual_mean"] = 100.
+    assert study.metrics.loc[SELECTED, "annual_mean"] == .28
+
+
+@pytest.mark.parametrize("cost_bps", [0., 10., 500.])
+@pytest.mark.parametrize("periods", [12., 252.])
+def test_return_bridge_reconciles_real_buy_and_hold_with_fees_and_drift(monkeypatch, cost_bps, periods):
+    from efficient_frontier import selection
+
+    noise = np.tile([-.001, .001], 30)
+    returns = np.column_stack([
+        np.r_[np.full(42, .012), np.full(18, -.02)] + noise,
+        np.r_[np.full(42, .004), np.full(18, .016)] - noise,
+        np.full(60, .001) + noise / 4,
+    ])
+    prices = pd.DataFrame(100 * np.vstack([np.ones(3), np.cumprod(1 + returns, axis=0)]),
+                          index=pd.bdate_range("2020-01-01", periods=61), columns=["A", "B", "C"])
+    study = run_selection(prices, target_volatility=.8, max_weight=.6, cost_bps=cost_bps,
+                          periods_per_year=periods)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("The saved return bridge must not refit the portfolio.")
+
+    monkeypatch.setattr(selection, "_fit_targets", unexpected)
+    original_prices = prices.copy(deep=True)
+    original_metrics = study.test.metrics.copy(deep=True)
+    bridge = selection_replay_return_bridge(study, prices)
+    assert list(bridge.index) == ["fitted_mean", "realized_mean", "mean_change", "weight_drift", "entry_delay", "entry_fee"]
+    assert bridge.fitted_mean + bridge[["mean_change", "weight_drift", "entry_delay", "entry_fee"]].sum() == pytest.approx(
+        bridge.realized_mean, abs=1e-10)
+    values = study.test.equity[SELECTED]
+    n = len(values) - 1
+    assert bridge.realized_mean == pytest.approx(values.pct_change(fill_method=None).iloc[1:].mean() * periods, abs=1e-12)
+    assert bridge.entry_fee == pytest.approx((values.iloc[1] / values.iloc[0] - 1) * periods / n, abs=1e-12)
+    initial = study.test.allocations[SELECTED].iloc[0].reindex(prices.columns)
+    replay_prices = prices.loc[values.index]
+    constant_weight_returns = replay_prices.pct_change(fill_method=None).iloc[1:] @ initial
+    assert bridge.entry_delay == pytest.approx(-constant_weight_returns.iloc[0] * periods / n, abs=1e-12)
+    # Independently value fixed units, rather than reconstructing daily weights.
+    units = initial / replay_prices.iloc[1]
+    held_values = replay_prices.iloc[1:] @ units
+    held_returns = held_values.pct_change(fill_method=None).iloc[1:]
+    expected_drift = (held_returns - constant_weight_returns.iloc[1:]).sum() * periods / n
+    assert abs(bridge.weight_drift) > 1e-5
+    assert bridge.weight_drift == pytest.approx(expected_drift, abs=1e-12)
+    assert bridge.mean_change < 0
+    assert bridge.fitted_mean == pytest.approx(selection_fit_estimates(study, prices).iloc[0].fitted_mean, abs=1e-12)
+    pd.testing.assert_frame_equal(prices, original_prices)
+    pd.testing.assert_frame_equal(study.test.metrics, original_metrics)
+    # A separate all-history allocation must not affect the initial replay bridge.
+    study.latest[SELECTED].weights.iloc[:] = 1 / len(prices.columns)
+    pd.testing.assert_series_equal(selection_replay_return_bridge(study, prices), bridge)
 
 
 @pytest.mark.parametrize("total_return,volatility,return_finding,risk_finding", [
