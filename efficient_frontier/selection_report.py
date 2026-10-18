@@ -6,13 +6,14 @@ import json
 import zipfile
 
 import pandas as pd
+import plotly.graph_objects as go
 from plotly.offline import get_plotlyjs
 
 from .backtest_report import backtest_chart
 from .data import stale_price_notes
 from .presentation import PLOTLY_JS_LICENSE, csv_text
-from .selection import BASELINE, BENCHMARK_NAMES, SELECTED, selection_fit_estimates
-from .style import ACCENT, BENCHMARK_COLORS, INK_3, PLOTLY_CONFIG, REPORT_CSS
+from .selection import BASELINE, BENCHMARK_NAMES, SELECTED, selection_fit_estimates, selection_frontier
+from .style import ACCENT, BENCHMARK_COLORS, INK_3, PLOTLY_CONFIG, REPORT_CSS, style_chart
 
 
 SELECTION_METRIC_LABELS = {
@@ -50,6 +51,67 @@ def selection_chart(study):
     return figure
 
 
+def selection_frontier_chart(frontier_data, study):
+    """Plot the latest stock frontier and passive ETF references on their fit dates."""
+    frontier, _, comparisons, _ = frontier_data
+    hover = "Annual volatility: %{x:.2%}<br>Annual arithmetic mean: %{y:.2%}<extra>%{fullData.name}</extra>"
+    figure = go.Figure(go.Scatter(
+        x=frontier.model_volatility, y=frontier.fitted_mean, mode="lines", name="Stock efficient frontier",
+        line={"color": INK_3, "width": 2.5}, hovertemplate=hover,
+    ))
+    for name, row in comparisons.iterrows():
+        selected = name == SELECTED
+        label = "Selected stock portfolio" if selected else str(name)
+        risk_label = "Model volatility" if selected and study.settings["shrinkage"] else "Annual volatility"
+        figure.add_trace(go.Scatter(
+            x=[row.model_volatility], y=[row.fitted_mean], mode="markers", name=html.escape(label),
+            marker={"symbol": "circle" if selected else "diamond", "size": 15 if selected else 11,
+                    "color": ACCENT if selected else BENCHMARK_COLORS.get(name, INK_3)},
+            hovertemplate=risk_label + ": %{x:.2%}<br>Annual arithmetic mean: %{y:.2%}<extra>%{fullData.name}</extra>",
+        ))
+    if study.settings["shrinkage"]:
+        figure.data[0].hovertemplate = hover.replace("Annual volatility", "Model volatility")
+    figure.add_vline(x=study.settings["target_volatility"], line_dash="dot", line_color=INK_3,
+                     annotation_text="Volatility budget", annotation_position="top left")
+    style_chart(figure, "Latest fitted frontier", height=420)
+    figure.update_layout(legend={"maxheight": 120})
+    figure.update_xaxes(title="Annual volatility", tickformat=".0%", rangemode="tozero")
+    figure.update_yaxes(title="Annual arithmetic mean", tickformat=".0%")
+    return figure
+
+
+def selection_frontier_summary_html(study, prices: pd.DataFrame, frontier_data) -> str:
+    """Explain the frontier and show references on the same dates and return measure."""
+    _, _, comparisons, warnings = frontier_data
+    columns = ["fitted_mean", "historical_volatility"]
+    shrinkage = study.settings["shrinkage"]
+    if shrinkage:
+        columns.insert(1, "model_volatility")
+    display = comparisons.loc[:, columns].rename(columns=FIT_METRIC_LABELS)
+    risk_note = (
+        f'Stock model volatility uses {shrinkage:.0%} covariance shrinkage; ETF volatility does not. '
+        'Historical volatility uses ordinary sample covariance for every row. '
+        'The frontier and budget use stock model volatility, so their risk estimates differ from the ETF markers.'
+        if shrinkage else
+        'Every row uses ordinary sample covariance, the same return dates, and the same annualization. '
+        'The frontier and volatility budget use this same risk measure.'
+    )
+    notes = "".join(f'<li>{html.escape(str(warning))}</li>' for warning in warnings)
+    return (
+        '<h2>Latest fitted frontier</h2>'
+        f'<p>Return dates: {prices.index[1].date()} to {prices.index[-1].date()}. '
+        'These are fitted arithmetic means and volatilities before trading fees, not forecasts or later test results.</p>'
+        '<p>The line shows the highest fitted mean available at each volatility among the eligible stocks, '
+        f'with no short selling and at most {study.settings["max_weight"]:.0%} in one stock. '
+        'The selected point maximizes that mean within the volatility budget.</p>'
+        f'<p>{risk_note}</p><div class="scroll">{_percent_table(display)}</div>'
+        '<p>SPY and QQQ are passive ETF references. They are not portfolio candidates and do not follow the stock holding limit. '
+        'An ETF above the line need not be feasible within this stock universe and holding limit. '
+        'None of the ETF positions is scaled to match the selected volatility.</p>'
+        + (f'<ul>{notes}</ul>' if notes else '')
+    )
+
+
 def selection_summary_html(study, metadata: dict) -> str:
     """Describe the one model and its later historical check."""
     heading = "Later test: performance checks passed" if study.supported else "Later test: performance checks not met"
@@ -80,8 +142,17 @@ def _percent_table(frame: pd.DataFrame) -> str:
 def selection_fit_summary_html(study, prices: pd.DataFrame) -> str:
     """Separate fitted estimates from the later results of earlier weights."""
     fits = selection_fit_estimates(study, prices).iloc[[0, -1]]
-    display = fits.loc[:, list(FIT_METRIC_LABELS)].rename(columns=FIT_METRIC_LABELS)
+    columns = list(FIT_METRIC_LABELS) if study.settings["shrinkage"] else ["fitted_mean", "historical_volatility"]
+    display = fits.loc[:, columns].rename(columns=FIT_METRIC_LABELS)
     display.index = [f"{row.phase} · {date.date()}" for date, row in fits.iterrows()]
+    risk_note = (
+        f'Model volatility uses a {study.settings["shrinkage"]:.0%} covariance adjustment toward individual stock variances. '
+        'Historical volatility uses the ordinary sample covariance with the same dates and weights. '
+        'The budget applies to model volatility.'
+        if study.settings["shrinkage"] else
+        'Historical volatility uses ordinary sample covariance, with no covariance adjustment. '
+        'The volatility budget applies to this same measure.'
+    )
     return (
         '<h2>Estimates at each fit</h2>'
         f'<p>Each fit uses returns from {prices.index[1].date()} through its date below. '
@@ -89,9 +160,7 @@ def selection_fit_summary_html(study, prices: pd.DataFrame) -> str:
         f'<div class="scroll">{_percent_table(display)}</div>'
         '<p>The model maximizes the fitted arithmetic mean within the model volatility budget and holding limit. '
         'It does not maximize the return-to-volatility ratio or CAGR.</p>'
-        f'<p>Model volatility uses a {study.settings["shrinkage"]:.0%} covariance adjustment toward individual stock variances. '
-        'Historical volatility uses the ordinary sample covariance with the same dates and weights. '
-        'The budget applies to model volatility.</p>'
+        f'<p>{risk_note}</p>'
         '<p>The first fit starts the historical test. Later refits update its weights. '
         'The latest weights did not produce the earlier test results.</p>'
     )
@@ -134,9 +203,14 @@ def _details(study, prices: pd.DataFrame, metadata: dict) -> dict:
     }
 
 
-def selection_report_html(study, prices: pd.DataFrame, metadata: dict) -> str:
+def selection_report_html(study, prices: pd.DataFrame, metadata: dict, *, frontier_data=None) -> str:
     """Show one later test and the latest fitted stock weights."""
     details = _details(study, prices, metadata)
+    if frontier_data is None:
+        frontier_data = selection_frontier(study, prices)
+    frontier_chart = selection_frontier_chart(frontier_data, study).to_html(
+        full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG,
+    )
     result = study.test
     metrics = selection_metrics_frame(result).rename(columns=SELECTION_METRIC_LABELS)
     chart = selection_chart(result).to_html(
@@ -166,11 +240,11 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict) -> str:
     latest = (
         '<p>These weights fit all supplied history through the final price date. The later test used earlier fitted weights. '
         'Latest fitted means are annual arithmetic estimates, not realized CAGR or forecasts.</p>'
-        f'<div class="scroll">{_percent_table(weights)}</div>'
+        '<p>All stocks are shown, largest weight first. Displayed weights are rounded; '
+        'latest_weights.csv preserves every weight at full precision.</p>'
+        f'<div class="scroll">{_percent_table(weights.sort_values(study.selected, ascending=False, kind="stable"))}</div>'
         f'<div class="scroll">{_percent_table(estimates[["expected_return", "volatility"]].rename(columns={"expected_return": "Fitted arithmetic mean / year", "volatility": "Fitted volatility / year"}))}</div>'
     )
-    if not study.supported:
-        latest = '<details><summary>Experimental latest holdings</summary>' + latest + '</details>'
     notes = "".join(f'<li>{html.escape(str(note))}</li>' for note in details["warnings"])
     source_rows = "".join(
         f'<tr><th>{html.escape(str(key).replace("_", " "))}</th>'
@@ -187,10 +261,12 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict) -> str:
 <title>Portfolio Lab · Historical-mean portfolio</title><style>{REPORT_CSS}</style><script>{get_plotlyjs()}</script></head>
 <body><main><p class="eyebrow">Historical research</p><h1>One portfolio, one model</h1>
 <button onclick="window.print()">Print / save PDF</button>
-<section id="selection-decision">{selection_summary_html(study, metadata)}</section>
-<section id="fit-estimates">{selection_fit_summary_html(study, prices)}</section>
-{test_section}
+<section id="latest-frontier">{selection_frontier_summary_html(study, prices, frontier_data)}
+<div class="chart">{frontier_chart}</div></section>
 <section id="latest-selection"><h2>Latest fitted stock weights · {prices.index[-1].date()}</h2>{latest}</section>
+<section id="fit-estimates">{selection_fit_summary_html(study, prices)}</section>
+<section id="selection-decision">{selection_summary_html(study, metadata)}</section>
+{test_section}
 <section id="selection-assumptions"><h2>Method and limits</h2>
 <p>The model maximizes historical arithmetic mean return under a fitted volatility budget and a per-stock holding limit.
 Stock weights are long-only and sum to one. Each scheduled refit uses all available earlier returns.</p>
@@ -213,17 +289,25 @@ The later test is a descriptive historical check, not proof of future outperform
 <section id="selection-sources"><h2>Source and reproduction</h2><div class="scroll"><table class="metadata">{source_rows}</table></div>{coverage}
 <p>metadata.json records the model revision, settings, input dates, source details, test reasons, and every numbered result file.
 fit_estimates.csv records the mean and both volatility measures for every saved fit.
+latest/frontier.csv and latest/frontier_weights.csv preserve each plotted stock mix.
+latest/fitted_comparison.csv records the same-date portfolio and ETF estimates.
 The test exports include every path, allocation, trade, and holding.</p></section>
 <footer>This report works offline.<details><summary>Third-party notice: Plotly.js (MIT)</summary>
 <pre>{html.escape(PLOTLY_JS_LICENSE)}</pre></details></footer></main></body></html>'''
 
 
-def selection_report_zip(study, prices: pd.DataFrame, metadata: dict) -> bytes:
+def selection_report_zip(study, prices: pd.DataFrame, metadata: dict, *, frontier_data=None) -> bytes:
     """Export exact inputs, model settings, and every later-test result."""
     details = _details(study, prices, metadata)
+    if frontier_data is None:
+        frontier_data = selection_frontier(study, prices)
+    frontier, frontier_weights, fitted_comparison, frontier_warnings = frontier_data
+    details["frontier_warnings"] = frontier_warnings
     weights, estimates = _latest_frames(study)
     frames = {"prices.csv": prices.rename_axis("Date"), "latest_weights.csv": weights, "latest_estimates.csv": estimates,
-              "fit_estimates.csv": selection_fit_estimates(study, prices)}
+              "fit_estimates.csv": selection_fit_estimates(study, prices),
+              "latest/frontier.csv": frontier, "latest/frontier_weights.csv": frontier_weights,
+              "latest/fitted_comparison.csv": fitted_comparison}
     if getattr(study, "benchmark_prices", None) is not None:
         frames["benchmark_prices.csv"] = study.benchmark_prices.rename_axis("Date")
     if getattr(study, "eligibility", None) is not None:
@@ -238,7 +322,7 @@ def selection_report_zip(study, prices: pd.DataFrame, metadata: dict) -> bytes:
             frames[f"test/{number:02d}_{kind}.csv"] = getattr(result, kind)[name].rename_axis("symbol" if kind == "holdings" else "date")
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("report.html", selection_report_html(study, prices, metadata))
+        archive.writestr("report.html", selection_report_html(study, prices, metadata, frontier_data=frontier_data))
         archive.writestr("metadata.json", json.dumps(details, indent=2, default=str, ensure_ascii=False))
         archive.writestr("THIRD_PARTY_NOTICES.txt", PLOTLY_JS_LICENSE)
         for name, frame in frames.items():

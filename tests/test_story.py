@@ -90,7 +90,9 @@ def markets(spy, qqq):
     (.2004, .2, .3, "Partly. It matched the S&P 500 but trailed the Nasdaq-100."),
 ])
 def test_market_answer_compares_growth_at_a_tenth_of_a_point(rule, spy, qqq, expected):
-    assert market_answer(market_study(rule), SELECTED, markets(spy, qqq)) == expected
+    assert market_answer(market_study(rule), SELECTED, markets(spy, qqq)) == (
+        expected + " This compares compound growth (CAGR), without matching volatility."
+    )
 
 
 def test_market_answer_without_markets_states_growth():
@@ -204,6 +206,30 @@ def test_stretch_table_marks_ahead_and_behind_and_escapes_markets():
     assert '<i class="w-dot on" aria-hidden="true"></i>+5.4%<small>ahead</small>' in html
     assert '<i class="w-dot" aria-hidden="true"></i>−11.1%<small>behind</small>' in html
     assert "<td>S&amp;P 500</td>" in html and "&lt;b&gt;Index&lt;/b&gt;" in html and "<b>Index" not in html
+
+
+def test_stretch_table_marks_an_exact_tie_as_level():
+    windows = pd.DataFrame([{
+        "strategy": SELECTED, "benchmark": SPY, "start": "2025-01-02", "end": "2025-04-01",
+        "relative_return": 0.0,
+    }])
+    document = stretch_table_html(SimpleNamespace(windows=windows), SELECTED)
+    assert "<small>level</small>" in document
+    assert "<small>behind</small>" not in document
+
+
+def test_chart_end_labels_remain_inside_the_axis_when_paths_finish_together():
+    import plotly.graph_objects as go
+
+    figure = go.Figure([
+        go.Scatter(x=[0, 1], y=[10_000, 20_000], mode="lines", line_color="#333333")
+        for _ in range(3)
+    ])
+    story.add_end_labels(figure, "{:,.0f}")
+    positions = [annotation.y for annotation in figure.layout.annotations]
+    assert len(set(positions)) == 3
+    assert figure.layout.yaxis.range[0] < min(positions) < max(positions) < figure.layout.yaxis.range[1]
+    assert all(annotation.text.endswith("20,000") for annotation in figure.layout.annotations)
 
 
 def test_list_shows_ten_rows_and_one_rest_row_beyond_twelve_holdings():

@@ -188,13 +188,15 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     app = demo_app()
     assert not app.exception
     page = html_text(app)
+    assert page.index("Latest fitted frontier") < page.index("Fitted annual mean")
     assert page.index("Fitted annual mean") < page.index("Later historical test")
     assert "First historical fit" in page and "Latest fit" in page
-    assert "Model volatility" in page and "Historical volatility" in page
+    assert "Historical volatility" in page and "ordinary sample covariance" in page
+    assert len(app.get("plotly_chart")) == 2
     assert "validation" not in page.lower() and "blend" not in page.lower()
     holding_section = next(item for item in app.expander if item.label.startswith("Latest fitted holdings"))
-    assert holding_section.proto.expanded is False
-    assert any("does not pass the historical check" in item.value for item in app.warning)
+    assert holding_section.proto.expanded is True
+    assert any("The later test of this rule did not meet" in item.value for item in app.warning)
     assert any("These weights use all supplied prices" in item.value for item in app.caption)
     assert app.segmented_control(key="view").options == ["Overview", "Data & method"]
     assert "risk_profile" not in {item.key for item in app.segmented_control}
@@ -246,18 +248,27 @@ def test_repeated_identical_build_uses_cached_inputs_and_selection(monkeypatch, 
     from efficient_frontier import selection
 
     original, fits = selection.run_selection, []
+    original_frontier, frontiers = selection.selection_frontier, []
 
     def calculate(*args, **kwargs):
         fits.append(1)
         return original(*args, **kwargs)
 
+    def frontier(*args, **kwargs):
+        frontiers.append(1)
+        return original_frontier(*args, **kwargs)
+
     monkeypatch.setattr(selection, "run_selection", calculate)
+    monkeypatch.setattr(selection, "selection_frontier", frontier)
     app = app_start().button(key="build").click().run()
-    assert not app.exception and len(fits) == 1
+    assert not app.exception and len(fits) == len(frontiers) == 1
     equity = app.session_state.selection.test.equity.copy()
     open_setup(app).button(key="build").click().run()
     assert not app.exception and not app.error
-    assert len(fits) == 1 and len(universe_data.calls) == 2
+    assert len(fits) == len(frontiers) == 1 and len(universe_data.calls) == 2
+    app.segmented_control(key="view").set_value("Data & method").run()
+    app.segmented_control(key="view").set_value("Portfolio").run()
+    assert not app.exception and len(frontiers) == 1
     pd.testing.assert_frame_equal(app.session_state.selection.test.equity, equity)
     pd.testing.assert_frame_equal(app.session_state.coverage, universe_data.coverage)
 
@@ -293,14 +304,14 @@ def test_submit_applies_limits_and_fixed_assumptions_despite_old_custom_values()
     assert not app.exception and not app.error
     metadata = app.session_state.result[2]
     assert {key: metadata[key] for key in ("target_volatility", "max_weight", "risk_free_rate", "train_fraction", "shrinkage")} == {
-        "target_volatility": .25, "max_weight": .3, "risk_free_rate": .02, "train_fraction": .7, "shrinkage": .1}
+        "target_volatility": .25, "max_weight": .3, "risk_free_rate": .02, "train_fraction": .7, "shrinkage": 0.}
     assert app.session_state.selection.settings["rebalance_every"] == 21
     assert app.session_state.selection.settings["cost_bps"] == 10.
     assert "target_vol" not in app.session_state and "cap" not in app.session_state
     open_setup(app)
     assert app.slider(key="target_vol").value == 25. and app.number_input(key="cap").value == 30.
     assert {key: app.session_state.setup[key] for key in ("train_pct", "shrink", "risk_free")} == {
-        "train_pct": 70, "shrink": 10, "risk_free": 2.}
+        "train_pct": 70, "shrink": 0, "risk_free": 2.}
     assert not any("differs from this result" in item.value for item in app.info)
 
 
@@ -400,6 +411,66 @@ def test_csv_download_requires_explicit_submit_and_uploaded_benchmarks_win(monke
     pd.testing.assert_frame_equal(app.session_state.selection.benchmark_prices, benchmark_prices * 2, check_freq=False)
 
 
+@pytest.mark.parametrize("symbols", [["SPY"], ["QQQ"], ["SPY", "QQQ"]])
+def test_csv_comparison_columns_never_become_stock_holdings(monkeypatch, market_prices, benchmark_prices, offline_app, symbols):
+    combined = pd.concat([market_prices, benchmark_prices[symbols]], axis=1)
+    app, _ = csv_app(monkeypatch, combined)
+    assert not app.exception and not app.error
+    study = app.session_state.selection
+    pd.testing.assert_frame_equal(app.session_state.result[1], market_prices, check_freq=False)
+    pd.testing.assert_frame_equal(study.benchmark_prices, benchmark_prices[symbols], check_freq=False)
+    assert set(study.latest[study.selected].weights.index) == set(market_prices)
+    assert app.session_state.result[2]["excluded_candidate_symbols"] == symbols
+    assert any("excluded from candidate holdings" in item.value for item in app.info)
+    open_setup(app).checkbox(key="download_benchmarks").set_value(True).run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error and offline_app == []
+    assert app.session_state.result[2]["benchmark_source"] == "Input columns: " + ", ".join(symbols)
+
+
+@pytest.mark.parametrize("comparison", ["disabled", "other_currency", "override"])
+def test_csv_comparison_controls_do_not_put_etfs_back_in_candidate_universe(
+    monkeypatch, market_prices, benchmark_prices, offline_app, comparison,
+):
+    app, uploads = csv_app(monkeypatch, pd.concat([market_prices, benchmark_prices], axis=1))
+    open_setup(app)
+    if comparison == "disabled":
+        app.checkbox(key="compare_market").set_value(False).run()
+    elif comparison == "other_currency":
+        app.selectbox(key="price_currency").select("Other currency").run()
+    else:
+        uploads["benchmark_upload"] = upload(benchmark_prices[["QQQ"]] * 2, "override.csv")
+        app.run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error and offline_app == []
+    pd.testing.assert_frame_equal(app.session_state.result[1], market_prices, check_freq=False)
+    if comparison == "override":
+        pd.testing.assert_frame_equal(app.session_state.selection.benchmark_prices, benchmark_prices[["QQQ"]] * 2, check_freq=False)
+        assert app.session_state.result[2]["benchmark_source"] == "CSV: override.csv"
+    else:
+        assert app.session_state.selection.benchmark_prices is None
+
+
+def test_csv_with_only_comparison_etfs_fails_actionably(monkeypatch, benchmark_prices, offline_app):
+    app, _ = csv_app(monkeypatch, benchmark_prices)
+    assert not app.exception and "selection" not in app.session_state
+    assert any("stock" in item.value.lower() and "SPY" in item.value for item in app.error)
+    assert app.button(key="fix_setup").label == "Change the study"
+    assert offline_app == []
+
+
+def test_single_stock_after_comparison_split_requires_explicit_full_holding_cap(monkeypatch, market_prices, benchmark_prices):
+    stock = market_prices.iloc[:, :1]
+    app, _ = csv_app(monkeypatch, pd.concat([stock, benchmark_prices[["SPY"]]], axis=1))
+    assert not app.exception and app.error
+    open_setup(app).number_input(key="cap").set_value(100.)
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    weights = app.session_state.selection.latest[app.session_state.selection.selected].weights
+    assert list(weights.index) == list(stock.columns)
+    assert weights.iloc[0] == pytest.approx(1.)
+
+
 @pytest.mark.parametrize("change", ["disable", "currency", "missing prices"])
 def test_unavailable_benchmarks_clear_previous_comparison_without_changing_assets(monkeypatch, market_prices, benchmark_prices, change):
     app, uploads = csv_app(monkeypatch, market_prices, benchmark_prices)
@@ -469,6 +540,7 @@ def test_export_is_deferred_and_captures_completed_selection_not_draft(monkeypat
         assert metadata["supported"] == study.supported and metadata["selected"] == study.selected
         assert not any(name.startswith("validation/") for name in archive.namelist())
         assert "policy.json" not in archive.namelist()
+        assert {"latest/frontier.csv", "latest/frontier_weights.csv", "latest/fitted_comparison.csv"} <= set(archive.namelist())
         frame = pd.read_csv(archive.open("test/equity.csv"), index_col=0, parse_dates=True)
         pd.testing.assert_frame_equal(frame, study.test.equity, check_freq=False, check_names=False)
         weights = pd.read_csv(archive.open("latest_weights.csv"), index_col=0)
@@ -554,8 +626,26 @@ def test_old_study_waits_for_intentional_migration_and_retains_input_prices(monk
     pd.testing.assert_frame_equal(app.session_state.result[1], prices)
     app.button(key="migrate_selection").click().run()
     assert not app.exception and app.session_state.setup_open
-    assert app.slider(key="target_vol").value == 20. and app.number_input(key="cap").value == 10.
+    assert app.radio(key="market").value == "Demo"
+    assert app.slider(key="target_vol").value == 20. and app.number_input(key="cap").value == 20.
     assert "selection" not in app.session_state and offline_app == []
+
+
+def test_old_csv_setup_keeps_source_files_and_explicit_uncapped_setting(monkeypatch, market_prices, offline_app):
+    app, _ = csv_app(monkeypatch, market_prices)
+    stored_file = app.session_state.setup["prices_file"]
+    prices = app.session_state.result[1].copy()
+    app.session_state.setup.pop("target_vol")
+    app.session_state.setup["use_cap"] = False
+    del app.session_state["selection"]
+    app.run()
+    app.button(key="migrate_selection").click().run()
+    assert not app.exception
+    assert app.radio(key="market").value == "Upload CSV"
+    assert app.number_input(key="cap").value == 100.
+    assert app.session_state.setup["prices_file"] == stored_file
+    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
+    assert offline_app == []
 
 
 def test_changed_model_blocks_old_results_and_rebuilds_identical_inputs(monkeypatch, offline_app):

@@ -38,7 +38,7 @@ def _point(name, x, y, hover, selected=False) -> go.Scatter:
 
 def frontier_chart(analysis: Any, benchmark_estimates=None, selected=None) -> go.Figure:
     """Show annualized historical training estimates, not future returns."""
-    hover = "Historical fit volatility, yearly: %{x:.2%}<br>Fit arithmetic mean, yearly: %{y:.2%}<extra>%{fullData.name}</extra>"
+    hover = "Model volatility, yearly: %{x:.2%}<br>Fit arithmetic mean, yearly: %{y:.2%}<extra>%{fullData.name}</extra>"
     figure = go.Figure()
     figure.add_trace(go.Scatter(
         x=analysis.frontier["volatility"], y=analysis.frontier["expected_return"],
@@ -48,11 +48,10 @@ def frontier_chart(analysis: Any, benchmark_estimates=None, selected=None) -> go
     for name in names:
         portfolio = analysis.portfolios[name]
         figure.add_trace(_point(name, portfolio.volatility, portfolio.expected_return, hover, selected=name == selected))
-    add_benchmark_estimates(figure, benchmark_estimates, "expected_return")
-    figure.update_traces(hovertemplate=hover)
+    add_benchmark_estimates(figure, benchmark_estimates, "expected_return", return_label="Fit arithmetic mean, yearly")
     style_chart(figure, "Classic frontier")
     figure.update_layout(legend_y=-0.24)
-    figure.update_xaxes(title="Fit volatility, yearly", tickformat=".0%", rangemode="tozero")
+    figure.update_xaxes(title="Annual volatility", tickformat=".0%", rangemode="tozero")
     figure.update_yaxes(title="Arithmetic mean, yearly (first fit)", tickformat=".0%")
     return figure
 
@@ -62,7 +61,7 @@ def holdout_chart(analysis: Any, benchmark_equity=None, selected=None) -> go.Fig
     figure = go.Figure()
     for name in analysis.equity.columns if selected is None else [selected]:
         figure.add_trace(go.Scatter(
-            x=analysis.equity.index, y=analysis.equity[name] * 10_000, name=name,
+            x=analysis.equity.index, y=analysis.equity[name] * 10_000, name=html.escape(str(name)),
             mode="lines", line={"width": 2, "color": COLORS.get(name, REST)},
             hovertemplate="%{x|%Y-%m-%d}<br>Portfolio value: %{y:,.0f}<extra>%{fullData.name}</extra>",
         ))
@@ -85,26 +84,23 @@ def latest_profile_chart(profiles: Any, benchmark_estimates=None, selected=None)
     column = "worst_window_return" if weakest else "expected_return"
     title = "Weakest-window frontier" if weakest else "Historical mean frontier"
     label = "Lowest annual window mean" if weakest else "Full-history arithmetic mean, yearly"
-    hover = "Full-history fit volatility, yearly: %{x:.2%}<br>" + label + ": %{y:.2%}<extra>%{fullData.name}</extra>"
+    hover = "Model volatility, yearly: %{x:.2%}<br>" + label + ": %{y:.2%}<extra>%{fullData.name}</extra>"
     figure = go.Figure(go.Scatter(
         x=profiles.frontier["volatility"], y=profiles.frontier[column],
         mode="lines", name=title, line={"color": REST, "width": 2.5}, hovertemplate=hover,
     ))
     for name, row in profiles.summary.iterrows():
         figure.add_trace(_point(name, row["volatility"], row[column], hover, selected=name == selected))
-    add_benchmark_estimates(figure, benchmark_estimates, column)
-    figure.update_traces(hovertemplate=hover)
+    add_benchmark_estimates(figure, benchmark_estimates, column, return_label=label)
     style_chart(figure, title)
     figure.update_layout(legend_y=-0.24)
-    figure.update_xaxes(title="Fit volatility, yearly", tickformat=".0%", rangemode="tozero")
+    figure.update_xaxes(title="Annual volatility", tickformat=".0%", rangemode="tozero")
     figure.update_yaxes(title="Lowest window mean, yearly" if weakest else "Arithmetic mean, yearly (full history)", tickformat=".0%")
     return figure
 
 
 def weights_frame(analysis: Any) -> pd.DataFrame:
-    frame = pd.DataFrame({name: portfolio.weights for name, portfolio in analysis.portfolios.items()})
-    frame.index.name = "ticker"
-    return frame
+    return pd.DataFrame({name: portfolio.weights for name, portfolio in analysis.portfolios.items()}).rename_axis("ticker")
 
 
 def csv_text(frame: pd.DataFrame, index_label=None) -> str:
@@ -202,7 +198,7 @@ def _latest_profiles_html(profiles: Any, benchmark_estimates=None, selected: str
         "When the frontier has no volatility range, all three use the same highest-return mix."
     )
     summary = profiles.summary.rename(index=display_label, columns={
-        "expected_return": mean_label, "volatility": "Annual volatility",
+        "expected_return": mean_label, "volatility": "Model volatility / year",
         "sharpe": "Estimated Sharpe", "worst_window_return": window_label,
         "max_weight": "Largest weight", "effective_holdings": "Effective holdings",
     })
@@ -230,7 +226,7 @@ def _latest_profiles_html(profiles: Any, benchmark_estimates=None, selected: str
         'Rows under 0.005% in all three levels are hidden here. latest_profile_weights.csv has every row.</p>'
         f'<div class="scroll">{_table(weights.rename(columns=display_label))}</div>'
         '<h3>Profile estimates</h3>'
-        f'<div class="scroll">{_table(summary, [mean_label, "Annual volatility", window_label, "Largest weight"])}</div>'
+        f'<div class="scroll">{_table(summary, [mean_label, "Model volatility / year", window_label, "Largest weight"])}</div>'
         f'<p class="muted">{selection_note}</p>'
         f'<div class="chart">{chart}</div>'
         f'<h3>Historical windows{"" if weakest else " · diagnostics"}</h3>'
@@ -302,7 +298,7 @@ def _summary_html(analysis: Any, metadata: dict, prices, study, latest_profiles,
             answer = "There is no market to compare with."
             lead = "The statistics compare the rule with the S&P 500 and the Nasdaq-100. This study has no market prices."
         parts += [
-            '<p class="pl-eyebrow">Would this rule have beaten the market?</p>',
+            '<p class="pl-eyebrow">Later compound growth compared with the ETFs</p>',
             f'<h3 class="pl-answer">{html.escape(story.market_answer(study, selected, benchmarks))}</h3>',
             f'<p class="pl-lead">{html.escape(story.market_lead(study, selected))}</p>',
             f'<div class="tile">{story.result_tile_html(study, selected, benchmarks, evidence, metadata)}</div>',
@@ -349,7 +345,7 @@ def report_html(analysis: Any, metadata: dict, study=None, latest_profiles=None,
     warnings = "".join(f"<li>{html.escape(str(warning))}</li>" for warning in analysis.warnings)
     warnings_html = f'<aside><h2>Analysis notes</h2><ul>{warnings}</ul></aside>' if warnings else ""
     estimates = pd.DataFrame.from_dict({
-        name: {"Fit arithmetic mean, yearly": p.expected_return, "Annual volatility": p.volatility, "Estimated Sharpe": p.sharpe}
+        name: {"Fit arithmetic mean, yearly": p.expected_return, "Model volatility / year": p.volatility, "Estimated Sharpe": p.sharpe}
         for name, p in analysis.portfolios.items()
     }, orient="index")
     holdout = analysis.holdout_metrics.rename(columns={
@@ -418,7 +414,7 @@ A higher point means a higher average return during this fit. It does not show w
 The arithmetic mean is not compound growth (CAGR) or a forecast.</p>
 {classic_definitions}
 <div class="chart">{frontier}</div>
-<div class="scroll">{_table(estimates, ["Fit arithmetic mean, yearly", "Annual volatility"])}</div></section>
+<div class="scroll">{_table(estimates, ["Fit arithmetic mean, yearly", "Model volatility / year"])}</div></section>
 <section id="allocations"><h2>Portfolio allocations</h2><p class="muted">These are the initial weights at the training/holdout split.</p>
 <div class="scroll">{_table(weights_frame(analysis))}</div></section>
 <section id="risk"><h2>Concentration and risk</h2><p class="muted">These measures use the initial weights and the estimated training covariance.

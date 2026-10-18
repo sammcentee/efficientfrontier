@@ -84,6 +84,7 @@ def optimize(
 
     Sharpe uses the supplied annual risk-free rate. Its convex formulation requires
     a feasible positive excess return; otherwise that portfolio is omitted.
+    Minimum-risk ties prefer higher expected return.
     A single frontier point retains only minimum volatility, without extra solves.
     """
     if not isinstance(mean_returns, pd.Series) or mean_returns.empty:
@@ -113,16 +114,22 @@ def optimize(
         raise ValueError("Covariance must be symmetric.")
     sigma = (sigma + sigma.T) / 2
     covariance_scale = float(np.max(np.abs(sigma)))
+    # Positive rescaling preserves the optimum and meaningful solver tolerances.
+    solver_covariance = sigma / covariance_scale if covariance_scale else sigma
+    singular_covariance = False
     try:
-        np.linalg.cholesky(sigma)
+        factor = np.linalg.cholesky(solver_covariance)
+        # Roundoff can let a singular matrix pass Cholesky.
+        singular_covariance = np.diag(factor).min() <= 1e-7
     except np.linalg.LinAlgError:
         # Cholesky verifies the usual positive-definite case quickly. Singular
         # covariance is also valid, allowing tiny negative roundoff as before.
         if np.linalg.eigvalsh(sigma).min() < -1e-10 * covariance_scale:
             raise ValueError("Covariance must be positive semidefinite.")
-    # Positive rescaling leaves all optimum weights unchanged and keeps solver
-    # tolerances meaningful for very low-volatility inputs.
-    solver_covariance = sigma / covariance_scale if covariance_scale else sigma
+        singular_covariance = True
+    # A common return offset and positive rescaling do not change the frontier.
+    return_range = float(np.max(mu) - np.min(mu))
+    solver_returns = (mu - np.mean(mu)) / return_range if return_range else np.zeros(len(mu))
 
     warnings: list[str] = []
 
@@ -158,6 +165,13 @@ def optimize(
     objective = cp.Minimize(cp.quad_form(weights, cp.psd_wrap(solver_covariance)) / 2)
     solve(cp.Problem(objective, constraints))
     minimum = portfolio("Minimum volatility", weights.value)
+    if singular_covariance and return_range:
+        # Equal-variance minimizers differ only in the covariance null space.
+        # Maximize return there so the low-risk endpoint is not dominated.
+        solve(cp.Problem(cp.Maximize(solver_returns @ weights), constraints + [
+            solver_covariance @ weights == solver_covariance @ minimum.weights.to_numpy(),
+        ]))
+        minimum = portfolio("Minimum volatility", weights.value)
     portfolios = {minimum.name: minimum}
 
     # The maximum feasible return is a linear program with a greedy exact solution.
@@ -168,13 +182,13 @@ def optimize(
         remaining -= highest_weights[index]
         if remaining <= 1e-12:
             break
-    highest_return = float(mu @ highest_weights)
+    excess = mu - risk_free_rate
+    excess_scale = float(np.max(np.abs(excess)))
 
-    if highest_return - risk_free_rate > 1e-10:
+    if float(excess @ highest_weights) > 1e-10 * excess_scale:
         # Substitute y = w / ((mu-rf)'w); minimizing variance gives maximum Sharpe.
         scaled = cp.Variable(len(mu))
-        excess = mu - risk_free_rate
-        excess /= np.max(np.abs(excess))
+        excess = excess / excess_scale
         sharpe_constraints = [scaled >= 0, excess @ scaled == 1]
         if max_weight < 1:
             # A shared scalar keeps the cap constraints sparse as assets grow.
@@ -199,14 +213,16 @@ def optimize(
         warnings.append("Sharpe is undefined for portfolios with zero estimated volatility.")
 
     frontier_portfolios = [minimum]
-    if frontier_points > 1 and highest_return > minimum.expected_return + 1e-10:
+    low_score = float(solver_returns @ minimum.weights.to_numpy())
+    high_score = float(solver_returns @ highest_weights)
+    if frontier_points > 1 and high_score > low_score + 1e-10:
         target = cp.Parameter()
-        frontier_problem = cp.Problem(objective, constraints + [mu @ weights >= target])
-        for required in np.linspace(minimum.expected_return, highest_return, frontier_points)[1:]:
+        frontier_problem = cp.Problem(objective, constraints + [solver_returns @ weights >= target])
+        for required in np.linspace(low_score, high_score, frontier_points)[1:]:
             target.value = required
             solve(frontier_problem)
             point = portfolio("Frontier", weights.value)
-            if point.expected_return < required - 1e-6:
+            if solver_returns @ point.weights.to_numpy() < required - 1e-6:
                 raise RuntimeError("Frontier solution missed its required return.")
             frontier_portfolios.append(point)
     frontier = pd.DataFrame(

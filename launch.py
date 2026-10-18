@@ -50,7 +50,7 @@ def main():
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"\nPortfolio Lab could not start: {error}")
         print("For a download failure, reconnect to the internet and run the launcher again.")
-        print("For other errors, see 'Troubleshooting' in README.md; keep the message above.")
+        print("For other errors, see 'Setup and troubleshooting' in docs/USER_GUIDE.md; keep the message above.")
         return 1
 
 

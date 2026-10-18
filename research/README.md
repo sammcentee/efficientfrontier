@@ -2,6 +2,8 @@
 
 This study asks whether a simple index rule beats both SPY and QQQ after trading costs at the same volatility. It does not change the app's portfolio model.
 
+This is an archived experiment. The current app uses the stock-only frontier described in [the R comparison](../docs/R_METHOD.md). For the exact recorded experiment below, use commit `df60ade` in a separate checkout. Its selection lock intentionally rejects later code changes. A new run on revised code is a new experiment.
+
 **Result:** no original candidate beats both passive benchmarks in the final period. A subsequent 75% SPY / 25% stock-momentum rule shows a small historical advantage. Statistical uncertainty, survivor bias, and the longer fund test prevent a reliable outperformance claim. Read [the results](RESULTS.md), or open [the interactive comparison](results.html).
 
 ## Benchmark correction and exploratory follow-up

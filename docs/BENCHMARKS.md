@@ -2,9 +2,9 @@
 
 A benchmark gives a reference for historical portfolio results. The app compares one historical-mean portfolio with equal-weight stocks, SPY, and QQQ in one later test. The result status describes that historical comparison. It does not establish future outperformance. Separate legacy CLI and API tools retain the statistical analysis below.
 
-Equal-weight stocks spreads the money equally across eligible stocks at each scheduled trade. SPY and QQQ buy once and hold. All rows use the same test dates and trading-fee rate. They can have different total fees because they trade different amounts. None of the three references is scaled to the model's volatility budget.
+Equal-weight stocks spread the money equally across eligible stocks at each scheduled trade. SPY and QQQ buy once and hold. All rows use the same test dates and trading-fee rate. They can have different total fees because they trade different amounts. None of the three references is scaled to the model's volatility budget.
 
-Read each row's return and realized volatility together. Higher return with lower volatility means that reference beat the portfolio rule in this test. These later outcomes do not measure whether the optimizer found the best portfolio under its earlier estimates. The visible fitting table and `fit_estimates.csv` provide those earlier estimates separately.
+Read each row's return and realized volatility together. Higher return with lower volatility means that reference beat the portfolio rule in this test. These later outcomes do not measure whether the optimizer found the best portfolio under its earlier estimates. The fitted frontier, fit table, and `fit_estimates.csv` show the estimates separately from the later test. SPY and QQQ frontier markers use the same historical dates as the stock fit.
 
 ## What the benchmarks represent
 
@@ -15,7 +15,7 @@ Read each row's return and realized volatility together. Higher return with lowe
 
 The app uses adjusted ETF prices, rather than raw index levels. ETF returns reflect fund expenses and can differ from index returns through tracking differences. Provider price adjustments represent distributions and corporate actions. The app does not independently reconstruct those adjustments. The [SPY provider](https://www.ssga.com/us/en/individual/etfs/state-street-spdr-sp-500-etf-trust-spy) and [QQQ provider](https://www.invesco.com/qqq-etf/en/home.html) describe their funds and costs.
 
-Benchmarks remain separate from the investment universe. An external benchmark series does not become an asset that the optimizer can select. SPY or QQQ already present in the asset input remains an eligible investment. A passive benchmark holds one ETF, so the portfolio's per-asset weight cap does not restrict it.
+SPY and QQQ are comparison instruments in the app and its stock-model CLI path. Input columns with either symbol remain outside the stock allocation, with an explicit note. Their prices can supply the comparisons. The stock holding cap does not restrict these benchmark paths. The separate legacy optimizer can still analyze fund portfolios.
 
 ## Price coverage and currency
 
@@ -24,12 +24,12 @@ Benchmark prices must cover every supplied asset date. The app does not fill mis
 | Asset source | Benchmark source |
 | --- | --- |
 | Combined SPY/Nasdaq-100 stocks or Nasdaq-100 | Reuse the SPY/QQQ prices that define the complete market calendar for constituent eligibility. |
-| Other Yahoo inputs | Reuse the asset columns when both SPY and QQQ are present. Otherwise, download both benchmark series separately. |
-| CSV | Reuse both SPY and QQQ asset columns, or supply a separate file with `Date`, `SPY`, and `QQQ` columns. |
-| CSV with an explicit download choice | Request benchmark data from Yahoo for the supplied asset dates. |
+| Other Yahoo inputs | Reuse any SPY/QQQ input columns. If neither is present, download both references separately. |
+| CSV | Use a separate benchmark file, or reuse any SPY/QQQ input columns. |
+| CSV with an explicit download choice | Download both references when no supplied benchmark file or input column is available. |
 | Synthetic demo | No comparison with actual market benchmarks. |
 
-A separate benchmark CSV must contain exactly the asset dates and the two benchmark price columns. Extra dates or asset columns are invalid. Yahoo downloads select each exact asset date from the downloaded market dates.
+A separate benchmark CSV must contain exactly the asset dates and SPY, QQQ, or both. Extra dates or asset columns are invalid. One reference can appear on its own, but both are required for the historical comparison checks to pass. The separate legacy CLI requires both columns. Yahoo downloads select each exact asset date from the downloaded market dates.
 
 CSV analysis remains offline unless you explicitly request a download. A separate benchmark file does not add its columns to the investment universe. The benchmark labels identify the supplied series. They do not verify that a file contains genuine SPY or QQQ prices.
 
@@ -37,7 +37,7 @@ These comparisons require asset and benchmark prices in USD. The currency declar
 
 If benchmark data is unavailable or invalid, the report gives the reason. Other portfolio analysis remains available. A non-USD declaration disables the benchmark comparison without currency conversion.
 
-Both stock-universe loaders also need SPY and QQQ dates to check constituent history. It downloads these series even when you disable benchmark comparisons. Failure to obtain this calendar stops the stock-universe analysis. The [universe coverage rules](../README.md#stocks-from-spy-and-the-nasdaq-100) explain exclusions and the current-membership limitation.
+Both stock-universe loaders also need SPY and QQQ dates to check constituent history. They download these series even when you disable benchmark comparisons. Failure to obtain this calendar stops the stock-universe analysis. The [universe coverage rules](USER_GUIDE.md#stock-universe) explain exclusions and the current-membership limitation.
 
 ## App use
 
@@ -48,11 +48,11 @@ Both stock-universe loaders also need SPY and QQQ dates to check constituent his
 5. Read **Later historical test**, or press **2** when no text field has focus.
 6. Open **Data & method**, or press **4**, for assumptions, coverage, and exact trades.
 
-For an offline CSV comparison, use **Market prices (optional)** to supply a separate benchmark file. For a download, select **Download SPY and QQQ from Yahoo Finance for this file**. An uploaded file takes precedence over the download choice. If both benchmark columns exist in the asset file, the app can reuse them.
+For an offline CSV comparison, use **Market prices (optional)** to supply a separate benchmark file. Otherwise, the app reuses SPY/QQQ columns from the stock file. To download references when neither source is supplied, select **Download SPY and QQQ from Yahoo Finance for this file**.
 
 ## Command-line use
 
-Use `--target-volatility` for the app's single model. Set a feasible holding limit for the supplied asset count.
+Use `--target-volatility` for the app's stock model. Set a feasible holding limit for the supplied asset count.
 
 ```bash
 # Current SPY and Nasdaq-100 stocks, with automatic benchmark prices
@@ -67,7 +67,7 @@ Use `--target-volatility` for the app's single model. Set a feasible holding lim
 .venv/bin/python -m efficient_frontier --csv data/prices.csv \
   --target-volatility .20 --download-benchmarks --currency USD
 
-# One-model study without ETF comparisons
+# Stock study without ETF comparisons
 .venv/bin/python -m efficient_frontier --csv data/prices.csv \
   --target-volatility .20 --no-benchmarks
 ```
@@ -90,11 +90,11 @@ The comparison uses the same capital base and evaluation dates for each strategy
 
 | Evaluation | Passive benchmark accounting |
 | --- | --- |
-| Single-model later test | Hold cash through the first test interval. Buy at its close with the same 10-basis-point fee rate as the model. |
+| App later test | Hold cash through the first test interval. Buy at its close with the same 10-basis-point fee rate as the model. |
 | Legacy original holdout | Allocate at the final training close. Hold through the evaluation period without trade fees. |
 | Legacy four-method backtest | Hold cash through the first test interval. Buy at its close with the selected fee rate. |
 
-For the single-model test and legacy backtests, initial capital is one. With `c = cost_bps / 10000`, entry leaves `1 / (1 + c)` invested in the benchmark. This is a self-financing purchase: the fee comes from the same initial capital. The benchmark then follows adjusted-price growth without further trades. No final sale occurs.
+For the stock-model test and legacy backtests, initial capital is one. With `c = cost_bps / 10000`, entry leaves `1 / (1 + c)` invested in the benchmark. This is a self-financing purchase: the fee comes from the same initial capital. The benchmark then follows adjusted-price growth without further trades. No final sale occurs.
 
 The selected trading fee is separate from fund expenses already reflected in ETF prices. The app does not subtract the ETF expense ratio again. These calculations exclude taxes, currency conversion, and a separate market-impact model.
 
@@ -112,11 +112,11 @@ In the app, select **Export**, or press **E** when no text field has focus. The 
 | `test/NN_trades.csv` | Each path's trade dates, turnover, and fees |
 | `metadata.json` | Settings, model revision, sources, test reasons, and numbered file map |
 
-The report also retains exact stock prices, latest fitted weights, and eligibility records. See the [complete single-model export list](BACKTESTING.md#single-model-exports). The statistical files below belong to the separate legacy tools.
+The report also retains exact stock prices, latest fitted weights, and eligibility records. See the [complete app export list](BACKTESTING.md#app-exports). The statistical files below belong to the separate legacy tools.
 
 ## Legacy statistical research
 
-The remaining sections describe the earlier CLI and Python API. These calculations do not run in the single-model app or its `--target-volatility` CLI path.
+The remaining sections describe the earlier CLI and Python API. These calculations do not run in the stock-model app or its `--target-volatility` CLI path.
 
 ```bash
 # Separate legacy strategy comparison with statistical evidence

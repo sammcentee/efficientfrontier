@@ -1,5 +1,30 @@
 # Validation record
 
+## R comparison and full project review: 18 October 2026
+
+**850 tests passed** with Python 3.14 and the installed pinned dependencies. The existing pandas warning from the invalid-date rejection test remains. Dependency and whitespace checks passed. Both the stock-model and legacy offline CLI reports completed.
+
+The review covered the original R script, optimization, price and membership inputs, trade accounting, benchmarks, app state, CLI, reports, documentation, launchers, dependencies, and CI. The main model now uses sample covariance and separates SPY/QQQ reference columns from stock candidates. Its latest frontier and stock weights appear before the later test.
+
+Confirmed defects corrected in this review:
+
+- Equal-mean choices could select unnecessarily high risk. The stock model now minimizes variance when several portfolios attain the capped maximum mean, within its stated numerical tolerance.
+- Singular covariance could give a dominated minimum-risk endpoint. Frontier and profile calculations now prefer higher return at the same minimum risk.
+- Very small return or variance scales could cause solver failure or collapse frontier targets. Equivalent scaled constraints and removal of a redundant risk bound correct these cases.
+- Saved-setting migration could replace a CSV/demo source with a live universe. It now preserves the source, files, and holding limit.
+- Malformed membership CSV quoting could alter symbols silently. The parser now rejects malformed and incomplete rows. Future-dated Nasdaq source snapshots are also rejected.
+- Report construction could mutate a source index name. Export cleanup could leave files from an earlier model. Both are corrected, along with benchmark risk labels and escaped chart text.
+
+An independent reproduction used the original 60 stocks and 2020–2023 fit dates. Corrected arithmetic means still produce stock-only portfolios above SPY and QQQ at their respective sample volatilities. Four comparisons, including a 10% holding cap, pass feasibility and numerical global-bound checks. The app matches their annual means within 0.0001 percentage points. See the [R comparison](R_METHOD.md) for inputs, weights, the original formula error, and interpretation.
+
+Independent analytic checks covered 42 two-stock frontier points at different holding caps and covariance scales. Maximum weight error was `1.54e-9`. Two further fixtures verify the equal-mean correction. An independent reconstruction checked 19 strategy paths for portfolio values, fees, prior-close signals, and benchmark parity. Changing future prices left earlier selections unchanged.
+
+The original R file remains unchanged. The reproduction uses Python because `Rscript` was unavailable. Downloaded prices can differ from the 2024 vendor snapshot. These checks establish calculation agreement, not unseen index outperformance.
+
+Headless Chromium checks covered the demo, data view, original 60-stock CSV, ETF exclusion, frontier references, and ZIP exports. Exported fit statistics reconciled with an independent calculation. Desktop and mobile widths of 1440 and 390 pixels had no horizontal overflow or JavaScript/app errors. The final chart-label and table-spacing corrections passed 55 focused app/report tests and a fresh-process browser check. The T3 preview sandbox was unavailable, so the browser ran separately in the background.
+
+The Linux launcher passed a loopback health check, startup from a path with spaces, and clean interruption. Shell syntax and the three launcher regression tests passed. All 64 installed distributions returned no listed vulnerability or yanked-release warning from their release-specific PyPI records at review time. This was a feed check, not a complete dependency security audit. Native Windows/macOS execution, physical devices, a fresh installation, and a new Git-history secret scan were not performed.
+
 ## Fitted frontier and benchmark clarity: 18 October 2026
 
 **741 tests passed**. Dependency and whitespace checks passed. The suite retains the existing pandas warning from the invalid-date rejection test.
