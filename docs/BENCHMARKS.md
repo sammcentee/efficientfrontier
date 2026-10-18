@@ -2,6 +2,10 @@
 
 A benchmark gives a reference for historical portfolio results. The app compares one historical-mean portfolio with equal-weight stocks, SPY, and QQQ in one later test. The result status describes that historical comparison. It does not establish future outperformance. Separate legacy CLI and API tools retain the statistical analysis below.
 
+Equal-weight stocks spreads the money equally across eligible stocks at each scheduled trade. SPY and QQQ buy once and hold. All rows use the same test dates and trading-fee rate. They can have different total fees because they trade different amounts. None of the three references is scaled to the model's volatility budget.
+
+Read each row's return and realized volatility together. Higher return with lower volatility means that reference beat the portfolio rule in this test. These later outcomes do not measure whether the optimizer found the best portfolio under its earlier estimates. The visible fitting table and `fit_estimates.csv` provide those earlier estimates separately.
+
 ## What the benchmarks represent
 
 | Symbol | Reference market | Provider |

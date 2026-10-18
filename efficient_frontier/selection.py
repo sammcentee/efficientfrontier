@@ -31,6 +31,40 @@ class SelectionStudy:
     eligibility: pd.DataFrame
 
 
+def selection_fit_estimates(study: SelectionStudy, prices: pd.DataFrame) -> pd.DataFrame:
+    """Recover each saved fit's estimates from its weights and past prices only.
+
+    Historical volatility uses the sample covariance before shrinkage. Neither
+    volatility describes the later replay. No portfolio is solved again.
+    """
+    allocations = study.test.allocations[SELECTED]
+    trades = study.test.trades[SELECTED]
+    targets = [
+        (pd.Timestamp(trades.loc[execution, "train_end"]), execution,
+         "First historical fit" if number == 0 else "Historical refit", weights)
+        for number, (execution, weights) in enumerate(allocations.iterrows())
+    ]
+    targets.append((prices.index[-1], pd.NaT, "Latest fit", study.latest[study.selected].weights))
+    periods = study.settings["periods_per_year"]
+    shrinkage = study.settings["shrinkage"]
+    rows = []
+    for fit_date, execution, phase, target in targets:
+        returns = prices.loc[:fit_date].pct_change(fill_method=None).iloc[1:]
+        weights = target.reindex(prices.columns, fill_value=0.0)
+        portfolio_returns = returns @ weights
+        raw_variance = float(portfolio_returns.var(ddof=1) * periods)
+        diagonal_variance = float((returns.var(ddof=1) * periods) @ weights.pow(2))
+        model_variance = (1 - shrinkage) * raw_variance + shrinkage * diagonal_variance
+        rows.append({
+            "fit_date": returns.index[-1], "phase": phase, "execution_date": execution,
+            "observations": len(returns), "fitted_mean": float(portfolio_returns.mean() * periods),
+            "model_volatility": float(np.sqrt(max(model_variance, 0))),
+            "historical_volatility": float(np.sqrt(max(raw_variance, 0))),
+            "max_weight": float(weights.max()),
+        })
+    return pd.DataFrame(rows).set_index("fit_date")
+
+
 def _longest_unchanged(prices):
     values = prices.to_numpy()
     run = np.zeros(values.shape[1], dtype=int)

@@ -1,3 +1,4 @@
+import copy
 from dataclasses import fields
 import json
 
@@ -7,7 +8,7 @@ import pytest
 
 from efficient_frontier.selection import (
     BASELINE, BENCHMARK_NAMES, MODEL_REVISION, SELECTED, SelectionStudy,
-    _fit_targets, run_selection,
+    _fit_targets, run_selection, selection_fit_estimates,
 )
 
 
@@ -129,6 +130,81 @@ def test_one_split_uses_all_initial_training_returns_and_records_fit_dates():
     assert result.settings["latest_as_of"] == str(prices.index[-1].date())
     assert result.test.settings["split"] == split
     assert result.test.settings["initial_execution"] == str(prices.index[split + 1].date())
+
+
+@pytest.mark.parametrize("shrinkage", [0., .1, 1.])
+def test_fit_estimates_match_covariance_quadratic_forms_and_saved_latest(shrinkage):
+    prices = stock_prices()
+    result = run_selection(prices, target_volatility=.2, rebalance_every=7, shrinkage=shrinkage)
+    estimates = selection_fit_estimates(result, prices)
+    assert list(estimates.columns) == [
+        "phase", "execution_date", "observations", "fitted_mean", "model_volatility",
+        "historical_volatility", "max_weight",
+    ]
+    assert estimates.index.name == "fit_date" and estimates.index.is_unique
+    assert list(estimates.index) == list(pd.to_datetime(result.settings["fit_dates"]))
+    assert estimates.iloc[0].phase == "First historical fit"
+    assert estimates.iloc[1:-1].phase.eq("Historical refit").all()
+    assert estimates.iloc[-1].phase == "Latest fit"
+    assert pd.isna(estimates.iloc[-1].execution_date)
+    assert estimates.iloc[0].observations == result.settings["initial_training_returns"]
+    assert estimates.iloc[-1].observations == len(prices) - 1
+    pd.testing.assert_index_equal(
+        pd.DatetimeIndex(estimates.execution_date.iloc[:-1]).rename(None),
+        result.test.allocations[SELECTED].index,
+    )
+    for fit_date, row in estimates.iterrows():
+        returns = prices.loc[:fit_date].pct_change(fill_method=None).iloc[1:]
+        sample = returns.cov() * result.settings["periods_per_year"]
+        covariance = (1 - shrinkage) * sample + shrinkage * np.diag(np.diag(sample))
+        target = (result.latest[SELECTED].weights if row.phase == "Latest fit"
+                  else result.test.allocations[SELECTED].loc[row.execution_date])
+        weights = target.reindex(prices.columns)
+        expected_mean = float((returns.mean() * result.settings["periods_per_year"]) @ weights)
+        assert row.fitted_mean == pytest.approx(expected_mean, abs=1e-12)
+        assert row.model_volatility == pytest.approx(np.sqrt(weights @ covariance @ weights), abs=1e-12)
+        assert row.historical_volatility == pytest.approx(np.sqrt(weights @ sample @ weights), abs=1e-12)
+        assert row.max_weight == pytest.approx(weights.max(), abs=1e-12)
+        assert row.model_volatility <= result.settings["target_volatility"] + 1e-7
+    assert estimates.iloc[-1].fitted_mean == pytest.approx(result.latest[SELECTED].expected_return, abs=1e-12)
+    assert estimates.iloc[-1].model_volatility == pytest.approx(result.latest[SELECTED].volatility, abs=1e-12)
+
+
+def test_fit_estimates_use_prior_prices_without_future_contamination():
+    prices = stock_prices()
+    result = run_selection(prices, target_volatility=.2, rebalance_every=7)
+    original = selection_fit_estimates(result, prices)
+    altered = prices.copy()
+    cutoff = original.index[1]
+    future = altered.index > cutoff
+    held_stock = result.latest[SELECTED].weights.idxmax()
+    altered.loc[future, held_stock] *= np.linspace(1.1, 1.8, future.sum())
+    changed = selection_fit_estimates(result, altered)
+    pd.testing.assert_frame_equal(original.loc[:cutoff], changed.loc[:cutoff])
+    assert changed.iloc[-1].fitted_mean != pytest.approx(original.iloc[-1].fitted_mean, abs=1e-8)
+
+
+def test_fit_estimates_never_solve_or_mutate_inputs(monkeypatch):
+    prices = stock_prices()
+    result = run_selection(prices, rebalance_every=7)
+    original_prices, original_result = prices.copy(deep=True), copy.deepcopy(result)
+
+    def unexpected_solve(*args, **kwargs):
+        pytest.fail("Fit estimates must use saved weights without another optimization.")
+
+    monkeypatch.setattr("efficient_frontier.selection._fit_targets", unexpected_solve)
+    monkeypatch.setattr("efficient_frontier.selection._solve", unexpected_solve)
+    selection_fit_estimates(result, prices)
+    pd.testing.assert_frame_equal(prices, original_prices)
+    assert result.settings == original_result.settings
+    assert result.test.settings == original_result.test.settings
+    pd.testing.assert_frame_equal(result.eligibility, original_result.eligibility)
+    for name in ("equity", "metrics"):
+        pd.testing.assert_frame_equal(getattr(result.test, name), getattr(original_result.test, name))
+    for name in ("allocations", "holdings", "trades"):
+        for strategy, frame in getattr(result.test, name).items():
+            pd.testing.assert_frame_equal(frame, getattr(original_result.test, name)[strategy])
+    pd.testing.assert_series_equal(result.latest[SELECTED].weights, original_result.latest[SELECTED].weights)
 
 
 def test_future_prices_do_not_change_earlier_allocations_or_replay():

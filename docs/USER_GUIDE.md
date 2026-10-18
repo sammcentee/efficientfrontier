@@ -51,6 +51,23 @@ The default stock holding limit is 10%. The six-asset synthetic demo explicitly 
 
 The model maximizes historical arithmetic mean return within the volatility budget and holding limit. Stock weights are long-only and sum to one. There is one model rule throughout the study.
 
+## Fitted estimates and later results
+
+The efficient frontier depends on the return estimates, covariance estimates, and allowed holdings. The optimizer finds the highest fitted mean within your limits. It does not maximize CAGR or the return-to-volatility ratio. It cannot ensure that the chosen stocks will have the highest later return.
+
+| Number | What it measures |
+| --- | --- |
+| Fitted annual mean | Average return in the fitting sample, using that fit's target weights, before fees. |
+| Model volatility | Risk calculated from the same fitting sample with the model's covariance adjustment. This is the number your budget limits. |
+| Historical volatility | Ordinary sample volatility of those same weighted returns, without the covariance adjustment. |
+| Later test mean and volatility | Actual results in the historical replay, after fees, with holdings that change at each scheduled trade. |
+
+The app shows the first and latest fitted estimates separately from the later test. The latest holdings use all supplied history. They did not produce the earlier test path. **Data & method → Estimates at every fit** shows every intermediate fit.
+
+If QQQ earns more with less volatility in the later test, it beat the portfolio rule on those dates. That is a real weakness in the test result. It does not show that the optimizer failed to maximize the earlier estimates. A mathematically optimal fit can still be a poor investment rule when those estimates do not persist.
+
+## Fixed assumptions
+
 The app fixes the other assumptions:
 
 - Use the first 70% of return observations for the initial fit and the final 30% for the later test.
@@ -99,6 +116,8 @@ Yahoo/yfinance is unofficial. The [yfinance project](https://github.com/ranarous
 ## SPY and QQQ comparisons
 
 The app runs one later test as part of **Build portfolio**. It compares the model with equal-weight eligible stocks, SPY, and QQQ. Equal weights use the same refit schedule. SPY and QQQ buy once and hold. These three references have no volatility budget.
+
+Equal-weight stocks answers: what happened without choosing larger weights for stocks with higher past returns? SPY tracks the S&P 500; QQQ tracks the Nasdaq-100. They are investment alternatives. None of these paths is scaled to match the model's volatility. Compare each row's return and realized volatility together.
 
 Yahoo input obtains benchmark prices automatically. For a CSV, use SPY/QQQ columns already in the file, or a separate benchmark file with exactly the same dates. Downloads require an explicit choice. Both stock-universe loaders still need SPY/QQQ dates for the eligibility calendar when benchmark comparisons are disabled.
 
