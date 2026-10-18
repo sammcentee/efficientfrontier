@@ -721,6 +721,73 @@ def test_unavailable_benchmarks_clear_previous_comparison_without_changing_asset
     pd.testing.assert_frame_equal(app.session_state.result[1], market_prices, check_freq=False)
 
 
+@pytest.mark.parametrize("train_fraction", [.70, .71])
+def test_short_uploaded_history_shows_actual_fit_replay_and_frontier_windows(monkeypatch, market_prices, train_fraction):
+    from efficient_frontier import selection
+
+    prices = market_prices.iloc[:48].copy()
+    source = upload(prices, "short-history.csv")
+    monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: source if kwargs["key"] == "prices_upload" else None)
+    original = selection.run_selection
+
+    def fit(*args, **kwargs):
+        # Exercise saved study settings even when they differ from the UI default.
+        return original(*args, **{**kwargs, "train_fraction": train_fraction})
+
+    monkeypatch.setattr(selection, "run_selection", fit)
+    app = open_setup(app_start())
+    app.radio(key="market").set_value("Upload CSV").run()
+    app.selectbox(key="frequency").select("Custom").run()
+    app.number_input(key="periods_per_year").set_value(48.5)
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    settings = app.session_state.selection.settings
+    assert settings["periods_per_year"] == 48.5
+    assert settings["train_fraction"] == train_fraction
+    split = int(np.floor((len(prices) - 1) * train_fraction))
+
+    def displayed_day(stamp):
+        return f"{stamp.day} {stamp:%b %Y}"
+
+    first_return = displayed_day(prices.index[1])
+    train_end = displayed_day(prices.index[split])
+    replay_start = displayed_day(prices.index[split + 1])
+    last_return = displayed_day(prices.index[-1])
+    replay = app.container(key="tile_final_test")
+    summary = replay.container(key="replay_dates")
+    windows = re.findall(r"<article>(.*?)</article>", "\n".join(item.proto.body for item in summary.get("html")))
+    assert len(windows) == 3
+    assert f"Initial fit · first {train_fraction:.0%}" in windows[0]
+    assert f"{first_return} to {train_end}" in windows[0]
+    assert f"{split} returns choose the replay holdings" in windows[0]
+    assert f"Replay · final {1 - train_fraction:.0%}" in windows[1]
+    assert f"{replay_start} to {last_return}" in windows[1]
+    assert f"{len(prices) - 1 - split} later returns form the chart and proof" in windows[1]
+    assert "Latest frontier · full history" in windows[2]
+    assert f"{first_return} to {last_return}" in windows[2]
+    assert "including the replay dates" in windows[2]
+    assert displayed_day(prices.index[0]) not in "\n".join(windows)
+    nodes = list(replay)
+    assert next(i for i, node in enumerate(nodes) if node is summary) < next(
+        i for i, node in enumerate(nodes) if node is replay.get("plotly_chart")[0])
+    captions = "\n".join(item.value for item in replay.caption)
+    assert "split uses observations, not a fixed one-year test" in captions
+    assert "Annualized return and volatility describe units, not the chart’s duration" in captions
+
+    proof = app.container(key="math_proof")
+    assert f"**Replay period only · {replay_start} to {last_return}**" in [item.value for item in proof.markdown]
+    scope = "\n".join(item.value for item in proof.caption)
+    assert f"final {1 - train_fraction:.0%} of return observations" in scope
+    assert f"full return history, {first_return} to {last_return}" in scope
+    frontier = app.container(key="tile_fitted_frontier")
+    description = next(item for item in frontier.markdown if item.value.startswith("**Full-history fit"))
+    assert f"**Full-history fit · {first_return} to {last_return}.**" in description.value
+    assert "include the replay period" in description.value
+    nodes = list(frontier)
+    assert next(i for i, node in enumerate(nodes) if node is description) < next(
+        i for i, node in enumerate(nodes) if node is frontier.get("plotly_chart")[0])
+
+
 @pytest.mark.parametrize("frequency,periods", [("Monthly", 12), ("Custom", 48.5)])
 def test_csv_frequency_reaches_later_test_without_resampling(monkeypatch, market_prices, frequency, periods):
     prices = market_prices.set_axis(pd.date_range("2000-01-31", periods=len(market_prices), freq="ME", name="Date"))

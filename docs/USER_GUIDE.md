@@ -67,6 +67,8 @@ The model maximizes historical arithmetic mean return within the volatility budg
 
 Overview starts with the replay verdict and its mean–variance proof. A reference that improves mean or volatility without worsening the other wins for every positive variance penalty. If no reference dominates, the opening verdict says so. The buy-and-hold growth chart, replay metrics, and exact return reconciliation follow. The latest fitted frontier and holdings appear later.
 
+The date summary above the chart separates the initial fit (first 70% of returns), replay (final 30%), and latest frontier (all returns). These are observation counts, not fixed calendar periods. Five years of daily prices gives roughly three and a half years for the initial fit and eighteen months for the replay. Annualized metrics describe units, not a one-year test. Each run shows its actual return dates.
+
 The efficient frontier depends on the return estimates, covariance estimates, and allowed holdings. The optimizer finds the highest fitted mean within your limits. It does not maximize CAGR or the return-to-volatility ratio. It cannot ensure that the chosen stocks will have the highest later return.
 
 | Number | What it measures |

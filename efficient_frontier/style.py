@@ -224,6 +224,16 @@ APP_ONLY_CSS = """
 :is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stMarkdownContainer"] p .katex{font-size:1em}
 :is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stMarkdownContainer"]:has(.katex-display){width:100%;box-sizing:border-box}
 :is(.st-key-math_diagnosis,.st-key-math_proof) .katex-display{overflow:visible}
+.pl-date-windows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;
+ padding:18px 0;border-block:1px solid var(--pl-hair-soft)}
+.pl-date-windows article+article{border-left:1px solid var(--pl-hair-soft);padding-left:22px}
+.pl-date-windows h3{margin:0 0 8px;font-size:15px;font-weight:600;line-height:21px}
+.pl-date-windows p{margin:0 0 6px;font-size:15px;line-height:22px;color:var(--pl-ink)}
+.pl-date-windows span{font-size:14px;line-height:20px;color:var(--pl-ink-3)}
+@media(max-width:640px){
+ .pl-date-windows{grid-template-columns:1fr;gap:14px;padding:14px 0}
+ .pl-date-windows article+article{border-left:0;border-top:1px solid var(--pl-hair-soft);padding:14px 0 0}
+}
 
 /* 8 Buttons, inputs, alerts, tables, captions */
 button[data-testid="stBaseButton-primary"]{background:var(--pl-ink);border-color:var(--pl-ink)}
