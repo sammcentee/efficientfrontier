@@ -1,5 +1,13 @@
 # Validation record
 
+## Latest fit and historical replay distinction: 18 October 2026
+
+**857 tests passed** with Python 3.14. The existing pandas invalid-date warning remains. The app and report now compare the latest full-history allocation with the replay of earlier allocations before showing the frontier. Labels state that the latest fit includes the replay dates. A replay callout identifies mean/volatility dominance independently of the existing CAGR-based performance checks.
+
+Regression checks cover the comparison dates and metrics, dominance and return/risk tradeoffs, unchanged numeric exports, and passive app navigation. No optimization, allocation, or return-accounting code changed.
+
+Headless Chromium checks covered the offline demo, exported report, and a synthetic CSV with a dominating QQQ reference at 1440- and 390-pixel widths. Both charts rendered, comparison columns stacked on mobile, and the verdict appeared above the replay table. There were no app exceptions, page errors, or document overflow. The T3 preview sandbox was unavailable; checks ran in a separate background browser. The user's running study was not restarted. The screenshot's market study was not rebuilt, and physical-device behavior was not tested.
+
 ## R comparison and full project review: 18 October 2026
 
 **850 tests passed** with Python 3.14 and the installed pinned dependencies. The existing pandas warning from the invalid-date rejection test remains. Dependency and whitespace checks passed. Both the stock-model and legacy offline CLI reports completed.

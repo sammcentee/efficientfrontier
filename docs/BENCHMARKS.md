@@ -45,7 +45,7 @@ Both stock-universe loaders also need SPY and QQQ dates to check constituent his
 2. Enable **Compare with the S&P 500 and the Nasdaq-100**.
 3. Set **Price currency** to **USD** only when every asset price uses USD. Otherwise, select **Other currency**.
 4. Select **Build portfolio**.
-5. Read **Later historical test**, or press **2** when no text field has focus.
+5. Read **Historical replay · earlier weights**, or press **2** when no text field has focus.
 6. Open **Data & method**, or press **4**, for assumptions, coverage, and exact trades.
 
 For an offline CSV comparison, use **Market prices (optional)** to supply a separate benchmark file. Otherwise, the app reuses SPY/QQQ columns from the stock file. To download references when neither source is supplied, select **Download SPY and QQQ from Yahoo Finance for this file**.

@@ -15,6 +15,7 @@ from efficient_frontier.backtest import BacktestStudy
 from efficient_frontier.core import Portfolio
 from efficient_frontier.selection import selection_fit_estimates, selection_frontier
 from efficient_frontier.selection_report import (
+    LATEST_LABEL, REPLAY_LABEL, selection_replay_verdict_html,
     selection_benchmark_note, selection_chart, selection_fit_summary_html, selection_frontier_chart,
     selection_frontier_summary_html,
     selection_report_html, selection_report_zip,
@@ -84,7 +85,9 @@ def selection_inputs():
 def test_chart_identifies_every_path_without_changing_returns(selection_inputs):
     study, _, _ = selection_inputs
     figure = selection_chart(study.test)
-    assert [trace.name for trace in figure.data] == list(study.test.equity.columns)
+    assert [trace.name for trace in figure.data] == [
+        REPLAY_LABEL if name == study.selected else name for name in study.test.equity
+    ]
     assert all(trace.showlegend for trace in figure.data)
     assert figure.data[0].line.color != figure.data[1].line.color
     assert figure.data[1].line.dash == "dash"
@@ -120,12 +123,23 @@ def test_zip_preserves_every_test_strategy_and_numeric_result(selection_inputs):
         pd.testing.assert_frame_equal(fits, selection_fit_estimates(study, prices))
 
 
-def test_fitted_estimates_are_visible_and_separate_from_realized_results(selection_inputs):
+def test_comparison_precedes_frontier_and_keeps_latest_fit_separate_from_replay(selection_inputs):
     study, prices, _ = selection_inputs
     document = selection_report_html(*selection_inputs)
-    section = document.split('id="fit-estimates"', 1)[1].split("</section>", 1)[0]
-    assert document.index('id="fit-estimates"') < document.index('id="test"')
+    section = document.split('id="fit-and-replay"', 1)[1].split("</section>", 1)[0]
+    assert document.index('id="fit-and-replay"') < document.index('id="latest-frontier"') < document.index('id="test"')
     assert "<details" not in section
+    assert "The latest fit includes the replay dates" in section
+    assert "The replay did not use the latest holdings" in section
+    assert "2024-01-03 to 2024-01-17" in section
+    assert "2024-01-15 to 2024-01-17" in section
+    assert "2024-01-12" not in section  # NAV baseline, not an evaluated return date.
+    for value in (study.latest[study.selected].expected_return, study.latest[study.selected].volatility,
+                  study.test.metrics.loc[study.selected, "annual_mean"], study.test.metrics.loc[study.selected, "volatility"]):
+        assert f"{value:.2%}" in section
+    assert "before fees" in section and "after fees" in section
+    assert document.index('id="test"') < document.index('<details id="fit-estimates"')
+    section = document.split('id="fit-estimates"', 1)[1].split("</details>", 1)[0]
     fits = selection_fit_estimates(study, prices)
     for date, fit in fits.iterrows():
         assert f"{fit.phase} · {date.date()}" in section
@@ -150,6 +164,36 @@ def test_benchmark_and_fit_explanations_use_the_actual_model_settings(selection_
     summary = selection_fit_summary_html(study, prices)
     assert "20% covariance adjustment" in summary
     assert "does not maximize the return-to-volatility ratio or CAGR" in summary
+
+
+@pytest.mark.parametrize("mean,volatility,dominates", [
+    (.3347, .1852, True),  # Screenshot: higher mean and lower risk.
+    (.2827, .18, True),    # Equal mean, lower risk.
+    (.30, .1922, True),    # Higher mean, equal risk.
+    (.2827, .1922, False), # Identical outcome.
+    (.26, .12, False),    # Lower risk with lower mean is a tradeoff.
+    (.34, .22, False),    # Higher mean with higher risk is a tradeoff.
+])
+def test_replay_verdict_uses_mean_volatility_dominance_not_cagr(selection_inputs, mean, volatility, dominates):
+    study = selection_inputs[0].test
+    study.metrics = study.metrics.loc[["Historical-mean portfolio", "QQQ"]].copy()
+    study.metrics.loc["Historical-mean portfolio", ["annual_mean", "volatility", "cagr"]] = [.2827, .1922, .3023]
+    # Make CAGR point the opposite way to ensure it does not control this verdict.
+    study.metrics.loc["QQQ", ["annual_mean", "volatility", "cagr"]] = [mean, volatility, .10 if dominates else .50]
+    verdict = selection_replay_verdict_html(study)
+    assert bool(verdict) == dominates
+    if dominates:
+        assert "QQQ dominated the stock rule" in verdict
+        assert f"{mean:.2%} versus 28.27%" in verdict
+        assert f"{volatility:.2%} versus 19.22%" in verdict
+
+
+def test_replay_verdict_escapes_reference_name(selection_inputs):
+    study = selection_inputs[0].test
+    unsafe = '<img src=x onerror="reference()">'
+    study.metrics = study.metrics.rename(index={"QQQ": unsafe})
+    verdict = selection_replay_verdict_html(study)
+    assert unsafe not in verdict and html.escape(unsafe) in verdict
 
 
 def test_zip_retains_model_source_test_reasons_and_exact_latest_estimates(selection_inputs):
@@ -204,12 +248,13 @@ def test_result_tables_keep_backend_order_and_show_net_mean_separately_from_cagr
     document = selection_report_html(*selection_inputs)
     section = document.split('id="test"', 1)[1].split("</section>", 1)[0]
     table = section[section.index("<table"):section.index("</table>")]
-    positions = [table.index(f"<th>{html.escape(name)}</th>") for name in study.test.equity]
+    positions = [table.index(f"<th>{html.escape(REPLAY_LABEL if name == study.selected else name)}</th>")
+                 for name in study.test.equity]
     assert positions == sorted(positions)
     for key in ("annual_mean", "cagr", "volatility", "max_drawdown"):
         expected = study.test.metrics.loc[study.selected, key]
         assert f"{expected:.2%}" in table
-    assert "Later historical test" in document
+    assert "Historical replay · earlier weights" in document
     assert re.search(r"historical.{0,100}reviewed|reviewed.{0,100}historical", document, re.I | re.S)
     assert "descriptive checks" in document.lower()
     assert study.reasons[0] in document
@@ -309,7 +354,8 @@ def test_latest_frontier_chart_uses_fitted_means_and_matching_volatilities(selec
     assert figure.layout.shapes[0].x0 == study.settings["target_volatility"]
     summary = selection_frontier_summary_html(study, prices, data)
     assert "same return dates" in summary and "ordinary sample covariance" in summary
-    assert "before trading fees" in summary and "not forecasts or later test results" in summary
+    assert "before trading fees" in summary and "in-sample optimum" in summary
+    assert LATEST_LABEL in summary
     assert "not portfolio candidates" in summary
     assert "None of the ETF positions is scaled" in summary
     assert "Model volatility" not in summary
@@ -332,7 +378,7 @@ def test_frontier_export_reuses_cached_points_and_preserves_every_weight(selecti
             recovered = pd.read_csv(archive.open(filename), index_col=0)
             pd.testing.assert_frame_equal(recovered, frame)
         document = archive.read("report.html").decode()
-        assert document.index('id="latest-frontier"') < document.index('id="selection-decision"') < document.index('id="test"')
+        assert document.index('id="latest-frontier"') < document.index('id="test"') < document.index('id="selection-decision"')
         assert "Stock model volatility uses 10% covariance shrinkage" in document
     for actual, expected in zip(data[:3], saved[:3]):
         pd.testing.assert_frame_equal(actual, expected)
