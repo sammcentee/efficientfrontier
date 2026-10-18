@@ -1,5 +1,17 @@
 # Validation record
 
+## In-sample and out-of-sample walk-forward tests: 18 October 2026
+
+**955 tests passed** with Python 3.14 and the existing pandas invalid-date warning. Dependency and whitespace checks passed. Both offline CLI modes completed. A second CLI run into the same folder replaced the walk-forward files.
+
+Overview no longer shows the replay dominance proof. It now shows five walk-forward tests. Fits end after 50%, 60%, 70%, 80%, and 90% of returns. Each allocation is held through the next tenth of the history, which its fit did not use. The same allocation is also held over its own fit dates as the in-sample result. Both sides are measured from the purchase close. The single cash interval and entry fee would otherwise lower the short test windows more than the long fit windows. Equal-weight stocks on both sides give an approximate market control. `selection.py` and the replay are unchanged.
+
+An independent fixed-unit calculation matched every walk-forward path within `1e-12`. Changes to prices after a window did not change its fit or results. Changes inside a test window changed only the out-of-sample side. With identical drift on both sides and a 5% fee, the in-sample and out-of-sample means agreed. Tests also cover infeasible windows, histories too short for five windows, missing benchmarks, the QQQ budget note, and the export.
+
+A live check used the 12 default tickers from Yahoo Finance through 16 October 2026. The stock portfolio averaged 21.85% a year in sample and 23.81% out of sample. Its average margin over equal-weight stocks fell from +2.60 to +1.06 percentage points. Five short windows give noisy results. These figures do not establish future performance.
+
+Two independent multi-agent reviews checked the change. Their confirmed findings led to the purchase-close measure, the equal-weight control, fit-date hover text, a dated QQQ budget note, per-window eligibility records, CLI cleanup, and an export fix when no window has a feasible fit. Headless Chromium checked the demo and the live study at 1440 and 390 pixels wide. It found no page errors, document overflow, clipped numbers, or KaTeX errors. Checks used a separate server on port 8519. Physical devices, Windows, and macOS were not tested.
+
 ## Mathematical opening page and Nasdaq risk default: 18 October 2026
 
 **876 tests passed** with Python 3.14 and the existing pandas invalid-date warning. The opening page displays three typeset model equations before any interaction. Settings, compact risk inputs, and the rainbow Build action replace the previous welcome controls.

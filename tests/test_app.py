@@ -285,10 +285,11 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     page = html_text(app)
     nodes = list(app.main)
     positions = [next(i for i, node in enumerate(nodes) if node is app.container(key=key))
-                 for key in ("tile_holdings", "tile_fitted_frontier", "tile_replay_proof", "tile_final_test")]
+                 for key in ("tile_holdings", "tile_fitted_frontier", "tile_out_of_sample", "tile_final_test")]
     assert positions == sorted(positions)
     assert page.index("Latest fitted holdings") < page.index("Latest fitted frontier")
-    assert page.index("Latest fitted frontier") < page.index("Historical replay · buy and hold")
+    assert page.index("Latest fitted frontier") < page.index("In sample versus out of sample")
+    assert page.index("In sample versus out of sample") < page.index("Historical replay · buy and hold")
     assert page.index("Historical replay · buy and hold") < page.index("What drove the result?")
     assert page.index("What drove the result?") < page.index("Fit and replay use different holdings")
     assert "annual volatility budget.</h1>" not in page
@@ -296,7 +297,7 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     assert "The latest fit includes the replay dates" in page
     assert "First historical fit" not in page
     assert "Historical volatility" in page and "ordinary sample covariance" in page
-    assert len(app.get("plotly_chart")) == 2
+    assert len(app.get("plotly_chart")) == 3
     assert "validation" not in page.lower() and "blend" not in page.lower()
     holding_section = next(item for item in app.expander if item.label == "All weights, including negligible allocations")
     assert holding_section.proto.expanded is False
@@ -351,60 +352,150 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     position = 0
     for equation in app.get("latex"):
         position = overview_equations.index(equation.proto.body, position) + 1
-    assert not {"math_proof", "math_diagnosis"} & {item.key for item in app.container}
+    assert not {"math_out_of_sample", "math_diagnosis"} & {item.key for item in app.container}
     assert not any(item.label.startswith("Mathematics ·") for item in app.expander)
 
 
-@pytest.mark.parametrize("dominated", [True, False])
-def test_top_replay_proof_precedes_chart_and_uses_actual_dominance(universe_data, dominated):
+def test_out_of_sample_section_precedes_replay_and_matches_walk_forward(universe_data):
+    from efficient_frontier.out_of_sample import run_out_of_sample, portfolio_comparison
     from efficient_frontier.selection import BENCHMARK_NAMES
 
     app = app_start().button(key="build").click().run()
     assert not app.exception
     study = app.session_state.selection
-    metrics = study.test.metrics
-    portfolio = metrics.loc[study.selected].copy()
-    # Default to a lower-mean, lower-risk tradeoff for every reference.
-    metrics.loc[metrics.index != study.selected, "annual_mean"] = portfolio.annual_mean - .03
-    metrics.loc[metrics.index != study.selected, "volatility"] = portfolio.volatility * .9
-    # The highest mean alone must not select a reference whose risk is also higher.
-    metrics.loc[BENCHMARK_NAMES["SPY"], ["annual_mean", "volatility"]] = [
-        portfolio.annual_mean + .1251, portfolio.volatility * 1.2,
-    ]
-    metrics.loc[BENCHMARK_NAMES["QQQ"], ["annual_mean", "volatility"]] = [
-        portfolio.annual_mean + .0843, portfolio.volatility * (.85 if dominated else 1.15),
-    ]
-    app.run()
-    assert not app.exception
-    proof_tile = app.container(key="tile_replay_proof")
-    proof = proof_tile.container(key="math_proof")
+    prices = app.session_state.result[1]
+    expected = run_out_of_sample(study, prices)
+    means = portfolio_comparison(expected)
+    assert len(means) == len(expected.windows) == 5
+    tile = app.container(key="tile_out_of_sample")
     nodes = list(app.main)
-    proof_position = next(index for index, node in enumerate(nodes) if node is proof_tile)
     replay_chart = app.container(key="tile_final_test").get("plotly_chart")[0]
-    chart_position = next(index for index, node in enumerate(nodes) if node is replay_chart)
-    assert proof_position < chart_position
-    assert not any("math_proof" in {item.key for item in panel.container} for panel in app.expander)
-    headline = "\n".join(item.proto.body for item in proof.get("html"))
-    text = "\n".join(item.value for item in proof.markdown)
-    equations = "\n".join(item.proto.body for item in proof.get("latex"))
-    assert r"\lambda>0" in text
-    assert r"U_\lambda(B)-U_\lambda(P)" in equations
-    assert r"U_\lambda" not in "\n".join(item.proto.body for item in app.container(key="math_diagnosis").get("latex"))
-    if dominated:
-        assert "This portfolio was dominated in the replay." in headline
-        assert BENCHMARK_NAMES["QQQ"] in text and BENCHMARK_NAMES["SPY"] not in text
-        reference = metrics.loc[BENCHMARK_NAMES["QQQ"]]
-        mean_gap = 100 * (reference.annual_mean - portfolio.annual_mean)
-        risk_gap = 100 * (reference.volatility - portfolio.volatility)
-        assert rf"\mu_B-\mu_P&\approx {mean_gap:+.2f}" in equations
-        assert rf"\sigma_B-\sigma_P&\approx {risk_gap:+.2f}" in equations
-        assert "wins for every positive variance penalty" in text
+    assert next(i for i, node in enumerate(nodes) if node is tile) < next(
+        i for i, node in enumerate(nodes) if node is replay_chart)
+    page = "\n".join(item.proto.body for item in tile.get("html"))
+    assert "In sample versus out of sample" in page
+    assert "each fit uses only earlier stock prices" in page
+    assert f"Out of sample, the stock portfolio averaged {means.out_of_sample.mean():.1%} a year.".replace("-", "−") in page
+    assert f"In sample, it averaged {means.in_sample.mean():.1%}.".replace("-", "−") in page
+    assert f"{100 * means.change.mean():+.2f} pp".replace("-", "−") in page
+    text = "\n".join(item.value for item in tile.markdown)
+    lower = int((means.change < 0).sum())
+    assert f"lower than the in-sample mean in {lower} of 5 windows" in text
+    for name, label in ((BENCHMARK_NAMES["QQQ"], BENCHMARK_NAMES["QQQ"]), (BENCHMARK_NAMES["SPY"], BENCHMARK_NAMES["SPY"]),
+                        ("Equal-weight stocks", "equal-weight stocks")):
+        wins = int((means.out_of_sample > means[name]).sum())
+        assert f"{label} in {wins} of 5" in text
+    assert "average margin over them" in text
+    assert list(tile.dataframe[0].value.columns[-2:]) == ["Equal weight in sample", "Equal weight out of sample"]
+    table = tile.dataframe[0].value
+    assert list(table.index) == [1, 2, 3, 4, 5]
+    np.testing.assert_allclose(table["In sample"], means.in_sample)
+    np.testing.assert_allclose(table["Out of sample"], means.out_of_sample)
+    for number, row in expected.windows.iterrows():
+        assert table.loc[number, "Test dates"] == f"{row.test_start.date()} to {row.test_end.date()}"
+    risk = portfolio_comparison(expected, "volatility")
+    paths = next(panel for panel in tile.expander if panel.label == "Every path in each window").dataframe[0].value
+    portfolio = paths.xs("Stock portfolio", level="Path")
+    np.testing.assert_allclose(portfolio["In-sample volatility"], risk.in_sample)
+    np.testing.assert_allclose(portfolio["Out-of-sample volatility"], risk.out_of_sample)
+    np.testing.assert_allclose(paths.xs(BENCHMARK_NAMES["QQQ"], level="Path")["Out-of-sample mean"],
+                               means[BENCHMARK_NAMES["QQQ"]])
+    captions = "\n".join(item.value for item in tile.caption)
+    assert "Window 3 uses the same fit as the replay" in captions
+    assert "measured from the purchase close" in captions
+    chart = tile.get("plotly_chart")[0]
+    import base64
+
+    def values(array):
+        # Plotly serializes numeric arrays as base64 typed arrays.
+        return np.frombuffer(base64.b64decode(array["bdata"]), dtype=array["dtype"]) if isinstance(array, dict) else array
+
+    traces = {trace["name"]: trace for trace in json.loads(chart.proto.spec)["data"] if trace.get("name")}
+    np.testing.assert_allclose(values(traces["Stock portfolio · in sample"]["x"]), means.in_sample)
+    np.testing.assert_allclose(values(traces["Stock portfolio · out of sample"]["x"]), means.out_of_sample)
+    equations = "\n".join(item.proto.body for item in tile.container(key="math_out_of_sample").get("latex"))
+    assert r"\mu^{\rm in}_k=\frac{A}{s_k-1}\sum_{t=2}^{s_k}" in equations
+    assert r"\mu^{\rm out}_k=\frac{A}{e_k-s_k-1}\sum_{t=s_k+2}^{e_k}" in equations
+    assert rf"\approx {100 * means.change.mean():+.2f}\;\text{{pp}},\qquad |C|=5" in equations
+    assert r"\sum_{k\in C}" in equations
+    everything = html_text(app) + "\n".join(item.value for item in app.markdown)
+    assert "This portfolio was dominated" not in everything and "No reference dominates" not in everything
+    assert r"U_\lambda" not in "\n".join(item.proto.body for item in app.get("latex"))
+    assert "math_proof" not in {item.key for item in app.container}
+
+
+def test_short_history_explains_missing_walk_forward_and_export_says_so(monkeypatch, market_prices, benchmark_prices):
+    from streamlit.runtime.media_file_manager import MediaFileManager
+
+    deferred = {}
+    register = MediaFileManager.add_deferred
+
+    def add_deferred(manager, data_callable, *args, **kwargs):
+        file_id = register(manager, data_callable, *args, **kwargs)
+        deferred[file_id] = data_callable
+        return file_id
+
+    monkeypatch.setattr(MediaFileManager, "add_deferred", add_deferred)
+    app, _ = csv_app(monkeypatch, market_prices.iloc[:20], benchmark_prices.iloc[:20])
+    assert not app.exception and not app.error
+    tile = app.container(key="tile_out_of_sample")
+    assert any("at least 3 fit returns and 3 test returns" in item.value for item in tile.info)
+    assert not tile.get("plotly_chart")
+    assert app.container(key="tile_final_test").get("plotly_chart")
+    exported = deferred[app.get("download_button")[0].proto.deferred_file_id]()
+    with zipfile.ZipFile(BytesIO(exported)) as archive:
+        assert not any(name.startswith("out_of_sample/") for name in archive.namelist())
+        assert "at least 3 fit returns" in json.loads(archive.read("metadata.json"))["out_of_sample"]["unavailable"]
+
+
+def test_short_daily_windows_are_described_in_less_than_a_month(monkeypatch, market_prices, benchmark_prices):
+    app, _ = csv_app(monkeypatch, market_prices.iloc[:64], benchmark_prices.iloc[:64])
+    assert not app.exception and not app.error
+    captions = "\n".join(item.value for item in app.container(key="tile_out_of_sample").caption)
+    assert "returns, less than one month" in captions and "0 months" not in captions
+
+
+@pytest.mark.parametrize("failing", [{1}, {1, 2, 3, 4, 5}])
+def test_infeasible_walk_forward_windows_are_named_without_hiding_the_rest(monkeypatch, universe_data, failing):
+    from efficient_frontier import out_of_sample
+
+    original, calls = out_of_sample._fit_targets, []
+
+    def fit(*args, **kwargs):
+        calls.append(1)
+        if len(calls) in failing:
+            raise ValueError("requested annual volatility 1.00% is below the feasible minimum 9.00%")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(out_of_sample, "_fit_targets", fit)
+    app = app_start().button(key="build").click().run()
+    assert not app.exception
+    tile = app.container(key="tile_out_of_sample")
+    warnings = "\n".join(item.value for item in tile.warning)
+    if len(failing) == 5:
+        assert "No window had a feasible fit" in warnings
+        assert not tile.get("plotly_chart") and not tile.dataframe
+        assert sum("below the feasible minimum" in item.value for item in tile.caption) == 5
     else:
-        assert "No reference dominates this portfolio." in headline
-        assert "This portfolio was dominated" not in headline
-        assert r"\mu_B-\mu_P&\approx" not in equations
-        assert "Under the stated conditions" in text
-        assert "These results do not meet those conditions" in text
+        assert "Window 1 has no result. requested annual volatility" in warnings
+        assert list(tile.dataframe[0].value.index) == [2, 3, 4, 5]
+        assert r"|C|=4" in "\n".join(item.proto.body for item in tile.get("latex"))
+    assert app.container(key="tile_final_test").get("plotly_chart")
+
+
+def test_qqq_default_budget_is_named_as_later_information(universe_data):
+    app = app_start().button(key="build").click().run()
+    assert not app.exception
+    captions = "\n".join(item.value for item in app.container(key="math_out_of_sample").caption)
+    assert ("The volatility budget equals QQQ's volatility over the year through 16 Oct 2026. "
+            "That year ends after every walk-forward fit") in captions
+    assert "overlaps" not in captions
+    manual = app_start()
+    manual.number_input(key="preview_target_vol").set_value(18.).run()
+    manual.button(key="build").click().run()
+    assert not manual.exception
+    captions = "\n".join(item.value for item in manual.container(key="math_out_of_sample").caption)
+    assert "QQQ's volatility" not in captions
 
 
 def test_visible_replay_diagnosis_reconciles_the_saved_initial_allocation(monkeypatch, universe_data):
@@ -525,8 +616,8 @@ def test_unavailable_company_profiles_keep_results_visible_without_source_claims
         assert "<a " not in cards_html
         captions = "\n".join(item.value for item in holdings.caption)
         assert "Yahoo Finance profiles" not in captions and "open its source" not in captions
-        assert len(app.get("plotly_chart")) == 2
-        assert app.container(key="tile_replay_proof").container(key="math_proof")
+        assert len(app.get("plotly_chart")) == 3
+        assert app.container(key="tile_out_of_sample").container(key="math_out_of_sample")
     finally:
         release.set()
         original_wait([future for future in pending if not future.cancelled()], timeout=5)
@@ -841,7 +932,7 @@ def test_short_uploaded_history_shows_actual_fit_replay_and_frontier_windows(mon
     assert f"{split} returns choose the replay holdings" in windows[0]
     assert f"Replay · final {1 - train_fraction:.0%}" in windows[1]
     assert f"{replay_start} to {last_return}" in windows[1]
-    assert f"{len(prices) - 1 - split} later returns form the chart and proof" in windows[1]
+    assert f"{len(prices) - 1 - split} later returns form the replay chart and table" in windows[1]
     assert "Latest frontier · full history" in windows[2]
     assert f"{first_return} to {last_return}" in windows[2]
     assert "including the replay dates" in windows[2]
@@ -853,11 +944,17 @@ def test_short_uploaded_history_shows_actual_fit_replay_and_frontier_windows(mon
     assert "split uses observations, not a fixed one-year test" in captions
     assert "Annualized return and volatility describe units, not the chart’s duration" in captions
 
-    proof = app.container(key="math_proof")
-    assert f"**Replay period only · {replay_start} to {last_return}**" in [item.value for item in proof.markdown]
-    scope = "\n".join(item.value for item in proof.caption)
-    assert f"final {1 - train_fraction:.0%} of return observations" in scope
-    assert f"full return history, {first_return} to {last_return}" in scope
+    from efficient_frontier.out_of_sample import window_bounds
+
+    # The walk-forward windows use their own fixed split, independent of the replay's train_fraction.
+    table = app.container(key="tile_out_of_sample").dataframe[0].value
+    bounds = window_bounds(len(prices) - 1)
+    assert len(table) == len(bounds)
+    for (fit_end, test_end), (_, row) in zip(bounds, table.iterrows()):
+        assert row["Test dates"] == f"{prices.index[fit_end + 1].date()} to {prices.index[test_end].date()}"
+    captions = "\n".join(item.value for item in app.container(key="tile_out_of_sample").caption)
+    assert f"Each fit starts on {first_return} and ends at the close before its test dates" in captions
+    assert table.iloc[-1]["Test dates"].endswith(str(prices.index[-1].date()))
     frontier = app.container(key="tile_fitted_frontier")
     description = next(item for item in frontier.markdown if item.value.startswith("**Full-history fit"))
     assert f"**Full-history fit · {first_return} to {last_return}.**" in description.value
@@ -921,7 +1018,8 @@ def test_export_is_deferred_and_captures_completed_selection_not_draft(monkeypat
         assert metadata["supported"] == study.supported and metadata["selected"] == study.selected
         assert not any(name.startswith("validation/") for name in archive.namelist())
         assert "policy.json" not in archive.namelist()
-        assert {"latest/frontier.csv", "latest/frontier_weights.csv", "latest/fitted_comparison.csv"} <= set(archive.namelist())
+        assert {"latest/frontier.csv", "latest/frontier_weights.csv", "latest/fitted_comparison.csv",
+                "out_of_sample/windows.csv", "out_of_sample/metrics.csv", "out_of_sample/weights.csv"} <= set(archive.namelist())
         frame = pd.read_csv(archive.open("test/equity.csv"), index_col=0, parse_dates=True)
         pd.testing.assert_frame_equal(frame, study.test.equity, check_freq=False, check_names=False)
         weights = pd.read_csv(archive.open("latest_weights.csv"), index_col=0)
