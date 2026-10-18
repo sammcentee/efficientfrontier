@@ -336,8 +336,59 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     position = 0
     for equation in app.get("latex"):
         position = overview_equations.index(equation.proto.body, position) + 1
-    assert "math_diagnosis" not in {item.key for item in app.container}
+    assert not {"math_proof", "math_diagnosis"} & {item.key for item in app.container}
     assert not any(item.label.startswith("Mathematics ·") for item in app.expander)
+
+
+@pytest.mark.parametrize("dominated", [True, False])
+def test_top_replay_proof_precedes_chart_and_uses_actual_dominance(universe_data, dominated):
+    from efficient_frontier.selection import BENCHMARK_NAMES
+
+    app = app_start().button(key="build").click().run()
+    assert not app.exception
+    study = app.session_state.selection
+    metrics = study.test.metrics
+    portfolio = metrics.loc[study.selected].copy()
+    # Default to a lower-mean, lower-risk tradeoff for every reference.
+    metrics.loc[metrics.index != study.selected, "annual_mean"] = portfolio.annual_mean - .03
+    metrics.loc[metrics.index != study.selected, "volatility"] = portfolio.volatility * .9
+    # The highest mean alone must not select a reference whose risk is also higher.
+    metrics.loc[BENCHMARK_NAMES["SPY"], ["annual_mean", "volatility"]] = [
+        portfolio.annual_mean + .1251, portfolio.volatility * 1.2,
+    ]
+    metrics.loc[BENCHMARK_NAMES["QQQ"], ["annual_mean", "volatility"]] = [
+        portfolio.annual_mean + .0843, portfolio.volatility * (.85 if dominated else 1.15),
+    ]
+    app.run()
+    assert not app.exception
+    proof_tile = app.container(key="tile_replay_proof")
+    proof = proof_tile.container(key="math_proof")
+    nodes = list(app.main)
+    proof_position = next(index for index, node in enumerate(nodes) if node is proof_tile)
+    chart_position = next(index for index, node in enumerate(nodes) if node is app.get("plotly_chart")[0])
+    assert proof_position < chart_position
+    assert not any("math_proof" in {item.key for item in panel.container} for panel in app.expander)
+    headline = "\n".join(item.proto.body for item in proof.get("html"))
+    text = "\n".join(item.value for item in proof.markdown)
+    equations = "\n".join(item.proto.body for item in proof.get("latex"))
+    assert r"\lambda>0" in text
+    assert r"U_\lambda(B)-U_\lambda(P)" in equations
+    assert r"U_\lambda" not in "\n".join(item.proto.body for item in app.container(key="math_diagnosis").get("latex"))
+    if dominated:
+        assert "This portfolio was dominated in the replay." in headline
+        assert BENCHMARK_NAMES["QQQ"] in text and BENCHMARK_NAMES["SPY"] not in text
+        reference = metrics.loc[BENCHMARK_NAMES["QQQ"]]
+        mean_gap = 100 * (reference.annual_mean - portfolio.annual_mean)
+        risk_gap = 100 * (reference.volatility - portfolio.volatility)
+        assert rf"\mu_B-\mu_P&\approx {mean_gap:+.2f}" in equations
+        assert rf"\sigma_B-\sigma_P&\approx {risk_gap:+.2f}" in equations
+        assert "wins for every positive variance penalty" in text
+    else:
+        assert "No reference dominates this portfolio." in headline
+        assert "This portfolio was dominated" not in headline
+        assert r"\mu_B-\mu_P&\approx" not in equations
+        assert "Under the stated conditions" in text
+        assert "These results do not meet those conditions" in text
 
 
 def test_visible_replay_diagnosis_reconciles_the_saved_initial_allocation(monkeypatch, universe_data):
@@ -374,7 +425,6 @@ def test_visible_replay_diagnosis_reconciles_the_saved_initial_allocation(monkey
     text = "\n".join(item.value for item in diagnosis.markdown)
     for name in study.test.metrics.index.drop(study.selected):
         assert name in text
-    assert r"\lambda>0" in rendered
     assert "accounting explanation" in text
 
     def unexpected(*args, **kwargs):

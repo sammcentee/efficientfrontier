@@ -687,22 +687,69 @@ def selection_replay_math(study):
                    "The budget constrains fitted volatility, not this realized sample standard deviation.")
 
 
+def replay_points(value):
+    if value == 0:
+        return "0"
+    scaled = 100 * value
+    if abs(scaled) >= 0.005:
+        return f"{scaled:+.2f}"
+    mantissa, exponent = f"{scaled:+.2e}".split("e")
+    return rf"{mantissa}\times10^{{{int(exponent)}}}"
+
+
+def selection_replay_proof(study):
+    comparisons = selection_replay_dominance(study.test)
+    portfolio = comparisons.loc[study.selected]
+    dominators = comparisons.loc[comparisons.classification == "reference_dominates"]
+    with st.container(key="math_proof"):
+        headline = ("This portfolio was dominated in the replay." if not dominators.empty
+                    else "No reference dominates this portfolio.")
+        st.html(f'<h2 class="pl-proof-title">{headline}</h2>')
+        if not dominators.empty:
+            name = dominators.annual_mean.idxmax()
+            reference = dominators.loc[name]
+            mean_gap = reference.annual_mean - portfolio.annual_mean
+            risk_gap = reference.volatility - portfolio.volatility
+            mean_result = "a higher annual arithmetic mean" if mean_gap > 0 else "the same annual arithmetic mean"
+            risk_result = "lower realized volatility" if risk_gap < 0 else "the same realized volatility"
+            st.markdown(f"**{name}** delivered {mean_result} with {risk_result}.")
+            st.latex(r"\begin{aligned}"
+                     rf"\mu_B-\mu_P&\approx {replay_points(mean_gap)}\;\text{{pp}}\\[4pt]"
+                     rf"\sigma_B-\sigma_P&\approx {replay_points(risk_gap)}\;\text{{pp}}"
+                     r"\end{aligned}")
+        else:
+            st.write("The observed comparisons do not establish that a reference wins on mean and volatility. "
+                     "A higher mean with higher volatility is a trade-off. "
+                     "The proof below applies only when a reference has at least as high a mean and no higher volatility, "
+                     "with one strict improvement.")
+        st.markdown(r"$\boldsymbol{P}:$ stock portfolio; $\boldsymbol{B}:$ reference; $\boldsymbol{X}:$ either path; "
+                    r"$\boldsymbol{\mu}:$ net annual arithmetic mean; $\boldsymbol{\sigma}:$ realized annual volatility. "
+                    r"**pp:** percentage points; $\boldsymbol{U_\lambda}:$ mean–variance score; "
+                    r"$\boldsymbol{\lambda>0}:$ penalty on variance.")
+        st.latex(r"\begin{aligned}U_\lambda(X)&=\mu_X-\frac{\lambda}{2}\sigma_X^2\\[8pt]"
+                 r"U_\lambda(B)-U_\lambda(P)&=(\mu_B-\mu_P)\\[4pt]"
+                 r"&\quad+\frac{\lambda}{2}(\sigma_P^2-\sigma_B^2)>0\end{aligned}")
+        if not dominators.empty:
+            st.markdown("**Both terms are nonnegative and at least one is positive. "
+                        "The reference wins for every positive variance penalty.**")
+            st.write("The selected portfolio was not mean–variance efficient among these replay paths. "
+                     "Changing how much you penalize variance cannot reverse this ranking under this score.")
+        else:
+            st.markdown("**Under the stated conditions, both terms are nonnegative and at least one is positive. "
+                        "The reference would win for every positive variance penalty. These results do not meet those conditions.**")
+            st.write("The absence of a dominant reference does not establish efficiency against every possible allocation.")
+        st.caption(f"Replay: {day(study.test.equity.index[1])} to {day(study.test.equity.index[-1])}. "
+                   "The fitted frontier is an optimum for its own estimates and constraints. "
+                   "It does not guarantee later performance. This proof concerns the observed mean–variance score, "
+                   "not every utility function or future returns.")
+
+
 def selection_replay_explanation(study, prices):
     comparisons = selection_replay_dominance(study.test)
     portfolio = comparisons.loc[study.selected]
     bridge = selection_replay_return_bridge(study, prices)
-
-    def points(value):
-        if value == 0:
-            return "0"
-        scaled = 100 * value
-        if abs(scaled) >= 0.005:
-            return f"{scaled:+.2f}"
-        mantissa, exponent = f"{scaled:+.2e}".split("e")
-        return rf"{mantissa}\times10^{{{int(exponent)}}}"
-
     with st.container(key="math_diagnosis"):
-        st.markdown("### What the replay proves")
+        st.markdown("### The measures behind the proof")
         st.write("The chart compares compound wealth. The efficient frontier compares arithmetic mean and volatility. "
                  "Use the same return measure on both sides before calling a result dominated.")
         st.latex(r"\begin{aligned}G_X&=\prod_{t=1}^{N}(1+R_{X,t})-1\\[6pt]"
@@ -721,28 +768,11 @@ def selection_replay_explanation(study, prices):
         for name, reference in comparisons.drop(index=study.selected).iterrows():
             st.markdown(f"**{name}** · {labels[reference.classification]}")
             st.latex(r"\begin{aligned}"
-                     rf"\mu_B-\mu_P&\approx {points(reference.annual_mean - portfolio.annual_mean)}\;\text{{pp}}\\[4pt]"
-                     rf"\sigma_B-\sigma_P&\approx {points(reference.volatility - portfolio.volatility)}\;\text{{pp}}"
+                     rf"\mu_B-\mu_P&\approx {replay_points(reference.annual_mean - portfolio.annual_mean)}\;\text{{pp}}\\[4pt]"
+                     rf"\sigma_B-\sigma_P&\approx {replay_points(reference.volatility - portfolio.volatility)}\;\text{{pp}}"
                      r"\end{aligned}")
         st.markdown(r"**pp** means percentage points. Differences use unrounded results. "
                     "Positive mean and negative volatility differences favor the reference.")
-        st.markdown("**Proof of mean–variance dominance**")
-        st.write("A reference dominates when its mean is at least as high and its volatility is no higher, "
-                 "with at least one strict improvement. Define the mean–variance score:")
-        st.latex(r"U_\lambda(X)=\mu_X-\frac{\lambda}{2}\sigma_X^2,\qquad\lambda>0")
-        st.latex(r"\begin{aligned}U_\lambda(B)-U_\lambda(P)"
-                 r"&=(\mu_B-\mu_P)\\[4pt]&\quad+\frac{\lambda}{2}(\sigma_P^2-\sigma_B^2)>0\end{aligned}")
-        st.markdown(r"Both terms are nonnegative and at least one is positive. "
-                    r"$\boldsymbol{U_\lambda}:$ mean–variance score; $\boldsymbol{\lambda>0}:$ weight placed on variance. "
-                    "Under these conditions, the reference wins for **every positive variance penalty**. "
-                    "This proves a preference under this score, not under every possible utility function.")
-        if (comparisons.classification == "reference_dominates").any():
-            st.write("The stock portfolio is therefore not mean–variance efficient among the displayed replay paths. "
-                     "This is an observed result over these dates, not a forecast.")
-        else:
-            st.write("No displayed reference dominates the stock portfolio in this replay. "
-                     "That alone does not establish efficiency against every possible allocation.")
-
         st.markdown("### Why an optimal fit can still lose")
         st.write("The optimizer guarantees the highest fitted mean only for the training estimates and feasible initial weights. "
                  "The vectors below contain only stocks that passed the initial eligibility screen:")
@@ -773,15 +803,15 @@ def selection_replay_explanation(study, prices):
                     r"$\boldsymbol{\widehat\mu_{\rm test}=(A/N)\sum_{t=1}^{N}r_t}:$ stock means over all replay intervals. "
                     r"$\boldsymbol{t=1}:$ the cash interval before entry; $\boldsymbol{c}:$ entry fee per unit bought.")
         st.latex(r"\begin{aligned}"
-                 rf"S&\approx {points(bridge.mean_change)}\;\text{{pp}}&&\text{{stock means}}\\[5pt]"
-                 rf"D&\approx {points(bridge.weight_drift)}\;\text{{pp}}&&\text{{weight drift}}\\[5pt]"
-                 rf"E&\approx {points(bridge.entry_delay)}\;\text{{pp}}&&\text{{entry delay}}\\[5pt]"
-                 rf"F&\approx {points(bridge.entry_fee)}\;\text{{pp}}&&\text{{entry fee}}"
+                 rf"S&\approx {replay_points(bridge.mean_change)}\;\text{{pp}}&&\text{{stock means}}\\[5pt]"
+                 rf"D&\approx {replay_points(bridge.weight_drift)}\;\text{{pp}}&&\text{{weight drift}}\\[5pt]"
+                 rf"E&\approx {replay_points(bridge.entry_delay)}\;\text{{pp}}&&\text{{entry delay}}\\[5pt]"
+                 rf"F&\approx {replay_points(bridge.entry_fee)}\;\text{{pp}}&&\text{{entry fee}}"
                  r"\end{aligned}")
         st.latex(r"\begin{aligned}w^{\mathsf T}\widehat\mu_{\rm train}"
                  rf"&\approx {bridge.fitted_mean:.2%}\\[5pt]"
                  rf"\mu_P&\approx {bridge.realized_mean:.2%}\\[5pt]"
-                 rf"S+D+E+F&\approx {points(bridge.realized_mean - bridge.fitted_mean)}\;\text{{pp}}"
+                 rf"S+D+E+F&\approx {replay_points(bridge.realized_mean - bridge.fitted_mean)}\;\text{{pp}}"
                  r"\end{aligned}".replace("%", r"\%"))
         st.write("To verify the identity, write each held-period return as initial weights times stock returns, "
                  "plus the effect of weight drift. Sum those returns, substitute the cash-entry return −c/(1+c), "
@@ -819,9 +849,11 @@ def overview():
     _, prices, metadata = st.session_state.result
     selection = st.session_state.selection
     st.html('<div id="pl-market"></div>')
-    with st.container(border=True, key="tile_final_test"):
+    with st.container(border=True, key="tile_replay_proof"):
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
+        selection_replay_proof(selection)
+    with st.container(border=True, key="tile_final_test"):
         selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection))
         selection_replay_explanation(selection, prices)
     with st.container(border=True, key="tile_replay_drivers"):

@@ -213,15 +213,17 @@ APP_ONLY_CSS = """
 [class*="st-key-math_"] .katex-display{margin:0;padding:4px 0}
 [class*="st-key-math_"] .katex{font-size:1.15em;letter-spacing:normal}
 [class*="st-key-math_"] [data-testid="stCaptionContainer"] p{font-size:13px;line-height:1.6;color:var(--pl-ink-3)}
+.st-key-math_proof{padding-top:0;gap:14px}
+.st-key-math_proof .pl-proof-title{margin:0;font:650 clamp(26px,3.2vw,34px)/1.12 var(--pl-display);letter-spacing:-.025em}
 .st-key-math_diagnosis{margin-top:12px;padding-top:24px;border-top:1px solid var(--pl-hair-soft);min-width:0}
-.st-key-math_diagnosis [data-testid="stLayoutWrapper"]:has(.katex-display),
-.st-key-math_diagnosis [data-testid="stElementContainer"]:has(.katex-display),
-.st-key-math_diagnosis [data-testid="stMarkdown"]>div:has(.katex-display){width:100%!important;min-width:0}
-.st-key-math_diagnosis [data-testid="stMarkdownContainer"]{margin:0}
-.st-key-math_diagnosis [data-testid="stMarkdownContainer"] p{font-size:16px;line-height:1.6}
-.st-key-math_diagnosis [data-testid="stMarkdownContainer"] p .katex{font-size:1em}
-.st-key-math_diagnosis [data-testid="stMarkdownContainer"]:has(.katex-display){width:100%;box-sizing:border-box}
-.st-key-math_diagnosis .katex-display{overflow:visible}
+:is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stLayoutWrapper"]:has(.katex-display),
+:is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stElementContainer"]:has(.katex-display),
+:is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stMarkdown"]>div:has(.katex-display){width:100%!important;min-width:0}
+:is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stMarkdownContainer"]{margin:0}
+:is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stMarkdownContainer"] p{font-size:16px;line-height:1.6}
+:is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stMarkdownContainer"] p .katex{font-size:1em}
+:is(.st-key-math_diagnosis,.st-key-math_proof) [data-testid="stMarkdownContainer"]:has(.katex-display){width:100%;box-sizing:border-box}
+:is(.st-key-math_diagnosis,.st-key-math_proof) .katex-display{overflow:visible}
 
 /* 8 Buttons, inputs, alerts, tables, captions */
 button[data-testid="stBaseButton-primary"]{background:var(--pl-ink);border-color:var(--pl-ink)}
