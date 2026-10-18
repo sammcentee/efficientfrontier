@@ -65,7 +65,7 @@ The model maximizes historical arithmetic mean return within the volatility budg
 
 ## Latest fit and historical replay
 
-Results start with the buy-and-hold growth chart, portfolio return, realized volatility, drawdown, and concise SPY/QQQ comparisons. The complete replay metrics follow. The latest fitted frontier, holdings, and mathematical explanations appear later.
+Overview starts with the replay verdict and its mean–variance proof. A reference that improves mean or volatility without worsening the other wins for every positive variance penalty. If no reference dominates, the opening verdict says so. The buy-and-hold growth chart, replay metrics, and exact return reconciliation follow. The latest fitted frontier and holdings appear later.
 
 The efficient frontier depends on the return estimates, covariance estimates, and allowed holdings. The optimizer finds the highest fitted mean within your limits. It does not maximize CAGR or the return-to-volatility ratio. It cannot ensure that the chosen stocks will have the highest later return.
 
