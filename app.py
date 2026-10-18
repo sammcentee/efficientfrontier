@@ -21,7 +21,7 @@ from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVIS
 from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, REPLAY_LABEL
 
 
-st.set_page_config(page_title="Efficient Frontier Generator — Constrained Mean–Variance Optimization", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Efficient Frontier Generator: Constrained Mean–Variance Optimization", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
 st.html(f"<style>{APP_CSS}</style>")
 
 MARKETS = ["S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings", "Upload CSV", "Demo"]
@@ -446,10 +446,10 @@ def setup_sheet():
             end = date.today()
             start = (pd.Timestamp(end) - pd.DateOffset(years=5 if history == "5 years" else 10)).date()
             st.caption(f"{day(start)} to {day(end - pd.Timedelta(days=1))}")
-    st.number_input("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"], step=0.1, format="%.2f", key="target_vol",
+    st.number_input("Annual volatility budget", 1.0, 100.0, setup["target_vol"], step=0.1, format="%.2f", key="target_vol",
               help="A fitted annual volatility ceiling. Realized volatility can exceed it. No borrowing or automatic cash allocation.")
     risk_reference()
-    st.number_input("Holding limit (%)", 1.0, 100.0, setup["cap"], step=1.0, format="%g", key="cap",
+    st.number_input("Holding limit", 1.0, 100.0, setup["cap"], step=1.0, format="%g", key="cap",
                     help="A 10% limit needs at least ten assets. If the risk budget cannot be met, the build stops.")
     if market == "Demo":
         st.caption("The demo has six simulated assets. Its default holding limit is 20%, shown above; you can change it. At least 17% is needed.")
@@ -510,10 +510,10 @@ def welcome_mathematics(setup):
             st.latex(r"\widehat\mu=A\bar r,\qquad "
                      r"\widehat\Sigma=A\operatorname{Cov}_{\mathrm{sample}}(r)")
             st.markdown(
-                r"$r$: vector of stock returns; $\bar r$: sample mean returns; "
-                rf"$A={periods:g}$: observations per year. "
-                r"$\widehat\mu$: fitted annual returns; $\widehat\Sigma$: annual covariance matrix; "
-                r"$\operatorname{Cov}_{\mathrm{sample}}$: sample covariance."
+                r"$\boldsymbol{r}:$ vector of stock returns; $\boldsymbol{\bar r}:$ sample mean returns; "
+                rf"$\boldsymbol{{A={periods:g}}}:$ observations per year. "
+                r"$\boldsymbol{\widehat\mu}:$ fitted annual returns; $\boldsymbol{\widehat\Sigma}:$ annual covariance matrix; "
+                r"$\boldsymbol{\operatorname{Cov}_{\mathrm{sample}}}:$ sample covariance."
             )
         with st.container(key="landing_optimization"):
             st.latex(r"\begin{aligned}"
@@ -522,18 +522,18 @@ def welcome_mathematics(setup):
                      r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
                      r"\end{aligned}")
             st.markdown(
-                r"$w$: initial weight vector; $w_i$: fraction in stock $i$; $w^*$: optimal weights. "
-                r"$b$: fitted annual volatility budget; $h$: initial holding limit; "
-                r"$\mathbf1$: vector of ones; $\mathsf T$: transpose; "
-                r"$\operatorname{arg\,max}$: weights that maximize fitted return."
+                r"$\boldsymbol{w}:$ initial weight vector; $\boldsymbol{w_i}:$ fraction in stock $\boldsymbol{i}$; $\boldsymbol{w^*}:$ optimal weights. "
+                r"$\boldsymbol{b}:$ fitted annual volatility budget; $\boldsymbol{h}:$ initial holding limit; "
+                r"$\boldsymbol{\mathbf1}:$ vector of ones; $\boldsymbol{\mathsf T}:$ transpose; "
+                r"$\boldsymbol{\operatorname{arg\,max}}:$ weights that maximize fitted return."
             )
         with st.container(key="landing_growth"):
             st.latex(r"V_t=\frac{V_{\mathrm{start}}}{1+c}"
                      r"\sum_i w_i\frac{p_{i,t}}{p_{i,e}}\qquad(t\ge e)")
             st.markdown(
-                r"$V_t$: value at observation $t$; $V_{\mathrm{start}}$: starting cash; "
-                r"$p_{i,t}$: adjusted price of stock $i$ at $t$; $e$: entry observation. "
-                r"$c=0.10\%$: fee per unit bought; $\sum_i$: sum across stocks."
+                r"$\boldsymbol{V_t}:$ value at observation $\boldsymbol{t}$; $\boldsymbol{V_{\mathrm{start}}}:$ starting cash; "
+                r"$\boldsymbol{p_{i,t}}:$ adjusted price of stock $\boldsymbol{i}$ at $\boldsymbol{t}$; $\boldsymbol{e}:$ entry observation. "
+                r"$\boldsymbol{c=0.10\%}:$ fee per unit bought; $\boldsymbol{\sum_i}:$ sum across stocks."
             )
 
 
@@ -544,14 +544,14 @@ def welcome_or_error():
     if error is None:
         with st.container(key="landing"):
             st.html('<h1 class="pl-display">Efficient Frontier Generator '
-                    '<span class="pl-method-title">— Constrained Mean–Variance Optimization</span></h1>')
+                    '<span class="pl-method-title">Constrained Mean–Variance Optimization</span></h1>')
             mathematics, controls = st.columns([2.2, 1], gap="large")
             with mathematics:
                 welcome_mathematics(setup)
             with controls:
                 with st.container(key="landing_controls"):
                     if not st.session_state.setup_open:
-                        target = st.number_input("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"],
+                        target = st.number_input("Annual volatility budget", 1.0, 100.0, setup["target_vol"],
                                                  step=0.1, format="%.2f", key="preview_target_vol",
                                                  help="b: the maximum fitted annual standard deviation at the initial allocation.")
                         reference = st.session_state.get("qqq_reference")
@@ -561,7 +561,7 @@ def welcome_or_error():
                                        "Daily sample volatility × √252. This is a separate window from the portfolio fit.")
                         elif st.session_state.get("risk_reference_unavailable"):
                             st.caption("QQQ volatility is unavailable. The 20% starting value is a manual fallback, not a current Nasdaq-100 estimate.")
-                        cap = st.number_input("Holding limit (%)", 1.0, 100.0, setup["cap"], step=1.0,
+                        cap = st.number_input("Holding limit", 1.0, 100.0, setup["cap"], step=1.0,
                                               format="%g", key="preview_cap",
                                               help="h: the maximum initial weight in one stock. A 10% cap requires at least ten stocks.")
                         st.session_state.setup = {**setup, "target_vol": target, "cap": cap, "use_cap": True}
