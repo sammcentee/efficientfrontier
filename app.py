@@ -698,6 +698,7 @@ def replay_points(value):
 
 
 def selection_replay_proof(study):
+    settings = study.settings
     comparisons = selection_replay_dominance(study.test)
     portfolio = comparisons.loc[study.selected]
     dominators = comparisons.loc[comparisons.classification == "reference_dominates"]
@@ -705,6 +706,7 @@ def selection_replay_proof(study):
         headline = ("This portfolio was dominated in the replay." if not dominators.empty
                     else "No reference dominates this portfolio.")
         st.html(f'<h2 class="pl-proof-title">{headline}</h2>')
+        st.markdown(f"**Replay period only · {day(settings['test_start'])} to {day(settings['test_end'])}**")
         if not dominators.empty:
             name = dominators.annual_mean.idxmax()
             reference = dominators.loc[name]
@@ -726,9 +728,9 @@ def selection_replay_proof(study):
                     r"$\boldsymbol{\mu}:$ net annual arithmetic mean; $\boldsymbol{\sigma}:$ realized annual volatility. "
                     r"**pp:** percentage points; $\boldsymbol{U_\lambda}:$ mean–variance score; "
                     r"$\boldsymbol{\lambda>0}:$ penalty on variance.")
-        st.latex(r"\begin{aligned}U_\lambda(X)&=\mu_X-\frac{\lambda}{2}\sigma_X^2\\[8pt]"
-                 r"U_\lambda(B)-U_\lambda(P)&=(\mu_B-\mu_P)\\[4pt]"
-                 r"&\quad+\frac{\lambda}{2}(\sigma_P^2-\sigma_B^2)>0\end{aligned}")
+        st.latex(r"\begin{gathered}U_\lambda(X)=\mu_X-\frac{\lambda}{2}\sigma_X^2\\[14pt]"
+                 r"U_\lambda(B)-U_\lambda(P)\\[4pt]"
+                 r"=(\mu_B-\mu_P)+\frac{\lambda}{2}(\sigma_P^2-\sigma_B^2)>0\end{gathered}")
         if not dominators.empty:
             st.markdown("**Both terms are nonnegative and at least one is positive. "
                         "The reference wins for every positive variance penalty.**")
@@ -738,9 +740,10 @@ def selection_replay_proof(study):
             st.markdown("**Under the stated conditions, both terms are nonnegative and at least one is positive. "
                         "The reference would win for every positive variance penalty. These results do not meet those conditions.**")
             st.write("The absence of a dominant reference does not establish efficiency against every possible allocation.")
-        st.caption(f"Replay: {day(study.test.equity.index[1])} to {day(study.test.equity.index[-1])}. "
-                   "The fitted frontier is an optimum for its own estimates and constraints. "
-                   "It does not guarantee later performance. This proof concerns the observed mean–variance score, "
+        st.caption(f"This verdict uses the final {1 - settings['train_fraction']:.0%} of return observations. "
+                   f"The latest frontier uses the full return history, {day(settings['initial_training_start'])} "
+                   f"to {day(settings['price_end'])}, including the replay dates. "
+                   "That separate fit does not guarantee later performance. This proof concerns the observed mean–variance score, "
                    "not every utility function or future returns.")
 
 
@@ -822,10 +825,25 @@ def selection_replay_explanation(study, prices):
                  "not proof of what caused stock returns to change.")
 
 
-def selection_period(study, title, benchmark_note):
+def selection_period(study, title, benchmark_note, settings):
     st.html(title_html(title))
-    st.caption(f"{day(study.equity.index[1])} to {day(study.equity.index[-1])}. "
-               "Bought once using earlier prices. The latest fitted weights did not produce this path.")
+    st.markdown("**The chart tests the later period. The latest frontier fits the full history.**")
+    with st.container(key="replay_dates"):
+        st.html(
+            '<div class="pl-date-windows">'
+            f'<article><h3>Initial fit · first {settings["train_fraction"]:.0%}</h3>'
+            f'<p>{day(settings["initial_training_start"])} to {day(settings["initial_training_end"])}</p>'
+            f'<span>{settings["initial_training_returns"]:,} returns choose the replay holdings.</span></article>'
+            f'<article><h3>Replay · final {1 - settings["train_fraction"]:.0%}</h3>'
+            f'<p>{day(settings["test_start"])} to {day(settings["test_end"])}</p>'
+            f'<span>{settings["test_returns"]:,} later returns form the chart and proof.</span></article>'
+            '<article><h3>Latest frontier · full history</h3>'
+            f'<p>{day(settings["initial_training_start"])} to {day(settings["price_end"])}</p>'
+            '<span>A separate fit, including the replay dates.</span></article></div>'
+        )
+    st.caption("Return dates shown. The split uses observations, not a fixed one-year test. "
+               "Annualized return and volatility describe units, not the chart’s duration. "
+               "All paths below use the same replay dates and entry fee rate.")
     chart = selection_chart(study)
     chart.update_layout(height=360, legend={"maxheight": 120})
     st.plotly_chart(chart, width="stretch", theme=None, config=PLOTLY_CONFIG)
@@ -854,7 +872,7 @@ def overview():
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
         selection_replay_proof(selection)
     with st.container(border=True, key="tile_final_test"):
-        selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection))
+        selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection), selection.settings)
         selection_replay_explanation(selection, prices)
     with st.container(border=True, key="tile_replay_drivers"):
         st.html(story.result_drivers_html(selection.test, selection.selected))
@@ -863,6 +881,10 @@ def overview():
                          column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}})
     with st.container(border=True, key="tile_fitted_frontier"):
         frontier_data = calculate_frontier(selection, prices, SELECTION_MODEL_REVISION)
+        st.markdown(f"**Full-history fit · {day(selection.settings['initial_training_start'])} "
+                    f"to {day(selection.settings['price_end'])}.** "
+                    "These dates include the replay period. This frontier describes a separate fitted allocation, "
+                    "not the holdings used in the earlier chart.")
         st.plotly_chart(selection_frontier_chart(frontier_data, selection), width="stretch", theme=None, config=PLOTLY_CONFIG)
         st.html(selection_frontier_summary_html(selection, prices, frontier_data))
         if metadata.get("candidate_note"):
