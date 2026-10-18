@@ -1,5 +1,4 @@
 import copy
-from dataclasses import dataclass
 import html
 from html.parser import HTMLParser
 import io
@@ -14,14 +13,7 @@ import pytest
 
 from efficient_frontier.backtest import BacktestStudy
 from efficient_frontier.core import Portfolio
-from efficient_frontier.selection_report import selection_report_html, selection_report_zip
-
-
-@dataclass(frozen=True)
-class PolicyFixture:
-    blend: float
-    validation_passed: bool
-    reasons: tuple[str, ...]
+from efficient_frontier.selection_report import selection_chart, selection_report_html, selection_report_zip
 
 
 @pytest.fixture
@@ -31,8 +23,7 @@ def selection_inputs():
                            "BBB": np.linspace(80, 85, 12)}, index=dates)
     benchmarks = pd.DataFrame({"SPY": np.linspace(400, 430, 12),
                                "QQQ": np.linspace(350, 380, 12)}, index=dates)
-    names = ["Selected stock rule", "Diversified baseline", "Blend 25%", "Blend 50%",
-             "SPY", "QQQ", "SPY risk-matched", "QQQ risk-matched"]
+    names = ["Historical-mean portfolio", "Equal-weight stocks", "SPY", "QQQ"]
 
     def phase(start, offset):
         phase_dates = dates[start:start + 4]
@@ -62,15 +53,15 @@ def selection_inputs():
         )
 
     study = SimpleNamespace(
-        policy=PolicyFixture(.25, True, ("Validation passed its fixed screen.",)),
-        validation=phase(3, 0.), test=phase(8, .01), selected=names[0],
+        test=phase(8, .01), selected=names[0],
         latest={
             names[0]: Portfolio(names[0], pd.Series({"AAA": .6, "BBB": .4}), .123456789, .14, .738976),
-            names[1]: Portfolio(names[1], pd.Series({"AAA": .5, "BBB": .5}), .098765432, .12, .6563786),
         },
         supported=False, reasons=["The later test did not clear the descriptive screen."],
         settings={"target_volatility": .15, "max_weight": .6, "cost_bps": 10., "periods_per_year": 252,
-                  "validation_start": "2024-01-05", "test_start": "2024-01-12", "rebalance_every": 21},
+                  "model_revision": "single_mean_v1", "train_fraction": .7, "shrinkage": .1,
+                  "initial_training_start": "2024-01-03", "initial_training_end": "2024-01-11",
+                  "test_start": "2024-01-12", "rebalance_every": 21},
         warnings=["Current constituents can introduce survivorship bias."], benchmark_prices=benchmarks,
         eligibility=pd.DataFrame({"date": dates[[3, 8]], "ticker": ["AAA", "BBB"],
                                   "eligible": [True, False], "reason": ["", "Long unchanged-price run"]}),
@@ -83,27 +74,34 @@ def selection_inputs():
     return study, prices, metadata
 
 
-def test_zip_preserves_every_phase_and_strategy_numeric_result(selection_inputs):
+def test_chart_identifies_every_path_without_changing_returns(selection_inputs):
+    study, _, _ = selection_inputs
+    figure = selection_chart(study.test)
+    assert [trace.name for trace in figure.data] == list(study.test.equity.columns)
+    assert all(trace.showlegend for trace in figure.data)
+    assert figure.data[0].line.color != figure.data[1].line.color
+    assert figure.data[1].line.dash == "dash"
+    for name, trace in zip(study.test.equity.columns, figure.data):
+        np.testing.assert_allclose(trace.y, study.test.equity[name] * 10_000)
+
+
+def test_zip_preserves_every_test_strategy_and_numeric_result(selection_inputs):
     study, prices, metadata = selection_inputs
     with zipfile.ZipFile(io.BytesIO(selection_report_zip(*selection_inputs))) as archive:
         details = json.loads(archive.read("metadata.json"))
-        assert len(details["result_files"]) == len(study.validation.equity.columns) + len(study.test.equity.columns)
-        for phase_name in ("validation", "test"):
-            phase = getattr(study, phase_name)
-            for kind in ("metrics", "equity"):
-                recovered = pd.read_csv(archive.open(f"{phase_name}/{kind}.csv"), index_col=0,
-                                        parse_dates=kind == "equity")
-                pd.testing.assert_frame_equal(recovered, getattr(phase, kind), check_freq=False, check_names=False)
-            strategy_files = {stem: name for stem, name in details["result_files"].items()
-                              if stem.startswith(f"{phase_name}/")}
-            assert list(strategy_files.values()) == list(phase.equity.columns)
-            for stem, name in strategy_files.items():
-                assert re.fullmatch(rf"{phase_name}/\d+", stem)
-                for kind in ("allocations", "holdings", "trades"):
-                    recovered = pd.read_csv(archive.open(f"{stem}_{kind}.csv"), index_col=0,
-                                            parse_dates=kind != "holdings")
-                    pd.testing.assert_frame_equal(recovered, getattr(phase, kind)[name],
-                                                  check_freq=False, check_names=False)
+        assert len(details["result_files"]) == len(study.test.equity.columns)
+        for kind in ("metrics", "equity"):
+            recovered = pd.read_csv(archive.open(f"test/{kind}.csv"), index_col=0,
+                                    parse_dates=kind == "equity")
+            pd.testing.assert_frame_equal(recovered, getattr(study.test, kind), check_freq=False, check_names=False)
+        assert list(details["result_files"].values()) == list(study.test.equity.columns)
+        for stem, name in details["result_files"].items():
+            assert re.fullmatch(r"test/\d+", stem)
+            for kind in ("allocations", "holdings", "trades"):
+                recovered = pd.read_csv(archive.open(f"{stem}_{kind}.csv"), index_col=0,
+                                        parse_dates=kind != "holdings")
+                pd.testing.assert_frame_equal(recovered, getattr(study.test, kind)[name],
+                                              check_freq=False, check_names=False)
         for path, expected in (("prices.csv", prices), ("benchmark_prices.csv", study.benchmark_prices)):
             recovered = pd.read_csv(archive.open(path), index_col=0, parse_dates=True)
             pd.testing.assert_frame_equal(recovered, expected, check_freq=False, check_names=False)
@@ -114,14 +112,15 @@ def test_zip_preserves_every_phase_and_strategy_numeric_result(selection_inputs)
         pd.testing.assert_frame_equal(eligibility, study.eligibility)
 
 
-def test_zip_retains_policy_source_gate_reasons_and_exact_latest_estimates(selection_inputs):
+def test_zip_retains_model_source_test_reasons_and_exact_latest_estimates(selection_inputs):
     study, _, metadata = selection_inputs
     with zipfile.ZipFile(io.BytesIO(selection_report_zip(*selection_inputs))) as archive:
         details = json.loads(archive.read("metadata.json"))
-        policy = json.loads(archive.read("policy.json"))
-        assert policy == {"blend": .25, "validation_passed": True, "reasons": list(study.policy.reasons)}
-        assert details["policy"] == policy
+        assert "policy.json" not in archive.namelist()
+        assert not any(name.startswith("validation/") for name in archive.namelist())
+        assert "policy" not in details and "validation" not in details
         assert details["settings"] == study.settings
+        assert details["settings"]["model_revision"] == "single_mean_v1"
         assert details["supported"] is False and details["reasons"] == study.reasons
         assert metadata["source"] in json.dumps(details)
         assert metadata["revision"] in json.dumps(details)
@@ -146,38 +145,38 @@ def test_report_calls_preserve_all_input_objects(selection_inputs):
     pd.testing.assert_frame_equal(study.benchmark_prices, saved_study.benchmark_prices)
     pd.testing.assert_frame_equal(study.eligibility, saved_study.eligibility)
     assert metadata == saved_metadata
-    for key in ("policy", "selected", "supported", "reasons", "settings", "warnings"):
+    for key in ("selected", "supported", "reasons", "settings", "warnings"):
         assert getattr(study, key) == getattr(saved_study, key)
     for name, portfolio in study.latest.items():
         pd.testing.assert_series_equal(portfolio.weights, saved_study.latest[name].weights)
         for key in ("name", "expected_return", "volatility", "sharpe"):
             assert getattr(portfolio, key) == getattr(saved_study.latest[name], key)
-    for phase_name in ("validation", "test"):
-        phase, saved_phase = getattr(study, phase_name), getattr(saved_study, phase_name)
-        for kind in ("equity", "metrics"):
-            pd.testing.assert_frame_equal(getattr(phase, kind), getattr(saved_phase, kind))
-        for kind in ("allocations", "holdings", "trades"):
-            for name, frame in getattr(phase, kind).items():
-                pd.testing.assert_frame_equal(frame, getattr(saved_phase, kind)[name])
-        assert phase.settings == saved_phase.settings and phase.warnings == saved_phase.warnings
+    for kind in ("equity", "metrics"):
+        pd.testing.assert_frame_equal(getattr(study.test, kind), getattr(saved_study.test, kind))
+    for kind in ("allocations", "holdings", "trades"):
+        for name, frame in getattr(study.test, kind).items():
+            pd.testing.assert_frame_equal(frame, getattr(saved_study.test, kind)[name])
+    assert study.test.settings == saved_study.test.settings and study.test.warnings == saved_study.test.warnings
 
 
 def test_result_tables_keep_backend_order_and_show_net_mean_separately_from_cagr(selection_inputs):
     study = selection_inputs[0]
     document = selection_report_html(*selection_inputs)
-    for phase_name in ("validation", "test"):
-        section = document.split(f'id="{phase_name}"', 1)[1].split("</section>", 1)[0]
-        table = section[section.index("<table"):section.index("</table>")]
-        positions = [table.index(f"<th>{html.escape(name)}</th>") for name in getattr(study, phase_name).equity]
-        assert positions == sorted(positions)
-        for key in ("annual_mean", "cagr", "volatility", "max_drawdown"):
-            expected = getattr(study, phase_name).metrics.loc[study.selected, key]
-            assert f"{expected:.2%}" in table
-    assert "Later test (not used to choose the blend)" in document
+    section = document.split('id="test"', 1)[1].split("</section>", 1)[0]
+    table = section[section.index("<table"):section.index("</table>")]
+    positions = [table.index(f"<th>{html.escape(name)}</th>") for name in study.test.equity]
+    assert positions == sorted(positions)
+    for key in ("annual_mean", "cagr", "volatility", "max_drawdown"):
+        expected = study.test.metrics.loc[study.selected, key]
+        assert f"{expected:.2%}" in table
+    assert "Later historical test" in document
     assert re.search(r"historical.{0,100}reviewed|reviewed.{0,100}historical", document, re.I | re.S)
-    assert "descriptive screen" in document.lower()
+    assert "descriptive checks" in document.lower()
     assert study.reasons[0] in document
     assert document.index('id="test"') < document.index('id="latest-selection"')
+    report_body = document.split("</head>", 1)[1].lower()
+    for old_choice in ("blend", "risk-matched", 'id="validation"', "policy.json"):
+        assert old_choice not in report_body
 
 
 def test_unsupported_latest_holdings_are_inside_closed_details(selection_inputs):
@@ -188,6 +187,16 @@ def test_unsupported_latest_holdings_are_inside_closed_details(selection_inputs)
     assert "Experimental latest holdings" in match[2]
     assert "AAA" in match[2] and "BBB" in match[2]
     assert "60.00%" in match[2] and "40.00%" in match[2]
+
+
+def test_report_discloses_actual_test_assumptions(selection_inputs):
+    study, _, _ = selection_inputs
+    study.settings.update(train_fraction=.6, rebalance_every=4, cost_bps=25., shrinkage=.2, periods_per_year=52.)
+    document = selection_report_html(*selection_inputs)
+    section = document.split('id="selection-assumptions"', 1)[1].split("</section>", 1)[0]
+    for value in ("Initial training share: 60%", "Refit every 4 observations",
+                  "25 basis points (0.25%)", "Covariance shrinkage: 20%", "52 observations per year"):
+        assert value in section
 
 
 class ResourceParser(HTMLParser):
@@ -209,7 +218,7 @@ def test_report_is_offline_and_includes_plotly_license_once(selection_inputs):
         assert not parser.external_resources
         assert document.lower().startswith("<!doctype html>")
         assert document.count("* plotly.js v") == 1
-        assert document.count("Plotly.newPlot(") >= 2
+        assert document.count('class="plotly-graph-div"') == 1
         license_line = "Permission is hereby granted, free of charge"
         assert license_line in document
         assert license_line in archive.read("THIRD_PARTY_NOTICES.txt").decode()

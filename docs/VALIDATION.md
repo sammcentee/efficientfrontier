@@ -1,5 +1,24 @@
 # Validation record
 
+## Single model and later test: 18 October 2026
+
+**734 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
+The suite retains the existing pandas warning from the invalid-date rejection test.
+
+The app now runs one historical-mean objective under a volatility ceiling and holding cap. One later test compares it with equal-weight stocks, SPY, and QQQ. Blend selection, a separate validation period, synthetic ETF/cash comparisons, and alternative app model menus are removed. Earlier CLI/API tools retain their own tests.
+
+Tests cover an analytic constrained optimum, prior-close fits, future-price isolation, costs, stale quotes, infeasible limits, missing benchmarks, and exact exports. App checks cover fixed assumptions, retained inputs, explicit migration from old studies, and passive data views. Independent review reconstructed portfolio values, fees, and profit contributions.
+
+A fresh combined-universe download supplied 500 complete stocks and both ETFs on 1,255 market dates, from 18 October 2021 through 16 October 2026. The source contained 518 unique stocks and recorded 18 incomplete-history exclusions. The model used a fixed 20% budget and 10% holding cap. All 18 historical allocations met both fitted limits within numerical tolerance. Independent calculations reconciled each path's profit contributions and fees, and the latest historical mean estimate.
+
+The later test covered 17 April 2025 through 16 October 2026. The model's net CAGR was 31.25%, with 20.11% realized volatility. QQQ returned 37.36% with 18.52% volatility. The descriptive checks therefore failed. No parameter changed in response to the result.
+
+The past-price screen excluded FER. Current membership, complete-history selection, and prior research on these dates limit interpretation.
+
+The full-data CLI produced four comparison paths and one latest portfolio. The report contains one chart and no blend policy or validation exports. Reproduction tests compare exact numeric files.
+
+Headless Chromium checks covered the synthetic app at 1440 pixels and 390 pixels, plus the full-data report at 390 pixels. Pages had no horizontal overflow or JavaScript errors. The report made no external requests. The T3 preview sandbox was unavailable, so these checks used a separate background browser. Native operating-system and physical-device behavior remain untested.
+
 ## Risk budget and combined stock universe: 16 October 2026
 
 **726 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.

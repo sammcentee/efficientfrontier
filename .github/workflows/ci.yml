@@ -36,5 +36,5 @@ jobs:
           test -s "$RUNNER_TEMP/efficientfrontier-demo/findings.md"
           python -m efficient_frontier --target-volatility .20 --max-weight .20 --output "$RUNNER_TEMP/efficientfrontier-risk-demo"
           test -s "$RUNNER_TEMP/efficientfrontier-risk-demo/report.html"
-          test -s "$RUNNER_TEMP/efficientfrontier-risk-demo/policy.json"
+          test -s "$RUNNER_TEMP/efficientfrontier-risk-demo/metadata.json"
           test -s "$RUNNER_TEMP/efficientfrontier-risk-demo/test/metrics.csv"
