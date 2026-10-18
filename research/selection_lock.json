@@ -1,0 +1,47 @@
+{
+  "created_at": "2026-10-18T09:35:43.524016+00:00",
+  "code_hashes": {
+    "efficient_frontier/index_rules.py": "cecb2a8976e56ac4d48bae8e4feb6bd310874c7d891e112a707f313ebff30e4b",
+    "efficient_frontier/index_comparison.py": "97ce3265e7fb570b05cffcccf9fc4c59e043c6a47e491c80a81609b34aeab6e1",
+    "research/index_research_protocol.json": "523a7f0662ef5d1d44cf90eb7b5631c8a40cc1024345dbb733339450797847f2",
+    "research/run_index_research.py": "37a9fd1ad6b965524135eca48e845aaad4b264ca9603c465fdf3d4e5db55d6a0",
+    "efficient_frontier/backtest.py": "e9b46e22b1e15f2a0f4112b7f0e8a234741bfad5a5138e1dfa75e902e6a7ca7f",
+    "efficient_frontier/core.py": "253a2a708493b60155695d7bddf32bf69e9c1be1fef1099f7a007b9d4acb3c0a",
+    "efficient_frontier/metrics.py": "526e504467115126f43930be5a69253fe753da9e3cc1f604c499d40399800797",
+    "efficient_frontier/selection.py": "c2389966852b90613f109ddee69306eea0123ea11300ba7ee5e8436870409e83",
+    "requirements.txt": "24e8f10bf96e35e3e839a2baa0dba5d20a835e125ed5af5fb2f06532df5529b2"
+  },
+  "input_hashes": {
+    "stock_prices": "83c8f82ee0dc0d4ac212f007659ab1458a9ac910ef5c6705074223deb8704892",
+    "benchmarks": "2e12ab7c698c1e7f58cac77394ca2158e06367bc559693354419b451b7714889",
+    "fund_prices": "330d5ac68021d746208466325dbcc04152e0582f6a2ed060cb24bd7d276d6e12"
+  },
+  "chosen": {
+    "stocks": {
+      "name": "momentum_50",
+      "development_score": 0.021956054396964603,
+      "beat_both_in_development": true,
+      "first_return": "2022-11-01",
+      "observations": 616
+    },
+    "funds": {
+      "name": "qqq_trend10month",
+      "development_score": 0.009228460056723758,
+      "beat_both_in_development": true,
+      "first_return": "2016-11-01",
+      "observations": 1552
+    }
+  },
+  "development_end": {
+    "stocks": "2025-04-16",
+    "funds": "2022-12-30"
+  },
+  "evaluation_start": {
+    "stocks": "2025-04-17",
+    "funds": "2023-01-03"
+  },
+  "evaluation_end": "2026-10-16",
+  "prior_date_review": true,
+  "selection_pipeline": "risk_controlled",
+  "selection_metric": "worst normalized annual mean gap"
+}
