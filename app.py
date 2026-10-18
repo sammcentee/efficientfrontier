@@ -16,8 +16,8 @@ from efficient_frontier.data import BENCHMARK_SYMBOLS, demo_prices, download_ben
 from efficient_frontier.presentation import csv_text
 from efficient_frontier.style import APP_CSS, PLOTLY_CONFIG
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
-from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection
-from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS
+from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates
+from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_fit_summary_html, selection_benchmark_note, FIT_METRIC_LABELS
 
 
 st.set_page_config(page_title="Portfolio Lab", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
@@ -529,12 +529,15 @@ def risk_reference():
     periods = st.session_state.result[2]["periods_per_year"]
     volatility = benchmark_prices.pct_change(fill_method=None).dropna().std() * math.sqrt(periods)
     st.caption("Reference from the saved input history: " + ", ".join(f"{name} {value:.1%}" for name, value in volatility.items())
-               + " annual volatility. These are historical observations, not future limits.")
+               + " annual historical volatility, without the model's covariance adjustment. "
+               "These are observations over the full input history, not the later test or future limits.")
 
 
-def selection_period(study, title):
+def selection_period(study, title, benchmark_note):
     st.html(title_html(title))
+    st.caption(benchmark_note)
     st.caption(f"{day(study.equity.index[0])} to {day(study.equity.index[-1])}. "
+               "These are later outcomes, not the estimates used to choose stocks. "
                "All rows use the same dates and fee rate. Each row measures its own net return path. "
                "Annual mean scales the average return to one year. CAGR measures compound growth.")
     columns = ["annual_mean", "cagr", "volatility", "max_drawdown"]
@@ -556,14 +559,16 @@ def overview():
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
     with st.container(border=True, key="tile_selection_decision"):
         st.html(selection_summary_html(selection, metadata))
-        st.caption("The model chooses stock weights with the highest estimated average return within your volatility and holding limits. "
-                   "It uses historical returns, which can change substantially in the future.")
+    with st.container(border=True, key="tile_fitted_estimates"):
+        st.html(selection_fit_summary_html(selection, prices))
     st.html('<div id="pl-market"></div>')
     with st.container(border=True, key="tile_final_test"):
-        selection_period(selection.test, "Later historical test")
+        selection_period(selection.test, "Later historical test", selection_benchmark_note(selection))
         st.caption("The first 70% of the history supplies the first fit. The remaining 30% tests the same rule, "
                    "with a new fit every 21 price rows using only prior prices. "
-                   "A historical test does not prove future performance.")
+                   "The latest holdings did not produce this path. "
+                   "If a benchmark has higher return with lower volatility, it beat the rule in this test. "
+                   "That does not show that the earlier fitted maximum was calculated incorrectly.")
         st.html(story.result_drivers_html(selection.test, selection.selected))
         with st.expander("What drove the stock rule’s test result?"):
             st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
@@ -576,8 +581,6 @@ def overview():
                    "The fitted mean estimates average annual return. It is not the test’s compound growth rate (CAGR).")
         if not selection.supported:
             st.warning("This portfolio does not pass the historical check. These fitted weights are experimental.")
-        st.html(stat_strip(((f"{portfolio.expected_return:.1%}", "Fitted annual mean", "Full-history estimate before fees"),
-                            (f"{portfolio.volatility:.1%}", "Fitted annual volatility", "Full-history estimate"))))
         frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
         if names:
             frame.insert(1, "Company", frame.Symbol.map(names))
@@ -611,7 +614,8 @@ def data_method():
             "1. **Estimate returns and risk.** Use average past returns and the relationships between stocks. "
             "Reduce the measured stock-to-stock covariance by 10% to limit noise.\n"
             "2. **Choose stock weights.** Maximize estimated average return within your volatility budget and holding limit. "
-            "Keep the portfolio fully invested, with no borrowing or short sales.\n"
+            "Keep the portfolio fully invested, with no borrowing or short sales. "
+            "This does not maximize compound growth or the return-to-volatility ratio.\n"
             "3. **Check the later history.** Use the first 70% for the first fit. "
             "Refit every 21 price rows during the remaining 30%, with all prior prices.\n"
             "4. **Fit the latest weights.** Apply the same model to all supplied history. "
@@ -620,16 +624,24 @@ def data_method():
         st.caption("Every target uses prices through the prior close and trades at the next close. "
                    "The first test interval stays in cash with zero interest. "
                    "The model charges 0.10% on each amount bought or sold, including entry. It assumes no final sale.")
-        st.caption("Equal-weight stocks use the same eligible stocks and trade dates. "
-                   "SPY and QQQ each buy once and hold. These comparisons do not use your volatility ceiling. "
-                   "All paths include the same fee rate and start on the same date.")
+        st.caption(selection_benchmark_note(selection))
         st.caption("The fixed 2% risk-free rate affects Sharpe and Sortino metrics in the export only. "
                    "It does not change stock weights or pay interest on cash. "
                    "Taxes, currency conversion, liquidity, and future membership changes are excluded.")
         st.caption("The historical check needs at least one year of test returns and both ETFs. "
                    "The portfolio must stay within the realized volatility budget. "
                    "No comparison can have higher compound growth with no more volatility. "
-                   "This is a descriptive check, not a forecast.")
+                   "This checks later performance, not whether the fitted optimization was solved correctly.")
+    with st.expander("Estimates at every fit"):
+        st.caption("Each row uses only prices available at its fit date and the saved target weights. "
+                   "Model volatility includes the covariance adjustment. Historical volatility uses ordinary sample covariance. "
+                   "Neither is the later realized volatility. The same table is exported as fit_estimates.csv.")
+        st.dataframe(selection_fit_estimates(selection, prices).style.format(
+            {key: "{:.2%}" for key in (*FIT_METRIC_LABELS, "max_weight")}), width="stretch",
+            column_config={"_index": st.column_config.DateColumn("Fitted through", format="D MMM YYYY"),
+                           "execution_date": st.column_config.DateColumn("Traded on", format="D MMM YYYY"),
+                           "phase": "Fit", "observations": "Return observations", "max_weight": "Largest holding",
+                           **FIT_METRIC_LABELS})
     with st.container(border=True, key="tile_data"):
         st.html(title_html("The data behind this result"))
         st.caption(metadata.get("universe_limitation") or

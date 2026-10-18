@@ -13,7 +13,11 @@ import pytest
 
 from efficient_frontier.backtest import BacktestStudy
 from efficient_frontier.core import Portfolio
-from efficient_frontier.selection_report import selection_chart, selection_report_html, selection_report_zip
+from efficient_frontier.selection import selection_fit_estimates
+from efficient_frontier.selection_report import (
+    selection_benchmark_note, selection_chart, selection_fit_summary_html,
+    selection_report_html, selection_report_zip,
+)
 
 
 @pytest.fixture
@@ -37,13 +41,14 @@ def selection_inputs():
         }, index=names)
         equity = pd.DataFrame({name: [1., .999, .98, 1 + metrics.loc[name, "total_return"]]
                                for name in names}, index=phase_dates)
-        allocations = pd.DataFrame({"AAA": [.6], "BBB": [.3], "CASH": [.1]}, index=phase_dates[[1]])
+        allocations = pd.DataFrame({"AAA": [.6], "BBB": [.4], "CASH": [0.]}, index=phase_dates[[1]])
         holdings = pd.DataFrame({
             "average_weight": [.45, .25, .3], "end_weight": [.62, .28, .1],
             "selection_frequency": [1., 1., 1.], "max_target_weight": [.6, .3, .1],
             "max_realized_weight": [.62, .31, 1.], "pnl_contribution": [.025, -.004, 0.],
         }, index=["AAA", "BBB", "CASH"])
-        trades = pd.DataFrame({"turnover": [.9], "cost": [.001234567], "cash_weight": [.1]},
+        trades = pd.DataFrame({"train_end": [phase_dates[0]], "turnover": [1.],
+                               "cost": [.001234567], "cash_weight": [0.]},
                               index=phase_dates[[1]])
         return BacktestStudy(
             equity=equity, metrics=metrics, allocations={name: allocations.copy() for name in names},
@@ -60,8 +65,8 @@ def selection_inputs():
         supported=False, reasons=["The later test did not clear the descriptive screen."],
         settings={"target_volatility": .15, "max_weight": .6, "cost_bps": 10., "periods_per_year": 252,
                   "model_revision": "single_mean_v1", "train_fraction": .7, "shrinkage": .1,
-                  "initial_training_start": "2024-01-03", "initial_training_end": "2024-01-11",
-                  "test_start": "2024-01-12", "rebalance_every": 21},
+                  "initial_training_start": str(dates[1].date()), "initial_training_end": str(dates[8].date()),
+                  "test_start": str(dates[9].date()), "rebalance_every": 21},
         warnings=["Current constituents can introduce survivorship bias."], benchmark_prices=benchmarks,
         eligibility=pd.DataFrame({"date": dates[[3, 8]], "ticker": ["AAA", "BBB"],
                                   "eligible": [True, False], "reason": ["", "Long unchanged-price run"]}),
@@ -99,7 +104,7 @@ def test_zip_preserves_every_test_strategy_and_numeric_result(selection_inputs):
             assert re.fullmatch(r"test/\d+", stem)
             for kind in ("allocations", "holdings", "trades"):
                 recovered = pd.read_csv(archive.open(f"{stem}_{kind}.csv"), index_col=0,
-                                        parse_dates=kind != "holdings")
+                                        parse_dates=[0, "train_end"] if kind == "trades" else kind != "holdings")
                 pd.testing.assert_frame_equal(recovered, getattr(study.test, kind)[name],
                                               check_freq=False, check_names=False)
         for path, expected in (("prices.csv", prices), ("benchmark_prices.csv", study.benchmark_prices)):
@@ -110,6 +115,40 @@ def test_zip_preserves_every_test_strategy_and_numeric_result(selection_inputs):
         eligibility = pd.read_csv(archive.open("eligibility.csv"), index_col=0,
                                   parse_dates=["date"], keep_default_na=False)
         pd.testing.assert_frame_equal(eligibility, study.eligibility)
+        fits = pd.read_csv(archive.open("fit_estimates.csv"), index_col=0, parse_dates=[0, "execution_date"])
+        pd.testing.assert_frame_equal(fits, selection_fit_estimates(study, prices))
+
+
+def test_fitted_estimates_are_visible_and_separate_from_realized_results(selection_inputs):
+    study, prices, _ = selection_inputs
+    document = selection_report_html(*selection_inputs)
+    section = document.split('id="fit-estimates"', 1)[1].split("</section>", 1)[0]
+    assert document.index('id="fit-estimates"') < document.index('id="test"')
+    assert "<details" not in section
+    fits = selection_fit_estimates(study, prices)
+    for date, fit in fits.iterrows():
+        assert f"{fit.phase} · {date.date()}" in section
+        for column in ("fitted_mean", "model_volatility", "historical_volatility"):
+            assert f"{fit[column]:.2%}" in section
+    assert "Fitted annual mean" in section and "Historical volatility" in section
+    assert "The budget applies to model volatility" in section
+    assert "latest weights did not produce the earlier test results" in section
+    assert "not checks of optimizer accuracy" in document
+    assert "Estimates for every saved fit" in document
+    assert "2024-01-12" in section and "2024-01-17" in section
+
+
+def test_benchmark_and_fit_explanations_use_the_actual_model_settings(selection_inputs):
+    study, prices, _ = selection_inputs
+    study.settings.update(rebalance_every=4, shrinkage=.2)
+    note = selection_benchmark_note(study)
+    assert "every 4 observations" in note
+    assert "SPY tracks the S&P 500" in note and "QQQ tracks the Nasdaq-100" in note
+    assert "buy once and hold" in note
+    assert "None is scaled to the model volatility budget" in note
+    summary = selection_fit_summary_html(study, prices)
+    assert "20% covariance adjustment" in summary
+    assert "does not maximize the return-to-volatility ratio or CAGR" in summary
 
 
 def test_zip_retains_model_source_test_reasons_and_exact_latest_estimates(selection_inputs):

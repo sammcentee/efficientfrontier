@@ -188,7 +188,9 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     app = demo_app()
     assert not app.exception
     page = html_text(app)
-    assert page.index("Later historical test") < page.index("Fitted annual mean")
+    assert page.index("Fitted annual mean") < page.index("Later historical test")
+    assert "First historical fit" in page and "Latest fit" in page
+    assert "Model volatility" in page and "Historical volatility" in page
     assert "validation" not in page.lower() and "blend" not in page.lower()
     holding_section = next(item for item in app.expander if item.label.startswith("Latest fitted holdings"))
     assert holding_section.proto.expanded is False
@@ -614,11 +616,13 @@ def test_data_method_is_passive_and_shows_only_the_completed_model(monkeypatch):
     assert "compare_worst_window" not in {item.key for item in app.checkbox}
     tables = [item.value for item in app.dataframe]
     for expected in (app.session_state.result[1], study.eligibility, study.test.allocations[study.selected],
-                     study.test.holdings[study.selected], study.test.trades[study.selected]):
+                     study.test.holdings[study.selected], study.test.trades[study.selected],
+                     selection.selection_fit_estimates(study, app.session_state.result[1])):
         assert any(table.equals(expected) for table in tables)
     captions = "\n".join(item.value for item in app.caption)
     assert "0.10%" in captions and "2% risk-free rate" in captions
-    assert "SPY and QQQ each buy once and hold" in captions
+    assert "buy once and hold" in captions
+    assert "not whether the fitted optimization was solved correctly" in captions
     assert app.session_state.result[0] is None and app.session_state.selection is study
     nonce = app.session_state.get("scroll_nonce", 0)
     app.run()

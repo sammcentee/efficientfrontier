@@ -17,6 +17,10 @@ subject to: sum(w) = 1
 
 Historical arithmetic mean is the only return objective. A higher fitted mean does not establish higher future returns. The volatility budget constrains the estimate, not future realized volatility or losses.
 
+This is a convex mean-variance problem for the supplied estimates and feasible stock weights. It maximizes mean at a volatility ceiling, not Sharpe or CAGR. See the [MOSEK mean-variance formulation](https://docs.mosek.com/portfolio-cookbook/markowitz.html). Estimation error can make optimal fitted weights perform poorly later; [MOSEK's estimation-error discussion](https://docs.mosek.com/portfolio-cookbook/estimationerror.html) explains this limitation.
+
+The fitted risk measure differs from ordinary historical volatility even on identical dates and weights. If `S` is the annual sample covariance, the app uses `Sigma = 0.9 * S + 0.1 * diag(diag(S))`. The budget constrains `sqrt(w.T @ Sigma @ w)`. The separate historical-volatility column shows `sqrt(w.T @ S @ w)`. The adjustment can raise or lower portfolio volatility. Neither value is the later replay's realized volatility.
+
 With `T` return intervals, the first `floor(0.7 × T)` form the initial training sample. The remaining 30% form one later test. Every 21 observations, the model refits with all returns through the close before execution. The same rule applies throughout. Latest weights use all supplied history and never enter earlier trades.
 
 The test has four paths:
@@ -49,6 +53,7 @@ The ZIP contains an offline HTML report and exact CSV data. `metadata.json` reco
 | `eligibility.csv` | Dated stock eligibility decisions |
 | `latest_weights.csv` | Latest weights for the one model |
 | `latest_estimates.csv` | Latest fitted estimates |
+| `fit_estimates.csv` | Each historical and latest fit's dates, sample size, mean, model risk, ordinary historical risk, and largest target weight |
 | `test/metrics.csv` | Net performance for each path |
 | `test/equity.csv` | Exact portfolio values through the later test |
 | `test/NN_allocations.csv` | Target weights for one path |

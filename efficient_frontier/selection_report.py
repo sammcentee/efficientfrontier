@@ -11,7 +11,7 @@ from plotly.offline import get_plotlyjs
 from .backtest_report import backtest_chart
 from .data import stale_price_notes
 from .presentation import PLOTLY_JS_LICENSE, csv_text
-from .selection import BASELINE, BENCHMARK_NAMES, SELECTED
+from .selection import BASELINE, BENCHMARK_NAMES, SELECTED, selection_fit_estimates
 from .style import ACCENT, BENCHMARK_COLORS, INK_3, PLOTLY_CONFIG, REPORT_CSS
 
 
@@ -22,6 +22,11 @@ SELECTION_METRIC_LABELS = {
     "max_drawdown": "Maximum drawdown",
     "total_return": "Net total return",
     "total_cost": "Fees / initial capital",
+}
+FIT_METRIC_LABELS = {
+    "fitted_mean": "Fitted annual mean",
+    "model_volatility": "Model volatility",
+    "historical_volatility": "Historical volatility",
 }
 HISTORY_NOTE = (
     "The same model rule applies throughout the later test. Historical data reviewed earlier can introduce research hindsight. "
@@ -47,7 +52,7 @@ def selection_chart(study):
 
 def selection_summary_html(study, metadata: dict) -> str:
     """Describe the one model and its later historical check."""
-    heading = "Later test: checks passed" if study.supported else "Later test: checks not met"
+    heading = "Later test: performance checks passed" if study.supported else "Later test: performance checks not met"
     reasons = list(dict.fromkeys(study.reasons))
     notes = "".join(f"<li>{html.escape(str(reason))}</li>" for reason in reasons)
     benchmark_note = metadata.get("benchmarks_note", "")
@@ -56,7 +61,8 @@ def selection_summary_html(study, metadata: dict) -> str:
         f'Largest holding: {study.settings["max_weight"]:.1%}. '
         'The model maximizes the fitted historical mean within the volatility budget and holding limit.</p>'
         '<p>The budget limits estimated volatility. Future volatility and losses can exceed it. '
-        'The later test checks the same rule against equal-weight stocks, SPY, and QQQ.</p>'
+        'The later test checks the same rule against equal-weight stocks, SPY, and QQQ. '
+        'These are performance checks, not checks of optimizer accuracy.</p>'
         '<p>A pass requires both ETFs and at least one year of test observations. '
         'Realized test volatility must stay within the budget. No reference can have higher CAGR with equal or lower volatility.</p>'
         + (f'<ul>{notes}</ul>' if notes else '')
@@ -68,6 +74,36 @@ def selection_summary_html(study, metadata: dict) -> str:
 def _percent_table(frame: pd.DataFrame) -> str:
     return frame.map(lambda value: "—" if pd.isna(value) else f"{value:.2%}").to_html(
         escape=True, border=0, classes="data",
+    )
+
+
+def selection_fit_summary_html(study, prices: pd.DataFrame) -> str:
+    """Separate fitted estimates from the later results of earlier weights."""
+    fits = selection_fit_estimates(study, prices).iloc[[0, -1]]
+    display = fits.loc[:, list(FIT_METRIC_LABELS)].rename(columns=FIT_METRIC_LABELS)
+    display.index = [f"{row.phase} · {date.date()}" for date, row in fits.iterrows()]
+    return (
+        '<h2>Estimates at each fit</h2>'
+        f'<p>Each fit uses returns from {prices.index[1].date()} through its date below. '
+        'These estimates describe the data used for each fit. They are not forecasts.</p>'
+        f'<div class="scroll">{_percent_table(display)}</div>'
+        '<p>The model maximizes the fitted arithmetic mean within the model volatility budget and holding limit. '
+        'It does not maximize the return-to-volatility ratio or CAGR.</p>'
+        f'<p>Model volatility uses a {study.settings["shrinkage"]:.0%} covariance adjustment toward individual stock variances. '
+        'Historical volatility uses the ordinary sample covariance with the same dates and weights. '
+        'The budget applies to model volatility.</p>'
+        '<p>The first fit starts the historical test. Later refits update its weights. '
+        'The latest weights did not produce the earlier test results.</p>'
+    )
+
+
+def selection_benchmark_note(study) -> str:
+    """Define comparison holdings and their different risk levels."""
+    return (
+        'Equal-weight stocks divides money equally across eligible stocks and resets those weights '
+        f'every {study.settings["rebalance_every"]:g} observations. '
+        'SPY tracks the S&P 500. QQQ tracks the Nasdaq-100. The two ETFs buy once and hold. '
+        'Each reference has its own volatility. None is scaled to the model volatility budget.'
     )
 
 
@@ -110,13 +146,23 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict) -> str:
         '<section id="test"><h2>Later historical test</h2>'
         f'<p>Baseline: {result.equity.index[0].date()}. '
         f'Evaluation returns: {result.equity.index[1].date()} to {result.equity.index[-1].date()}.</p>'
-        '<p>All rows use the same dates and fee rate. Equal-weight stocks restore equal targets at each scheduled trade. '
-        'SPY and QQQ buy once and hold. These references have no volatility budget.</p>'
+        '<p>These are realized results from the earlier portfolio weights, with scheduled refits. '
+        'They are not the estimates from the latest fit. All rows use the same dates and fee rate.</p>'
+        f'<p>{selection_benchmark_note(study)}</p>'
         '<p>Arithmetic means average the net period returns, including entry fees. CAGR compounds the same returns. '
         'The table keeps a fixed order and does not choose a model from the results.</p>'
         f'<div class="scroll">{_percent_table(metrics)}</div><div class="chart">{chart}</div></section>'
     )
     weights, estimates = _latest_frames(study)
+    fit_history = selection_fit_estimates(study, prices)
+    for column in (*FIT_METRIC_LABELS, "max_weight"):
+        fit_history[column] = fit_history[column].map(lambda value: f"{value:.2%}")
+    fit_history["execution_date"] = fit_history.execution_date.dt.strftime("%Y-%m-%d").fillna("—")
+    fit_history.index = fit_history.index.strftime("%Y-%m-%d")
+    fit_history = fit_history.rename(columns={
+        **FIT_METRIC_LABELS, "phase": "Fit", "execution_date": "Execution date",
+        "observations": "Return observations", "max_weight": "Largest holding",
+    }).rename_axis("Fit through")
     latest = (
         '<p>These weights fit all supplied history through the final price date. The later test used earlier fitted weights. '
         'Latest fitted means are annual arithmetic estimates, not realized CAGR or forecasts.</p>'
@@ -142,6 +188,7 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict) -> str:
 <body><main><p class="eyebrow">Historical research</p><h1>One portfolio, one model</h1>
 <button onclick="window.print()">Print / save PDF</button>
 <section id="selection-decision">{selection_summary_html(study, metadata)}</section>
+<section id="fit-estimates">{selection_fit_summary_html(study, prices)}</section>
 {test_section}
 <section id="latest-selection"><h2>Latest fitted stock weights · {prices.index[-1].date()}</h2>{latest}</section>
 <section id="selection-assumptions"><h2>Method and limits</h2>
@@ -158,11 +205,14 @@ Equal-weight stocks use the same refit schedule. SPY and QQQ buy once and hold.
 Taxes, currency conversion, liquidity, and future membership changes are not modeled.</p>
 <p>Past-only eligibility checks can exclude long unchanged-price runs at a fit. eligibility.csv records each decision.
 The original input prices and excluded asset columns remain in the export.</p>
+<details><summary>Estimates for every saved fit</summary><div class="scroll">
+{fit_history.to_html(escape=True, border=0, classes="data")}</div></details>
 <p>Current constituent lists and complete-history requirements introduce selection and survivorship bias.
 The later test is a descriptive historical check, not proof of future outperformance.</p>
 {'<aside><h3>Data and model notes</h3><ul>' + notes + '</ul></aside>' if notes else ''}</section>
 <section id="selection-sources"><h2>Source and reproduction</h2><div class="scroll"><table class="metadata">{source_rows}</table></div>{coverage}
 <p>metadata.json records the model revision, settings, input dates, source details, test reasons, and every numbered result file.
+fit_estimates.csv records the mean and both volatility measures for every saved fit.
 The test exports include every path, allocation, trade, and holding.</p></section>
 <footer>This report works offline.<details><summary>Third-party notice: Plotly.js (MIT)</summary>
 <pre>{html.escape(PLOTLY_JS_LICENSE)}</pre></details></footer></main></body></html>'''
@@ -172,7 +222,8 @@ def selection_report_zip(study, prices: pd.DataFrame, metadata: dict) -> bytes:
     """Export exact inputs, model settings, and every later-test result."""
     details = _details(study, prices, metadata)
     weights, estimates = _latest_frames(study)
-    frames = {"prices.csv": prices.rename_axis("Date"), "latest_weights.csv": weights, "latest_estimates.csv": estimates}
+    frames = {"prices.csv": prices.rename_axis("Date"), "latest_weights.csv": weights, "latest_estimates.csv": estimates,
+              "fit_estimates.csv": selection_fit_estimates(study, prices)}
     if getattr(study, "benchmark_prices", None) is not None:
         frames["benchmark_prices.csv"] = study.benchmark_prices.rename_axis("Date")
     if getattr(study, "eligibility", None) is not None:
