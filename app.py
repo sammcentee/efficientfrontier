@@ -28,7 +28,7 @@ MARKET_CAPTIONS = ["Today’s combined members, without duplicate symbols. Price
                    "Your original fixed list. Marsh uses its current MRSH symbol, formerly MMC.",
                    "Your own adjusted prices. Stays offline.", "Six simulated assets. Works offline."]
 FREQUENCIES = {"Daily market prices": 252, "Daily calendar prices": 365, "Weekly": 52, "Monthly": 12, "Custom": None}
-DEFAULT_TEST = {"rebalance_every": 21, "cost_bps": 10.0}
+DEFAULT_TEST = {"cost_bps": 10.0}
 FIXED_ASSUMPTIONS = {"train_pct": 70, "shrink": 0, "risk_free": 2.0}
 DEFAULT_SETUP = {
     "market": "S&P 500 + Nasdaq-100", "history": "5 years", "ticker_text": "AAPL, MSFT, AMZN, GOOGL, NVDA, META, JPM, XOM, JNJ, PG, KO, UNH",
@@ -43,7 +43,7 @@ COVERAGE_COLUMNS = {"industry": None, "symbol": "Symbol", "name": "Company", "st
                     "observations": st.column_config.NumberColumn("Price rows"), "first_date": "First date", "last_date": "Last date"}
 DATE_COLUMN = st.column_config.DateColumn("Date", format="D MMM YYYY")
 PREVIEW_HTML = ('<ol class="pl-preview"><li><b>Set two limits.</b><span>Choose annual volatility and the largest holding.</span></li>'
-                '<li><b>Check one model.</b><span>Compare its later test with equal-weight stocks, SPY, and QQQ.</span></li>'
+                '<li><b>Buy once and hold.</b><span>Compare the later result with equal-weight stocks, SPY, and QQQ.</span></li>'
                 '<li><b>Inspect the latest weights.</b><span>These use all supplied history and differ from the test holdings.</span></li></ol>')
 KEY_LEGEND = '<span class="pl-keys">Keys: <kbd>1</kbd> overview · <kbd>2</kbd> test · <kbd>4</kbd> data &amp; method · <kbd>S</kbd> setup · <kbd>E</kbd> export</span>'
 SCROLL_JS = """<script>/* __NONCE__ */
@@ -94,7 +94,7 @@ def fetch_benchmarks(dates):
 def calculate_selection(prices, benchmark_prices, settings, target_volatility, model_revision):
     """Include the selection model revision in the cached calculation identity."""
     return run_selection(prices, benchmark_prices=benchmark_prices, target_volatility=target_volatility,
-                         **settings, rebalance_every=DEFAULT_TEST["rebalance_every"], cost_bps=DEFAULT_TEST["cost_bps"])
+                         **settings, cost_bps=DEFAULT_TEST["cost_bps"])
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
@@ -240,7 +240,7 @@ def make_report_callable():
 
 def settings_frame(metadata):
     """Study settings with plain labels. The metadata does not change."""
-    return pd.DataFrame([{"Setting": "History before the later test" if key == "train_fraction" else story.setting_label(key),
+    return pd.DataFrame([{"Setting": "History for the initial fit" if key == "train_fraction" else story.setting_label(key),
                           "Value": f"{value:.1%}" if key == "target_volatility" else story.setting_text(key, value)}
                          for key, value in metadata.items() if key not in ("universe_coverage", "profile_model_revision", "selection_model_revision")])
 
@@ -442,8 +442,8 @@ def setup_sheet():
                     help="A 10% limit needs at least ten assets. If the risk budget cannot be met, the build stops.")
     if market == "Demo":
         st.caption("The demo has six simulated assets. Its default holding limit is 20%, shown above; you can change it. At least 17% is needed.")
-    st.caption("One fixed method: first fit on 70% of the history, then test the remaining 30%. "
-               "Refit every 21 price rows with a 0.10% fee on each amount bought or sold.")
+    st.caption("One fixed method: fit on the first 70% of return observations, then buy once and hold through the remaining 30%. "
+               "The entry fee is 0.10% of the amount bought. There is no later rebalancing.")
     with st.expander("Data options  :gray[frequency, currency, market comparisons]"):
         if market == "Upload CSV":
             frequency = st.selectbox("Price frequency", list(FREQUENCIES), index=list(FREQUENCIES).index(setup["frequency"]), key="frequency")
@@ -485,7 +485,7 @@ def hero_work():
         context_line(story.context_setup_html(setup))
         st.html('<h1 class="pl-display pl-working">Build and check one candidate.</h1>')
         steps = st.empty()
-        labels = {2: "Load the selected prices", 3: "Prepare the risk budget", 4: "Fit one stock model, then replay the later test"}
+        labels = {2: "Load the selected prices", 3: "Prepare the risk budget", 4: "Fit one stock model, then replay buy and hold"}
         steps.info("Read the selected universe")
         progress_slot = st.container(key="work_progress")
         st.button("Cancel", key="cancel_build", type="tertiary", on_click=cancel_work)
@@ -548,12 +548,94 @@ def risk_reference():
     volatility = benchmark_prices.pct_change(fill_method=None).dropna().std() * math.sqrt(periods)
     st.caption("Reference from the saved input history: " + ", ".join(f"{name} {value:.1%}" for name, value in volatility.items())
                + " annual historical volatility from ordinary sample covariance. "
-               "These are observations over the full input history, not the later test or future limits.")
+               "These are observations over the full input history, not the replay or future limits.")
+
+
+def selection_fit_math(study):
+    settings = study.settings
+    with st.expander("How the portfolio is chosen"):
+        with st.container(key="math_fit"):
+            st.markdown("**Estimate returns and covariance**")
+            st.write("For each stock, use simple returns between consecutive adjusted prices. "
+                     "The fit contains m return observations. A is the number of observations per year.")
+            st.latex(r"r_{i,s}=\frac{p_{i,s}}{p_{i,s-1}}-1,\qquad "
+                     r"\bar r=\frac{1}{m}\sum_{s=1}^{m}r_s")
+            st.latex(r"\widehat\mu=A\bar r,\qquad "
+                     rf"A={settings['periods_per_year']:g}")
+            st.latex(r"\widehat\Sigma=\frac{A}{m-1}\sum_{s=1}^{m}"
+                     r"(r_s-\bar r)(r_s-\bar r)^{\mathsf T}")
+            st.caption("μ̂ contains annual arithmetic mean returns. Σ̂ is the annual sample covariance matrix. "
+                       "This app uses no covariance shrinkage.")
+            st.markdown("**Choose the highest fitted mean within your limits**")
+            st.latex(r"\begin{aligned}"
+                     r"w^*&=\underset{w}{\operatorname{arg\,max}}\;\widehat\mu^{\mathsf T}w\\[6pt]"
+                     r"\text{subject to}\quad&\mathbf 1^{\mathsf T}w=1,\\"
+                     r"&0\le w_i\le h,\\"
+                     r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
+                     r"\end{aligned}")
+            st.latex(rf"b={settings['target_volatility']:g}\;"
+                     rf"({settings['target_volatility']:.0%}),\qquad "
+                     rf"h={settings['max_weight']:g}\;({settings['max_weight']:.0%})".replace("%", r"\%"))
+            st.write("The weights w sum to one, with no short sales. h caps each initial holding. "
+                     "b caps estimated annual volatility when the allocation is chosen. "
+                     "After purchase, weights drift and realized volatility can exceed b. "
+                     "Neither limit triggers a trade.")
+            st.markdown("**An estimate and a replay answer different questions**")
+            st.write(f"The replay chooses its initial weights from the first {settings['train_fraction']:.0%} of return observations. "
+                     "The latest fit uses all supplied history, including the replay dates, and describes a separate starting allocation.")
+            st.latex(r"\widehat\mu_p=\widehat\mu^{\mathsf T}w,\qquad "
+                     r"\widehat\sigma_p=\sqrt{w^{\mathsf T}\widehat\Sigma w}")
+            st.caption("These fitted moments apply one fixed weight vector to each historical return observation, before fees. "
+                       "They are not the result of buying once and letting weights drift through that history. "
+                       "The optimizer maximizes fitted arithmetic mean, not CAGR or the Sharpe ratio.")
+
+
+def selection_replay_math(study):
+    settings = study.settings
+    fee = settings["cost_bps"] / 10_000
+    with st.expander("How buy-and-hold results are calculated"):
+        with st.container(key="math_replay"):
+            st.markdown("**One purchase, then no rebalancing**")
+            st.write(f"Fit once through {day(settings['initial_training_end'])}. "
+                     f"Buy at the next close, {day(settings['test_start'])}. "
+                     "The portfolio stays in cash until that purchase. "
+                     "There are no later refits, trades, volatility adjustments, or final liquidation.")
+            st.write("Let e be the entry close, wᵢ the initial stock weights, and pᵢ,ₜ the adjusted prices. "
+                     "Vstart is the starting cash and c is the fee per unit invested.")
+            st.latex(r"V_e=\frac{V_{\mathrm{start}}}{1+c},\qquad "
+                     rf"c={fee:g}\;({fee:.2%})".replace("%", r"\%"))
+            st.caption("The entry fee is c × Vₑ. It comes out of starting cash before the holdings begin to earn returns.")
+            st.latex(r"\begin{aligned}"
+                     r"g_{i,t}&=\frac{p_{i,t}}{p_{i,e}}\\[8pt]"
+                     r"V_t&=V_e\sum_i w_i g_{i,t}\quad(t\ge e)"
+                     r"\end{aligned}")
+            st.latex(r"a_{i,t}=\frac{w_i g_{i,t}}{\sum_j w_j g_{j,t}}")
+            st.write("gᵢ,ₜ is each stock’s growth factor since entry. aᵢ,ₜ is its actual portfolio weight. "
+                     "Faster-growing holdings gain weight without a new trade. "
+                     "The initial holding limit can therefore be exceeded later.")
+            st.caption("The calculation follows the supplied adjusted-price convention. "
+                       "For Yahoo prices, this includes split and dividend adjustments. "
+                       "It does not separately model cash dividends or literal share counts across corporate actions.")
+            st.markdown("**Measure the completed net-return path**")
+            st.write("The table uses N observed returns, including the entry-fee interval. "
+                     "The chart starts at Vstart. The entry interval has the fee but no stock return.")
+            st.latex(r"R_t=\frac{V_t}{V_{t-1}}-1,\qquad "
+                     r"\bar R=\frac{1}{N}\sum_{t=1}^{N}R_t")
+            st.latex(r"\mu_{\mathrm{realized}}=A\bar R,\qquad "
+                     rf"A={settings['periods_per_year']:g}")
+            st.latex(r"\sigma_{\mathrm{realized}}="
+                     r"\sqrt{\frac{A}{N-1}\sum_{t=1}^{N}(R_t-\bar R)^2}")
+            st.latex(r"\mathrm{CAGR}=\left(\frac{V_N}{V_{\mathrm{start}}}\right)^{A/N}-1")
+            st.latex(r"\mathrm{MDD}=\min_{0\le t\le N}"
+                     r"\left(\frac{V_t}{\max_{0\le s\le t}V_s}-1\right)")
+            st.caption("The annual mean scales the average one-period return. CAGR compounds the observed path. "
+                       "Maximum drawdown is the worst fall from a previous peak, including starting cash. "
+                       "The budget constrains fitted volatility, not this realized sample standard deviation.")
 
 
 def selection_period(study, title, benchmark_note):
     st.html(title_html(title))
-    st.write("The rule chooses each allocation using earlier prices, then earns subsequent returns. "
+    st.write("Choose the stock allocation once using earlier prices, buy once, then let the holdings drift. "
              "This path does not use the latest fitted weights.")
     verdict = selection_replay_verdict_html(study)
     if verdict:
@@ -588,13 +670,14 @@ def overview():
         frontier_data = calculate_frontier(selection, prices, SELECTION_MODEL_REVISION)
         st.html(selection_frontier_summary_html(selection, prices, frontier_data))
         st.plotly_chart(selection_frontier_chart(frontier_data, selection), width="stretch", theme=None, config=PLOTLY_CONFIG)
+        selection_fit_math(selection)
     names = story.company_names(st.session_state.get("coverage"))
     portfolio = selection.latest[selection.selected]
     with st.expander(f"Latest fitted holdings · fitted through {day(prices.index[-1])}", expanded=True):
         st.caption("These weights use all supplied prices, including the replay dates. "
-                   "The historical replay used earlier allocations.")
+                   "The historical replay bought a separate allocation once, before the later returns.")
         if not selection.supported:
-            st.warning("The later test of this rule did not meet the performance checks. It used earlier weights.")
+            st.warning("The buy-and-hold replay did not meet the performance checks. It used a separate initial allocation.")
         frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
         if names:
             frame.insert(1, "Company", frame.Symbol.map(names))
@@ -603,7 +686,8 @@ def overview():
             st.warning(note)
     st.html('<div id="pl-market"></div>')
     with st.container(border=True, key="tile_final_test"):
-        selection_period(selection.test, "Historical replay · earlier weights", selection_benchmark_note(selection))
+        selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection))
+        selection_replay_math(selection)
         st.html(story.result_drivers_html(selection.test, selection.selected))
         with st.expander("What drove the stock rule’s test result?"):
             st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
@@ -637,21 +721,23 @@ def data_method():
             "2. **Choose stock weights.** Maximize estimated average return within your volatility budget and holding limit. "
             "Keep the portfolio fully invested, with no borrowing or short sales. "
             "This does not maximize compound growth or the return-to-volatility ratio.\n"
-            "3. **Check the later history.** Use the first 70% for the first fit. "
-            "Refit every 21 price rows during the remaining 30%, with all prior prices.\n"
+            "3. **Buy once and hold.** Use the first 70% of return observations for one initial fit. "
+            "Buy once at the next close, then let those holdings drift through the remaining 30%. "
+            "There are no later refits or rebalances.\n"
             "4. **Fit the latest weights.** Apply the same model to all supplied history. "
-            "These weights differ from the older weights in the test."
+            "These weights describe a separate starting allocation. They do not produce the replay."
         )
-        st.caption("Every target uses prices through the prior close and trades at the next close. "
+        st.caption("The initial target uses prices through the prior close and trades at the next close. "
                    "The first test interval stays in cash with zero interest. "
-                   "The model charges 0.10% on each amount bought or sold, including entry. It assumes no final sale.")
+                   f"The model charges {selection.settings['cost_bps'] / 10_000:.2%} on the amount bought at entry. "
+                   "There are no later trades or fees, and no final sale.")
         st.caption(selection_benchmark_note(selection))
         st.caption("The fixed 2% risk-free rate affects Sharpe and Sortino metrics in the export only. "
                    "It does not change stock weights or pay interest on cash. "
                    "Taxes, currency conversion, liquidity, and future membership changes are excluded.")
     with st.expander("Historical performance checks"):
         st.html(selection_summary_html(selection, metadata))
-    with st.expander("Estimates at every fit"):
+    with st.expander("Initial and latest fitted estimates"):
         st.caption("Each row uses only prices available at its fit date and the saved target weights. "
                    "Both volatility estimates use ordinary sample covariance because this model has no covariance shrinkage. "
                    "Neither is the later realized volatility. The same table is exported as fit_estimates.csv.")
@@ -680,8 +766,8 @@ def data_method():
             st.download_button("Download prices.csv", csv_text(prices, index_label="Date"), "prices.csv", "text/csv")
         with st.expander("Source and settings"):
             st.dataframe(settings_frame({**metadata, **DEFAULT_TEST}), hide_index=True, width="stretch")
-    with st.expander("Exact test holdings, target weights, and trades"):
-        st.caption("These tables describe the historical-mean portfolio in the later test. "
+    with st.expander("Exact replay holdings, initial weights, and entry trade"):
+        st.caption("These tables describe the stock portfolio in the buy-and-hold replay. "
                    "The export also contains every comparison path and trade.")
         st.dataframe(study.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
                      column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}})
@@ -731,7 +817,7 @@ if st.session_state.get("pending_build"):
     hero_work()
 elif ready and not current_selection:
     st.info("This saved study uses a previous selection model. Your input prices are retained. "
-            "Rebuild to use the simpler model and its fixed assumptions.")
+            "Rebuild for buy and hold: one initial purchase, no later rebalancing. The previous results are hidden.")
     st.button("Set risk budget and rebuild", key="migrate_selection", on_click=open_setup)
 elif not ready:
     welcome_or_error()

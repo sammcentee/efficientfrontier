@@ -2,7 +2,7 @@
 
 A benchmark gives a reference for historical portfolio results. The app compares one historical-mean portfolio with equal-weight stocks, SPY, and QQQ in one later test. The result status describes that historical comparison. It does not establish future outperformance. Separate legacy CLI and API tools retain the statistical analysis below.
 
-Equal-weight stocks spread the money equally across eligible stocks at each scheduled trade. SPY and QQQ buy once and hold. All rows use the same test dates and trading-fee rate. They can have different total fees because they trade different amounts. None of the three references is scaled to the model's volatility budget.
+The stock model and all three references buy once and hold. Equal-weight stocks start with equal weights across initially eligible stocks, then let those weights drift. All rows use the same test dates, entry delay, and purchase fee rate. There are no later trades or terminal sales. None of the three references is scaled to the model's volatility budget.
 
 Read each row's return and realized volatility together. Higher return with lower volatility means that reference beat the portfolio rule in this test. These later outcomes do not measure whether the optimizer found the best portfolio under its earlier estimates. The fitted frontier, fit table, and `fit_estimates.csv` show the estimates separately from the later test. SPY and QQQ frontier markers use the same historical dates as the stock fit.
 
@@ -45,7 +45,7 @@ Both stock-universe loaders also need SPY and QQQ dates to check constituent his
 2. Enable **Compare with the S&P 500 and the Nasdaq-100**.
 3. Set **Price currency** to **USD** only when every asset price uses USD. Otherwise, select **Other currency**.
 4. Select **Build portfolio**.
-5. Read **Historical replay · earlier weights**, or press **2** when no text field has focus.
+5. Read **Historical replay · buy and hold**, or press **2** when no text field has focus.
 6. Open **Data & method**, or press **4**, for assumptions, coverage, and exact trades.
 
 For an offline CSV comparison, use **Market prices (optional)** to supply a separate benchmark file. Otherwise, the app reuses SPY/QQQ columns from the stock file. To download references when neither source is supplied, select **Download SPY and QQQ from Yahoo Finance for this file**.
@@ -76,13 +76,13 @@ Use `--target-volatility` for the app's stock model. Set a feasible holding limi
 
 ## The later test and its result status
 
-The app fits the model on the first 70% of return observations and tests it on the remaining 30%. It refits every 21 observations with all earlier returns. Each fit uses prices through the close before execution.
+The app fits the model once on the first 70% of return observations and tests it on the remaining 30%. It buys at the next close, then holds without rebalancing. The fit uses prices only through the preceding close.
 
-The test compares **Historical-mean portfolio**, **Equal-weight stocks**, **S&P 500 (SPY)**, and **Nasdaq-100 (QQQ)**. Equal-weight stocks restore equal targets across eligible stocks on the same schedule. The ETFs buy once and hold. The three reference paths have no volatility budget. All paths use the same dates and fee rate.
+The test compares **Stock portfolio · buy and hold**, **Equal-weight stocks**, **S&P 500 (SPY)**, and **Nasdaq-100 (QQQ)**. All paths keep their initial adjusted-price units. Their weights drift with prices. The three reference paths have no volatility budget. All paths use the same dates and fee rate.
 
 A pass requires both ETFs, at least one declared year of test returns, and model realized volatility within the budget. No reference can have higher net CAGR with equal or lower realized volatility. A tie or a lower-return, lower-risk result can pass. These checks do not establish a statistical advantage and do not change the model rule.
 
-Latest holdings use all supplied prices. They are a new fit of the same model, separate from the earlier test allocations. Current membership, complete-history requirements, and prior review of the test dates can bias the comparison.
+Latest holdings use all supplied prices, including the replay dates. They are a new fit of the same model, separate from the initial allocation held in the replay. Current membership, complete-history requirements, and prior review of the test dates can bias the comparison.
 
 ## Matching entry dates and costs
 
@@ -90,11 +90,11 @@ The comparison uses the same capital base and evaluation dates for each strategy
 
 | Evaluation | Passive benchmark accounting |
 | --- | --- |
-| App later test | Hold cash through the first test interval. Buy at its close with the same 10-basis-point fee rate as the model. |
+| App buy-and-hold replay | Hold cash through the first test interval. Buy at its close with the same 10-basis-point fee rate as the model. Hold without further trades. |
 | Legacy original holdout | Allocate at the final training close. Hold through the evaluation period without trade fees. |
 | Legacy four-method backtest | Hold cash through the first test interval. Buy at its close with the selected fee rate. |
 
-For the stock-model test and legacy backtests, initial capital is one. With `c = cost_bps / 10000`, entry leaves `1 / (1 + c)` invested in the benchmark. This is a self-financing purchase: the fee comes from the same initial capital. The benchmark then follows adjusted-price growth without further trades. No final sale occurs.
+For the stock-model test and legacy backtests, initial capital is one. With `c = cost_bps / 10000`, entry leaves `1 / (1 + c)` invested in the benchmark. This is a self-financing purchase: the fee comes from the same initial capital. The benchmark then follows adjusted-price growth without further trades. No final sale occurs. The app applies the same accounting to its stock model and equal-weight reference.
 
 The selected trading fee is separate from fund expenses already reflected in ETF prices. The app does not subtract the ETF expense ratio again. These calculations exclude taxes, currency conversion, and a separate market-impact model.
 
@@ -107,9 +107,9 @@ In the app, select **Export**, or press **E** when no text field has focus. The 
 | `benchmark_prices.csv` | Benchmark prices on every asset date, when present |
 | `test/metrics.csv` | Performance of the model and all available references |
 | `test/equity.csv` | Corresponding paths through the later test |
-| `test/NN_allocations.csv` | Each path's target weights |
+| `test/NN_allocations.csv` | Each path's initial target weights |
 | `test/NN_holdings.csv` | Each path's asset exposure and profit contributions |
-| `test/NN_trades.csv` | Each path's trade dates, turnover, and fees |
+| `test/NN_trades.csv` | Each path's initial purchase date, turnover, and entry fee |
 | `metadata.json` | Settings, model revision, sources, test reasons, and numbered file map |
 
 The report also retains exact stock prices, latest fitted weights, and eligibility records. See the [complete app export list](BACKTESTING.md#app-exports). The statistical files below belong to the separate legacy tools.

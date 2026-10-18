@@ -599,6 +599,9 @@ def test_risk_target_cli_exports_complete_offline_inputs_and_reproduces(tmp_path
     assert metadata["settings"]["target_volatility"] == .20
     assert metadata["settings"]["max_weight"] == .5
     assert metadata["settings"]["shrinkage"] == (0 if shrinkage is None else shrinkage)
+    assert metadata["settings"]["holding_policy"] == "buy_and_hold"
+    assert "rebalance_every" not in metadata["settings"]
+    assert "--rebalance-every" not in metadata["reproduce_command"]
     assert metadata["selected"] == "Historical-mean portfolio"
     assert not (output / "latest_profile_weights.csv").exists()
     pd.testing.assert_frame_equal(pd.read_csv(output / "prices.csv", index_col=0, parse_dates=True), prices, check_freq=False)
@@ -608,6 +611,10 @@ def test_risk_target_cli_exports_complete_offline_inputs_and_reproduces(tmp_path
     assert not (output / "validation").exists()
     assert {key.split("/")[0] for key in metadata["result_files"]} == {"test"}
     assert len(metadata["result_files"]) == 4
+    metrics = pd.read_csv(output / "test/metrics.csv", index_col=0)
+    assert metrics.trade_count.eq(1).all() and metrics.rebalance_count.eq(0).all()
+    for stem in metadata["result_files"]:
+        assert len(pd.read_csv(output / f"{stem}_trades.csv")) == 1
     command = shlex.split(metadata["reproduce_command"])
     monkeypatch.setattr(sys, "argv", ["efficient_frontier", *command[3:]])
     assert cli.main() == 0
@@ -744,6 +751,7 @@ def test_risk_target_default_cap_is_not_silently_relaxed_for_demo(tmp_path, monk
     (["--target-volatility", ".2", "--historical-demo"], "Historical membership is a separate study"),
     (["--sp500-nasdaq100"], "requires --target-volatility"),
     (["--target-volatility", ".2", "--rolling-window", "20"], "omit --rolling-window"),
+    (["--target-volatility", ".2", "--rebalance-every", "21"], "omit --rebalance-every"),
 ])
 def test_risk_target_rejects_incompatible_modes_before_download(tmp_path, monkeypatch, capsys, flags, message):
     from efficient_frontier import __main__ as cli

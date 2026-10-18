@@ -45,26 +45,28 @@ The app fixes these assumptions:
 | Assumption | Value |
 | --- | --- |
 | Initial training / later test | First 70% / final 30% of return observations |
-| Refit schedule | Every 21 observations, using all earlier returns |
+| Holding rule | Fit once on the initial sample, buy once, then let weights drift |
 | Execution | Close after the last price used in the fit |
-| Trading fees | 0.10% of each amount bought or sold |
+| Trading fees | 0.10% of the initial purchase. No later trades or terminal sale |
 | Covariance | Ordinary sample covariance, without shrinkage |
 
-The first test interval stays in cash at zero interest. The model omits taxes, currency conversion, and market impact. The [method reference](docs/BACKTESTING.md#portfolio-model) gives the equations and accounting.
+The first test interval stays in cash at zero interest. All replay paths then buy once and hold. The model omits taxes, currency conversion, and market impact. The [method reference](docs/BACKTESTING.md#portfolio-model) gives the equations and accounting.
 
 ## Read the results
 
-**The latest fit includes the replay dates. The replay did not use the latest holdings.** The fit chooses one allocation using all supplied history. The replay follows successive earlier allocations, each fitted before its subsequent returns were known. The two panels use different dates, weights, and fee treatment.
+**The latest fit includes the replay dates. The replay did not use the latest holdings.** The fit chooses one allocation using all supplied history. The replay buys one allocation from the initial training sample, then holds it through the later prices without rebalancing. The two panels use different dates, weights, and fee treatment.
 
 | Result | Meaning |
 | --- | --- |
 | Fitted annual mean | Average return from a fit's history, using its target weights, before fees |
 | Fitted volatility | Sample volatility from the fit's dates and target weights; the budget applies to this estimate |
 | Fitted frontier | Best estimated stock returns across risk levels, with SPY/QQQ as separate reference points |
-| Historical replay | Net historical performance from successive earlier fits |
+| Historical replay | Net performance of the initial allocation, bought once and held through later prices |
 | Latest holdings | A new fit using all supplied history; these weights did not produce the earlier test |
 
-Equal-weight stocks rebalance on the same schedule. SPY and QQQ buy once and hold. Within the replay, all comparisons use the same dates and fee rate, but their risks can differ. A benchmark with higher mean return and lower volatility beat the stock rule in that replay, even if the latest fitted portfolio sits above it on the fitted frontier chart.
+Equal-weight stocks, SPY, and QQQ also buy once and hold. The equal-weight reference starts with equal weights but lets them drift. Within the replay, all comparisons use the same dates and fee rate, but their risks can differ. A benchmark with higher mean return and lower volatility beat the stock rule in that replay, even if the latest fitted portfolio sits above it on the fitted frontier chart.
+
+The app includes expandable mathematical explanations for the optimizer, volatility budget, buy-and-hold accounting, and performance metrics. Fitted moments describe the starting weights. They do not describe a historical buy-and-hold path.
 
 The test status describes coverage, realized risk, and comparison results. It is not proof of future outperformance. Current member lists and complete-history requirements favor survivors. Prior review of the test dates also limits their value as new evidence.
 

@@ -134,6 +134,15 @@ APP_ONLY_CSS = """
 [data-testid="stExpander"] summary span:has(>[data-testid="stIconMaterial"]){display:grid;place-items:center;flex:none;width:28px;height:28px;
  border-radius:50%;background:var(--pl-fill)}
 [data-testid="stExpanderDetails"]{padding:0 0 16px;color:var(--pl-ink-2)}
+/* Mathematical definitions use Streamlit's local KaTeX renderer. */
+[class*="st-key-math_"]{gap:18px;padding-top:8px;max-width:780px;margin-inline:auto}
+[class*="st-key-math_"] [data-testid="stMarkdownContainer"] p{font-size:15px;line-height:1.65}
+[class*="st-key-math_"] [data-testid="stMarkdownContainer"] strong{font-size:16px;color:var(--pl-ink)}
+[class*="st-key-math_"] [data-testid="stMarkdownContainer"]:has(.katex-display){background:var(--pl-canvas);border-radius:14px;
+ padding:18px 20px;overflow-x:auto;max-width:100%;color:var(--pl-ink)}
+[class*="st-key-math_"] .katex-display{margin:0;padding:4px 0}
+[class*="st-key-math_"] .katex{font-size:1.15em;letter-spacing:normal}
+[class*="st-key-math_"] [data-testid="stCaptionContainer"] p{font-size:13px;line-height:1.6;color:var(--pl-ink-3)}
 
 /* 8 Buttons, inputs, alerts, tables, captions */
 button[data-testid="stBaseButton-primary"]{background:var(--pl-ink);border-color:var(--pl-ink)}
@@ -203,6 +212,9 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
  [data-testid="stDialog"] [role="dialog"]{border-radius:24px 24px 0 0}
  [data-testid="stExpander"] summary .stMarkdownColoredText{display:block;margin:2px 0 0;font-size:13px;line-height:18px}
  .st-key-tile_r_classic .textpoint{display:none}
+ [class*="st-key-math_"]{gap:14px}
+ [class*="st-key-math_"] [data-testid="stMarkdownContainer"]:has(.katex-display){padding:14px 10px;border-radius:10px}
+ [class*="st-key-math_"] .katex{font-size:1em}
 }
 """
 

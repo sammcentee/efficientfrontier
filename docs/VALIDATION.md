@@ -1,5 +1,15 @@
 # Validation record
 
+## Buy-and-hold replay and rendered mathematics: 18 October 2026
+
+**859 tests passed** with Python 3.14 and one existing pandas invalid-date warning. After the browser check found joined LaTeX commands, the formatting correction passed all 40 app tests. All 14 displayed equations also passed the bundled KaTeX parser with strict errors enabled. Dependency and whitespace checks passed, and the stock-model CLI produced its offline report.
+
+The stock model and equal-weight reference now make one initial purchase and hold. Their weights drift with prices. Every replay path records one trade, zero rebalances, one entry fee, and no terminal sale. The initial fit and latest full-history fit remain separate. The model revision hides old rebalanced results until the user rebuilds. The CLI rejects a rebalance interval for the stock model and retains it for legacy backtests.
+
+An independent calculation checked 24 paths across fee rates of 0, 10, and 9,999 basis points and annualization factors of 12 and 252. Values matched the fixed-unit buy-and-hold formula within `4.44e-16` initial-capital units. Independently calculated arithmetic mean, sample volatility, CAGR, and drawdown matched within `1e-12`. Regression tests also cover initial target constraints, drift beyond the holding cap, prior-price information, benchmark parity, and exact export reproduction.
+
+Headless Chromium verified both collapsed mathematical explanations, all 14 rendered equations, data navigation, and the exported report at 1440- and 390-pixel widths. No raw LaTeX commands, parser errors, clipped formulas, document overflow, or page errors remained. Exported demo paths each contained one trade. The offline report retained both charts. T3's native browser sandbox was unavailable, so checks used a separate background browser. The user's server remained running. The screenshot's market study was not rebuilt, and physical devices were not tested.
+
 ## Latest fit and historical replay distinction: 18 October 2026
 
 **857 tests passed** with Python 3.14. The existing pandas invalid-date warning remains. The app and report now compare the latest full-history allocation with the replay of earlier allocations before showing the frontier. Labels state that the latest fit includes the replay dates. A replay callout identifies mean/volatility dominance independently of the existing CAGR-based performance checks.

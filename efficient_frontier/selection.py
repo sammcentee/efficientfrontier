@@ -1,4 +1,4 @@
-"""One historical-mean stock portfolio with a later chronological replay."""
+"""One historical-mean stock portfolio with a later buy-and-hold replay."""
 
 from dataclasses import dataclass
 
@@ -13,7 +13,7 @@ from .metrics import performance_metrics, validate_periods_per_year
 
 SELECTED = "Historical-mean portfolio"
 BASELINE = "Equal-weight stocks"
-MODEL_REVISION = "stock_mean_v2"
+MODEL_REVISION = "stock_mean_buy_hold_v3"
 BENCHMARK_NAMES = {"SPY": "S&P 500 (SPY)", "QQQ": "Nasdaq-100 (QQQ)"}
 STALE_INTERVALS = 20
 
@@ -106,12 +106,12 @@ def selection_fit_estimates(study: SelectionStudy, prices: pd.DataFrame) -> pd.D
     """
     allocations = study.test.allocations[SELECTED]
     trades = study.test.trades[SELECTED]
+    execution = allocations.index[0]
     targets = [
         (pd.Timestamp(trades.loc[execution, "train_end"]), execution,
-         "First historical fit" if number == 0 else "Historical refit", weights)
-        for number, (execution, weights) in enumerate(allocations.iterrows())
+         "First historical fit", allocations.iloc[0]),
+        (prices.index[-1], pd.NaT, "Latest fit", study.latest[study.selected].weights),
     ]
-    targets.append((prices.index[-1], pd.NaT, "Latest fit", study.latest[study.selected].weights))
     periods = study.settings["periods_per_year"]
     shrinkage = study.settings["shrinkage"]
     rows = []
@@ -239,11 +239,10 @@ def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_y
     return selected, equal, full_mean, full_covariance, coverage, warnings
 
 
-def _simulate(prices, benchmark_prices, start, end, fit, settings):
-    """Replay the stock rule and comparators with the same execution and cost rules."""
+def _simulate(prices, benchmark_prices, start, end, initial_fit, settings):
+    """Buy each allocation once at the next close, then let its weights drift."""
     dates = prices.index
-    executions = list(range(start + 1, end, settings["rebalance_every"]))
-    schedules = {i: fit(i - 1) for i in executions}
+    execution = start + 1
     specifications = [(SELECTED, prices, 0), (BASELINE, prices, 1)]
     if benchmark_prices is not None:
         for symbol in benchmark_prices:
@@ -259,7 +258,6 @@ def _simulate(prices, benchmark_prices, start, end, fit, settings):
         exposure = np.zeros(len(labels) + 1)
         maximum_weight = np.zeros(len(labels) + 1)
         path, target_rows, trade_rows, trade_dates = [nav], [], [], []
-        trade_at = executions if target_index is not None else executions[:1]
         for i in range(start + 1, end + 1):
             exposure += np.r_[positions, cash] / nav
             profit = positions * daily[i - 1]
@@ -267,19 +265,8 @@ def _simulate(prices, benchmark_prices, start, end, fit, settings):
             positions += profit
             nav = float(positions.sum() + cash)
             maximum_weight = np.maximum(maximum_weight, np.r_[positions, cash] / nav)
-            if i in trade_at:
-                if target_index is not None:
-                    coverage = schedules[i][-2]
-                    excluded = ~coverage.eligible.to_numpy()
-                    if np.any((positions > 1e-8 * nav) & excluded):
-                        affected = ", ".join(labels[(positions > 1e-8 * nav) & excluded])
-                        raise ValueError(
-                            f"{dates[i].date()}: held stocks {affected} triggered the long unchanged-price screen. "
-                            "A sale at the repeated quote is not verified. Supply verified prices before continuing."
-                        )
-                    target = schedules[i][target_index].to_numpy()
-                else:
-                    target = np.ones(1)
+            if i == execution:
+                target = initial_fit[target_index].to_numpy() if target_index is not None else np.ones(1)
                 before = nav
                 after = _after_cost(before, positions, target, settings["cost_bps"] / 10_000)
                 traded = float(np.abs(after * target - positions).sum())
@@ -308,12 +295,12 @@ def _simulate(prices, benchmark_prices, start, end, fit, settings):
             "strategy": name, **performance_metrics(values, settings["risk_free_rate"], settings["periods_per_year"]),
             "annual_mean": float(values.pct_change(fill_method=None).iloc[1:].mean() * settings["periods_per_year"]),
             "total_turnover": float(trades[name].turnover.sum()), "total_cost": float(trades[name].cost.sum()),
-            "rebalance_count": len(trades[name]), "fallback_count": 0,
+            "trade_count": len(trades[name]), "rebalance_count": 0, "fallback_count": 0,
         })
     return BacktestStudy(
         pd.DataFrame(equity, index=dates[start:end + 1]), pd.DataFrame(metrics).set_index("strategy"),
         allocations, holdings, trades,
-        list(dict.fromkeys(message for result in schedules.values() for message in result[-1])), {
+        list(initial_fit[-1]), {
             **settings, "split": start, "train_start": str(dates[1].date()),
             "train_end": str(dates[start].date()), "test_start": str(dates[start + 1].date()),
             "test_end": str(dates[end].date()), "initial_execution": str(dates[start + 1].date()),
@@ -327,17 +314,17 @@ def run_selection(
     target_volatility: float = 0.2,
     max_weight: float = 0.1,
     train_fraction: float = 0.7,
-    rebalance_every: int = 21,
     cost_bps: float = 10.0,
     shrinkage: float = 0.0,
     periods_per_year: float = TRADING_DAYS,
     risk_free_rate: float = 0.02,
 ) -> SelectionStudy:
-    """Fit one historical-mean rule and replay it on later dates.
+    """Fit one historical-mean allocation and hold it through the later dates.
 
-    Every fit uses prior closes. The first interval is zero-interest cash and
-    execution occurs at the next close. Each scheduled fit expands the history.
-    Equal-weight stocks and raw SPY/QQQ funds provide comparison paths.
+    The initial fit uses prior closes. The first interval is zero-interest cash
+    and execution occurs at the next close. No allocation trades again.
+    Equal-weight stocks and raw SPY/QQQ funds use the same buy-and-hold policy.
+    The separate latest fit uses all prices and does not alter the replay.
 
     The volatility target constrains estimated risk, not realized losses or risk.
     This historical replay is not a claim of prospective validation.
@@ -361,8 +348,6 @@ def run_selection(
         raise ValueError("risk_free_rate must be finite.")
     if not np.isfinite(cost_bps) or not 0 <= cost_bps < 10_000:
         raise ValueError("cost_bps must be finite, nonnegative and less than 10000.")
-    if isinstance(rebalance_every, (bool, np.bool_)) or not isinstance(rebalance_every, (int, np.integer)) or rebalance_every < 1:
-        raise ValueError("rebalance_every must be a positive integer.")
     if benchmark_prices is not None:
         benchmark_prices = validate_selection_benchmarks(benchmark_prices, prices.index)
     count = len(prices) - 1
@@ -373,7 +358,7 @@ def run_selection(
         "model_revision": MODEL_REVISION,
         "target_volatility": float(target_volatility), "risk_target": float(target_volatility),
         "max_weight": float(max_weight), "train_fraction": float(train_fraction),
-        "rebalance_every": int(rebalance_every), "cost_bps": float(cost_bps),
+        "holding_policy": "buy_and_hold", "cost_bps": float(cost_bps),
         "shrinkage": float(shrinkage), "periods_per_year": periods_per_year,
         "risk_free_rate": float(risk_free_rate), "cash_interest_rate": 0.0,
         "model_objective": "Maximum historical arithmetic mean return within the position cap and estimated volatility ceiling.",
@@ -387,19 +372,13 @@ def run_selection(
         "execution": "Prior-close information; execute at the following close; first interval in zero-interest cash.",
         "cost_convention": "Basis points per absolute dollar bought or sold; cash transfers excluded; no final liquidation.",
         "risk_constraint": "Annual estimated stock volatility ceiling; realized volatility can exceed the target.",
-        "baseline": "Equal weights across eligible stocks, reset on the same schedule without a volatility constraint.",
+        "baseline": "Buy equal weights across initially eligible stocks once, without a volatility constraint, then let weights drift.",
         "comparisons": "Equal-weight stocks and raw SPY/QQQ buy-and-hold funds. Each uses the same initial delay and trading costs.",
         "screen": f"Exclude stocks with at least {STALE_INTERVALS} consecutive unchanged price intervals in past fit data only.",
-        "test_role": "Later historical replay with expanding past-data fits. The researcher can already know these dates.",
+        "test_role": "Later buy-and-hold replay of the initial past-data fit, without rebalancing. The researcher can already know these dates.",
     }
-    fits = {}
-
-    def fit(end):
-        if end not in fits:
-            fits[end] = _fit_targets(prices.iloc[:end + 1], target_volatility, max_weight, shrinkage, periods_per_year)
-        return fits[end]
-
-    test = _simulate(prices, benchmark_prices, initial_end, count, fit, settings)
+    initial_fit = _fit_targets(prices.iloc[:initial_end + 1], target_volatility, max_weight, shrinkage, periods_per_year)
+    test = _simulate(prices, benchmark_prices, initial_end, count, initial_fit, settings)
     reasons = []
     missing_markets = [symbol for symbol in BENCHMARK_NAMES if benchmark_prices is None or symbol not in benchmark_prices]
     if missing_markets:
@@ -416,17 +395,18 @@ def run_selection(
         comparator = test.metrics.loc[name]
         if comparator.cagr > candidate.cagr + 1e-10 and comparator.volatility <= candidate.volatility + 1e-10:
             reasons.append(f"{name} had higher compound growth and no more realized volatility in the later test.")
-    weights, _, mean, covariance, _, _ = fit(count)
+    latest_fit = _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_year)
+    weights, _, mean, covariance, _, _ = latest_fit
     expected = float(mean @ weights)
     volatility = float(np.sqrt(max(weights @ covariance @ weights, 0)))
     latest = {SELECTED: Portfolio(
         SELECTED, weights.rename(SELECTED), expected, volatility,
         (expected - risk_free_rate) / volatility if volatility > 1e-12 else float("nan"),
     )}
-    warnings = list(dict.fromkeys(message for result in fits.values() for message in result[-1]))
+    warnings = list(dict.fromkeys(message for result in (initial_fit, latest_fit) for message in result[-1]))
     warnings.append("Historical means and estimated volatility can change. A passed historical check does not guarantee future outperformance.")
-    eligibility = pd.concat([result[-2] for _, result in sorted(fits.items())], ignore_index=True)
-    settings.update({"fit_dates": [str(prices.index[end].date()) for end in sorted(fits)],
+    eligibility = pd.concat([result[-2] for result in (initial_fit, latest_fit)], ignore_index=True)
+    settings.update({"fit_dates": [str(prices.index[end].date()) for end in (initial_end, count)],
                      "latest_as_of": str(prices.index[-1].date())})
     test.settings.update(settings)
     return SelectionStudy(test, latest, SELECTED, not reasons, reasons, settings, warnings, benchmark_prices, eligibility)

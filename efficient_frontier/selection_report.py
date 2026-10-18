@@ -30,9 +30,9 @@ FIT_METRIC_LABELS = {
     "historical_volatility": "Historical volatility",
 }
 LATEST_LABEL = "Latest stock allocation"
-REPLAY_LABEL = "Stock rule · earlier allocations"
+REPLAY_LABEL = "Stock portfolio · buy and hold"
 HISTORY_NOTE = (
-    "The same model rule applies throughout the later test. Historical data reviewed earlier can introduce research hindsight. "
+    "The replay buys the initial allocation once and holds it. Historical data reviewed earlier can introduce research hindsight. "
     "A chronological split alone is not fresh prospective evidence. These descriptive checks do not prove future outperformance."
 )
 
@@ -84,7 +84,7 @@ def selection_frontier_chart(frontier_data, study):
 
 
 def selection_comparison_html(study, prices: pd.DataFrame) -> str:
-    """Contrast the latest allocation with the replay of earlier decisions."""
+    """Contrast the latest allocation with the initial buy-and-hold allocation."""
     latest = study.latest[study.selected]
     replay = study.test
     result = replay.metrics.loc[study.selected]
@@ -97,13 +97,13 @@ def selection_comparison_html(study, prices: pd.DataFrame) -> str:
         f'<p class="pl-fit-dates">{prices.index[1].date()} to {prices.index[-1].date()}</p>'
         f'<dl><dt>Annual arithmetic mean · before fees</dt><dd>{latest.expected_return:.2%}</dd>'
         f'<dt>Fitted model volatility</dt><dd>{latest.volatility:.2%}</dd></dl>'
-        '<p>One allocation chosen using the full history. Its target weights apply to every historical daily return.</p>'
-        '</article><article><h3>Historical replay · earlier weights</h3>'
+        '<p>One allocation chosen using the full history. These fixed-weight return estimates describe its starting risk and return, not a buy-and-hold path.</p>'
+        '</article><article><h3>Historical replay · buy and hold</h3>'
         f'<p class="pl-fit-dates">{replay.equity.index[1].date()} to {replay.equity.index[-1].date()}</p>'
         f'<dl><dt>Annual arithmetic mean · after fees</dt><dd>{result.annual_mean:.2%}</dd>'
         f'<dt>Realized volatility</dt><dd>{result.volatility:.2%}</dd></dl>'
-        f'<p>Earlier allocations, refitted every {study.settings["rebalance_every"]:g} observations using prior prices. '
-        'Weights drift between trades. Trading fees apply.</p></article></div>'
+        '<p>One initial allocation chosen before the replay. Buy once, pay the entry fee, then hold. '
+        'Weights drift with prices; there are no later rebalances.</p></article></div>'
         '<p>Different dates, allocations, and fee treatment. A high fitted mean does not establish that the rule beats the benchmarks.</p>'
     )
 
@@ -153,7 +153,8 @@ def selection_frontier_summary_html(study, prices: pd.DataFrame, frontier_data) 
         'This is an in-sample optimum, not a historical trading result.</p>'
         '<p>The line shows the highest fitted mean available at each volatility among the eligible stocks, '
         f'with no short selling and at most {study.settings["max_weight"]:.0%} in one stock. '
-        'The selected point maximizes that mean within the volatility budget.</p>'
+        'The selected point maximizes that mean within the volatility budget. '
+        'These limits apply to the starting allocation; buy-and-hold weights and realized risk can later exceed them.</p>'
         f'<p>{risk_note}</p><div class="scroll">{_percent_table(display)}</div>'
         '<p>SPY and QQQ use the same fit dates. They are not portfolio candidates and do not follow the stock holding limit. '
         'None of the ETF positions is scaled to match the selected volatility.</p>'
@@ -210,7 +211,7 @@ def selection_fit_summary_html(study, prices: pd.DataFrame) -> str:
         '<p>The model maximizes the fitted arithmetic mean within the model volatility budget and holding limit. '
         'It does not maximize the return-to-volatility ratio or CAGR.</p>'
         f'<p>{risk_note}</p>'
-        '<p>The first fit starts the historical test. Later refits update its weights. '
+        '<p>The initial fit supplies the only purchase in the historical replay. The holdings then drift with prices. '
         'The latest weights did not produce the earlier test results.</p>'
     )
 
@@ -218,9 +219,9 @@ def selection_fit_summary_html(study, prices: pd.DataFrame) -> str:
 def selection_benchmark_note(study) -> str:
     """Define comparison holdings and their different risk levels."""
     return (
-        'Equal-weight stocks divides money equally across eligible stocks and resets those weights '
-        f'every {study.settings["rebalance_every"]:g} observations. '
-        'SPY tracks the S&P 500. QQQ tracks the Nasdaq-100. The two ETFs buy once and hold. '
+        'Equal-weight stocks divides money equally across eligible stocks at entry, then lets the weights drift. '
+        'SPY tracks the S&P 500. QQQ tracks the Nasdaq-100. All four paths buy once and hold, '
+        'with the same entry delay and fee rate. '
         'Each reference has its own volatility. None is scaled to the model volatility budget.'
     )
 
@@ -266,8 +267,8 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict, *, fronti
         full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG,
     )
     test_section = (
-        '<section id="test"><h2>Historical replay · earlier weights</h2>'
-        '<p>The rule chooses each allocation using earlier prices, then earns subsequent returns. '
+        '<section id="test"><h2>Historical replay · buy and hold</h2>'
+        '<p>The rule chooses one initial allocation using earlier prices, then holds it through the replay. '
         'This path does not use the latest fitted weights.</p>'
         f'{selection_replay_verdict_html(result)}'
         f'<p>Baseline: {result.equity.index[0].date()}. '
@@ -289,7 +290,7 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict, *, fronti
         "observations": "Return observations", "max_weight": "Largest holding",
     }).rename_axis("Fit through")
     latest = (
-        '<p>These weights fit all supplied history through the final price date. The later test used earlier fitted weights. '
+        '<p>These weights fit all supplied history through the final price date. The replay bought a separate initial allocation once. '
         'Latest fitted means are annual arithmetic estimates, not realized CAGR or forecasts.</p>'
         '<p>All stocks are shown, largest weight first. Displayed weights are rounded; '
         'latest_weights.csv preserves every weight at full precision.</p>'
@@ -321,15 +322,15 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict, *, fronti
 <details id="selection-decision"><summary>Historical performance checks</summary>{selection_summary_html(study, metadata)}</details>
 <details id="fit-estimates"><summary>First and latest fitted estimates</summary>{selection_fit_summary_html(study, prices)}</details>
 <p>The model maximizes historical arithmetic mean return under a fitted volatility budget and a per-stock holding limit.
-Stock weights are long-only and sum to one. Each scheduled refit uses all available earlier returns.</p>
+Stock weights are long-only and sum to one at entry. There are no later rebalances.</p>
 <p>Initial training share: {study.settings['train_fraction']:.0%}.
-Refit every {study.settings['rebalance_every']} observations.
+Holding policy: buy once and hold.
 Fee rate: {study.settings['cost_bps']:g} basis points ({study.settings['cost_bps'] / 10000:.2%}) per amount bought or sold.
 Covariance shrinkage: {study.settings['shrinkage']:.0%}.
 Annualization: {study.settings['periods_per_year']:g} observations per year.</p>
-<p>Each allocation uses prices through the close before execution. The first evaluation interval stays in cash.
-Trading costs apply to securities bought or sold, including entry, with no terminal sale. Cash earns zero interest.
-Equal-weight stocks use the same refit schedule. SPY and QQQ buy once and hold.
+<p>The initial allocation uses prices through the close before entry. The first evaluation interval stays in cash.
+The entry fee applies to the amount invested. There are no later trades or terminal sale. Cash earns zero interest.
+Equal-weight stocks, SPY, and QQQ also buy once and hold. Position weights drift after entry.
 Taxes, currency conversion, liquidity, and future membership changes are not modeled.</p>
 <p>Past-only eligibility checks can exclude long unchanged-price runs at a fit. eligibility.csv records each decision.
 The original input prices and excluded asset columns remain in the export.</p>
