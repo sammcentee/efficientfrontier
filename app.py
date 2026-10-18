@@ -553,7 +553,7 @@ def risk_reference():
 
 def selection_fit_math(study):
     settings = study.settings
-    with st.expander("How the portfolio is chosen"):
+    with st.expander("Mathematics · portfolio selection", expanded=True):
         with st.container(key="math_fit"):
             st.markdown("**Estimate returns and covariance**")
             st.write("For each stock, use simple returns between consecutive adjusted prices. "
@@ -593,7 +593,7 @@ def selection_fit_math(study):
 def selection_replay_math(study):
     settings = study.settings
     fee = settings["cost_bps"] / 10_000
-    with st.expander("How buy-and-hold results are calculated"):
+    with st.expander("Mathematics · buy-and-hold returns", expanded=True):
         with st.container(key="math_replay"):
             st.markdown("**One purchase, then no rebalancing**")
             st.write(f"Fit once through {day(settings['initial_training_end'])}. "
@@ -660,6 +660,8 @@ def overview():
         st.html(f'<h1 class="pl-display">{metadata["target_volatility"]:.0%} annual volatility budget.</h1>')
         st.html(stat_strip(((f"{metadata['target_volatility']:.0%}", "Annual volatility budget", "Fitted ceiling"),
                             (f"{metadata['max_weight']:.0%}", "Holding limit", "Maximum target weight"))))
+        st.button("View mathematics", key="open_mathematics", on_click=jump,
+                  args=("Data & method", "pl-mathematics"))
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
         if metadata.get("candidate_note"):
@@ -735,6 +737,9 @@ def data_method():
         st.caption("The fixed 2% risk-free rate affects Sharpe and Sortino metrics in the export only. "
                    "It does not change stock weights or pay interest on cash. "
                    "Taxes, currency conversion, liquidity, and future membership changes are excluded.")
+    st.html('<div id="pl-mathematics"></div>')
+    selection_fit_math(selection)
+    selection_replay_math(selection)
     with st.expander("Historical performance checks"):
         st.html(selection_summary_html(selection, metadata))
     with st.expander("Initial and latest fitted estimates"):
