@@ -19,6 +19,7 @@ from efficient_frontier.style import APP_CSS, PLOTLY_CONFIG
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
 from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates, selection_frontier, split_stock_prices, validate_selection_benchmarks
 from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, selection_replay_findings_html, REPLAY_LABEL
+from efficient_frontier.selection_report import selection_replay_dominance, selection_replay_return_bridge
 
 
 st.set_page_config(page_title="Efficient Frontier Analysis for US Equities", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
@@ -542,7 +543,8 @@ def welcome_or_error():
     error = st.session_state.get("build_error")
     if error is None:
         with st.container(key="landing"):
-            st.html('<h1 class="pl-display">Efficient Frontier Analysis for US Equities</h1>')
+            st.html('<h1 class="pl-display">Efficient Frontier Analysis for US Equities'
+                    '<span class="pl-method-title">Constrained Mean–Variance Optimization</span></h1>')
             mathematics, controls = st.columns([2.2, 1], gap="large")
             with mathematics:
                 welcome_mathematics(setup)
@@ -685,6 +687,111 @@ def selection_replay_math(study):
                    "The budget constrains fitted volatility, not this realized sample standard deviation.")
 
 
+def selection_replay_explanation(study, prices):
+    comparisons = selection_replay_dominance(study.test)
+    portfolio = comparisons.loc[study.selected]
+    bridge = selection_replay_return_bridge(study, prices)
+
+    def points(value):
+        if value == 0:
+            return "0"
+        scaled = 100 * value
+        if abs(scaled) >= 0.005:
+            return f"{scaled:+.2f}"
+        mantissa, exponent = f"{scaled:+.2e}".split("e")
+        return rf"{mantissa}\times10^{{{int(exponent)}}}"
+
+    with st.container(key="math_diagnosis"):
+        st.markdown("### What the replay proves")
+        st.write("The chart compares compound wealth. The efficient frontier compares arithmetic mean and volatility. "
+                 "Use the same return measure on both sides before calling a result dominated.")
+        st.latex(r"\begin{aligned}G_X&=\prod_{t=1}^{N}(1+R_{X,t})-1\\[6pt]"
+                 r"\mu_X&=\frac{A}{N}\sum_{t=1}^{N}R_{X,t}\\[6pt]"
+                 r"\sigma_X^2&=\frac{A}{N-1}\sum_{t=1}^{N}(R_{X,t}-\mu_X/A)^2\end{aligned}")
+        st.markdown(r"$\boldsymbol{X}:$ a portfolio or reference; $\boldsymbol{R_{X,t}}:$ its net return in interval "
+                    r"$\boldsymbol{t}$; $\boldsymbol{N}:$ replay intervals, including entry; "
+                    rf"$\boldsymbol{{A={study.settings['periods_per_year']:g}}}:$ observations per year. "
+                    r"$\boldsymbol{G}:$ total return; $\boldsymbol{\mu}:$ annual arithmetic mean; "
+                    r"$\boldsymbol{\sigma}:$ annual sample volatility. Below, "
+                    r"$\boldsymbol{P}$ is the stock portfolio and $\boldsymbol{B}$ is each reference.")
+        labels = {"reference_dominates": "Reference dominates the stock portfolio.",
+                  "portfolio_dominates": "Stock portfolio dominates this reference.",
+                  "equal": "Equal observed mean and volatility.",
+                  "tradeoff": "Higher mean comes with higher volatility. Neither dominates."}
+        for name, reference in comparisons.drop(index=study.selected).iterrows():
+            st.markdown(f"**{name}** · {labels[reference.classification]}")
+            st.latex(r"\begin{aligned}"
+                     rf"\mu_B-\mu_P&\approx {points(reference.annual_mean - portfolio.annual_mean)}\;\text{{pp}}\\[4pt]"
+                     rf"\sigma_B-\sigma_P&\approx {points(reference.volatility - portfolio.volatility)}\;\text{{pp}}"
+                     r"\end{aligned}")
+        st.markdown(r"**pp** means percentage points. Differences use unrounded results. "
+                    "Positive mean and negative volatility differences favor the reference.")
+        st.markdown("**Proof of mean–variance dominance**")
+        st.write("A reference dominates when its mean is at least as high and its volatility is no higher, "
+                 "with at least one strict improvement. Define the mean–variance score:")
+        st.latex(r"U_\lambda(X)=\mu_X-\frac{\lambda}{2}\sigma_X^2,\qquad\lambda>0")
+        st.latex(r"\begin{aligned}U_\lambda(B)-U_\lambda(P)"
+                 r"&=(\mu_B-\mu_P)\\[4pt]&\quad+\frac{\lambda}{2}(\sigma_P^2-\sigma_B^2)>0\end{aligned}")
+        st.markdown(r"Both terms are nonnegative and at least one is positive. "
+                    r"$\boldsymbol{U_\lambda}:$ mean–variance score; $\boldsymbol{\lambda>0}:$ weight placed on variance. "
+                    "Under these conditions, the reference wins for **every positive variance penalty**. "
+                    "This proves a preference under this score, not under every possible utility function.")
+        if (comparisons.classification == "reference_dominates").any():
+            st.write("The stock portfolio is therefore not mean–variance efficient among the displayed replay paths. "
+                     "This is an observed result over these dates, not a forecast.")
+        else:
+            st.write("No displayed reference dominates the stock portfolio in this replay. "
+                     "That alone does not establish efficiency against every possible allocation.")
+
+        st.markdown("### Why an optimal fit can still lose")
+        st.write("The optimizer guarantees the highest fitted mean only for the training estimates and feasible initial weights. "
+                 "The vectors below contain only stocks that passed the initial eligibility screen:")
+        st.latex(r"\begin{aligned}\mathcal F_{\rm train}=\{v:\;&\mathbf1^{\mathsf T}v=1,\quad0\le v_i\le h,\\"
+                 r"&v^{\mathsf T}\widehat\Sigma_{\rm train}v\le b^2\}\end{aligned}")
+        st.latex(r"\widehat\mu_{\rm train}^{\mathsf T}w^*\ge"
+                 r"\widehat\mu_{\rm train}^{\mathsf T}v\qquad\forall v\in\mathcal F_{\rm train}")
+        st.markdown(r"$\boldsymbol{w^*}:$ chosen initial weights; $\boldsymbol{v}:$ an alternative allocation; "
+                    r"$\boldsymbol{\mathcal F_{\rm train}}:$ feasible allocations; $\boldsymbol{\mathbf1}:$ vector of ones; "
+                    r"$\boldsymbol{h}:$ initial holding cap; $\boldsymbol{b}:$ fitted volatility budget. "
+                    r"$\boldsymbol{\widehat\mu_{\rm train}}$ and $\boldsymbol{\widehat\Sigma_{\rm train}}$: "
+                    r"training estimates of annual stock means and covariance; $\boldsymbol{\mathsf T}:$ transpose.")
+        st.write("Later stock means and covariances differ. Buy-and-hold weights also drift. "
+                 "The training inequality therefore gives no ordering of later realized means. "
+                 "SPY and QQQ are outside the eligible stock allocations. Equal-weight can exceed the fitted risk budget. "
+                 "A losing replay does not, by itself, prove an optimizer error.")
+
+        st.markdown("**Reconcile this replay to its initial fit**")
+        st.write("The following identity accounts for the full difference in annual arithmetic mean. "
+                 "It uses the saved initial allocation, not the latest full-history weights.")
+        st.latex(r"\begin{aligned}\mu_P-w^{\mathsf T}\widehat\mu_{\rm train}&=S+D+E+F\\[8pt]"
+                 r"S&=w^{\mathsf T}(\widehat\mu_{\rm test}-\widehat\mu_{\rm train})\\[6pt]"
+                 r"D&=\frac{A}{N}\sum_{t=2}^{N}(a_{t-1}-w)^{\mathsf T}r_t\\[6pt]"
+                 r"E&=-\frac{A}{N}w^{\mathsf T}r_1\\[6pt]"
+                 r"F&=-\frac{A}{N}\frac{c}{1+c}\end{aligned}")
+        st.markdown(r"$\boldsymbol{w=w^*}:$ initial weights; $\boldsymbol{r_t}:$ stock return vector; "
+                    r"$\boldsymbol{a_{t-1}}:$ actual weights before return $\boldsymbol{t}$; "
+                    r"$\boldsymbol{\widehat\mu_{\rm test}=(A/N)\sum_{t=1}^{N}r_t}:$ stock means over all replay intervals. "
+                    r"$\boldsymbol{t=1}:$ the cash interval before entry; $\boldsymbol{c}:$ entry fee per unit bought.")
+        st.latex(r"\begin{aligned}"
+                 rf"S&\approx {points(bridge.mean_change)}\;\text{{pp}}&&\text{{stock means}}\\[5pt]"
+                 rf"D&\approx {points(bridge.weight_drift)}\;\text{{pp}}&&\text{{weight drift}}\\[5pt]"
+                 rf"E&\approx {points(bridge.entry_delay)}\;\text{{pp}}&&\text{{entry delay}}\\[5pt]"
+                 rf"F&\approx {points(bridge.entry_fee)}\;\text{{pp}}&&\text{{entry fee}}"
+                 r"\end{aligned}")
+        st.latex(r"\begin{aligned}w^{\mathsf T}\widehat\mu_{\rm train}"
+                 rf"&\approx {bridge.fitted_mean:.2%}\\[5pt]"
+                 rf"\mu_P&\approx {bridge.realized_mean:.2%}\\[5pt]"
+                 rf"S+D+E+F&\approx {points(bridge.realized_mean - bridge.fitted_mean)}\;\text{{pp}}"
+                 r"\end{aligned}".replace("%", r"\%"))
+        st.write("To verify the identity, write each held-period return as initial weights times stock returns, "
+                 "plus the effect of weight drift. Sum those returns, substitute the cash-entry return −c/(1+c), "
+                 "and subtract the fitted mean. The four terms above follow exactly.")
+        st.write("Negative terms reduce the replay mean relative to its initial fit. "
+                 "Drift and the entry delay can help or hurt. The identical entry fee cancels when comparing the "
+                 "portfolio’s annual mean with a reference. This is an accounting explanation, "
+                 "not proof of what caused stock returns to change.")
+
+
 def selection_period(study, title, benchmark_note):
     st.html(title_html(title))
     st.caption(f"{day(study.equity.index[1])} to {day(study.equity.index[-1])}. "
@@ -716,6 +823,7 @@ def overview():
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
         selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection))
+        selection_replay_explanation(selection, prices)
     with st.container(border=True, key="tile_replay_drivers"):
         st.html(story.result_drivers_html(selection.test, selection.selected))
         with st.expander("Replay holdings and contributions"):

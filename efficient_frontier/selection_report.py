@@ -136,6 +136,50 @@ def selection_replay_findings_html(study) -> str:
     return '<div class="pl-replay-findings">' + "".join(rows) + '</div>'
 
 
+def selection_replay_dominance(study) -> pd.DataFrame:
+    """Classify every observed mean/volatility pair against the stock portfolio.
+
+    Retain original metric values and row order. Dominance requires one strict
+    improvement and no deterioration. The portfolio's own row is equal.
+    """
+    comparisons = study.metrics.loc[:, ["annual_mean", "volatility"]].copy()
+    selected = comparisons.loc[SELECTED]
+    equal = (comparisons.annual_mean == selected.annual_mean) & (comparisons.volatility == selected.volatility)
+    reference_dominates = (comparisons.annual_mean >= selected.annual_mean) & (comparisons.volatility <= selected.volatility) & ~equal
+    portfolio_dominates = (comparisons.annual_mean <= selected.annual_mean) & (comparisons.volatility >= selected.volatility) & ~equal
+    comparisons["classification"] = "tradeoff"
+    comparisons.loc[equal, "classification"] = "equal"
+    comparisons.loc[reference_dominates, "classification"] = "reference_dominates"
+    comparisons.loc[portfolio_dominates, "classification"] = "portfolio_dominates"
+    return comparisons
+
+
+def selection_replay_return_bridge(study, prices: pd.DataFrame) -> pd.Series:
+    """Reconcile initial fitted mean to replay mean in annual arithmetic units.
+
+    Separate changed stock means, weight drift, the cash entry interval and
+    its fee. Use saved initial weights, without refitting or using latest weights.
+    """
+    weights = study.test.allocations[study.selected].iloc[0].reindex(prices.columns, fill_value=0.0)
+    training = prices.loc[:study.settings["initial_training_end"]].pct_change(fill_method=None).iloc[1:]
+    replay_prices = prices.loc[study.test.equity.index]
+    returns = replay_prices.pct_change(fill_method=None).iloc[1:]
+    periods = study.settings["periods_per_year"]
+    scale = periods / len(returns)
+    positions = replay_prices.iloc[1:].div(replay_prices.iloc[1]).mul(weights)
+    prior_weights = positions.div(positions.sum(axis=1), axis=0).shift(1).iloc[1:]
+    drift = prior_weights.sub(weights).mul(returns.iloc[1:]).sum(axis=1).sum()
+    fee = study.settings["cost_bps"] / 10_000
+    return pd.Series({
+        "fitted_mean": float(training.mean() @ weights * periods),
+        "realized_mean": float(study.test.metrics.loc[study.selected, "annual_mean"]),
+        "mean_change": float((returns.mean() - training.mean()) @ weights * periods),
+        "weight_drift": float(drift * scale),
+        "entry_delay": float(-(returns.iloc[0] @ weights) * scale),
+        "entry_fee": float(-fee / (1 + fee) * scale),
+    })
+
+
 def selection_replay_verdict_html(study) -> str:
     """State observed mean/volatility dominance without changing the CAGR checks."""
     selected = study.metrics.loc[SELECTED]

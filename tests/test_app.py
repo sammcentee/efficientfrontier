@@ -142,6 +142,7 @@ def test_combined_default_and_risk_inputs_do_no_work_before_submit(monkeypatch, 
     assert "try_demo" not in {item.key for item in app.button}
     assert len(app.get("latex")) == 3
     assert html_text(app).count("Efficient Frontier Analysis for US Equities") == 1
+    assert "Constrained Mean–Variance Optimization" in html_text(app)
     assert 'class="pl-wordmark"' not in html_text(app)
     descriptions = "\n".join(item.value for item in app.markdown)
     for definition in ("sample mean returns", "annual covariance matrix", "initial weight vector",
@@ -310,7 +311,8 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     assert "open_mathematics" not in {item.key for item in app.button}
     assert not any(item.label.startswith("Mathematics ·") for item in app.expander)
     assert "Mathematics ·" not in html_text(app)
-    equations = "\n".join(item.proto.body for item in app.get("latex"))
+    overview_equations = [item.proto.body for item in app.get("latex")]
+    equations = "\n".join(overview_equations)
     # Adjacent raw strings must not turn spacing into unknown KaTeX commands.
     assert not re.search(r"\\(?:qquad|quad)[A-Za-z]", equations)
     assert r"\widehat\mu=A\bar r" in equations
@@ -331,8 +333,60 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     app.segmented_control(key="view").set_value("Data & method").run()
     assert not app.exception
     assert app.session_state.view == "Data & method"
-    assert "\n".join(item.proto.body for item in app.get("latex")) == equations
+    position = 0
+    for equation in app.get("latex"):
+        position = overview_equations.index(equation.proto.body, position) + 1
+    assert "math_diagnosis" not in {item.key for item in app.container}
     assert not any(item.label.startswith("Mathematics ·") for item in app.expander)
+
+
+def test_visible_replay_diagnosis_reconciles_the_saved_initial_allocation(monkeypatch, universe_data):
+    from efficient_frontier import selection
+    from efficient_frontier.selection_report import selection_replay_return_bridge
+
+    app = app_start().button(key="build").click().run()
+    assert not app.exception
+    study = app.session_state.selection
+    prices = app.session_state.result[1]
+    bridge = selection_replay_return_bridge(study, prices)
+    initial = study.test.allocations[study.selected].iloc[0].reindex(prices.columns)
+    training = prices.loc[:study.settings["initial_training_end"]].pct_change(fill_method=None).iloc[1:]
+    fitted_mean = float(training.mean() @ initial * study.settings["periods_per_year"])
+    assert bridge.fitted_mean == pytest.approx(fitted_mean, abs=1e-12)
+
+    replay = app.container(key="tile_final_test")
+    diagnosis = replay.container(key="math_diagnosis")
+    nodes = list(replay)
+    diagnosis_position = next(index for index, node in enumerate(nodes) if node is diagnosis)
+    for element in (replay.get("plotly_chart")[0], replay.dataframe[0]):
+        assert next(index for index, node in enumerate(nodes) if node is element) < diagnosis_position
+    assert not any("math_diagnosis" in {item.key for item in panel.container} for panel in app.expander)
+    equations = [item.proto.body for item in diagnosis.get("latex")]
+    rendered = "\n".join(equations)
+    assert f"{fitted_mean:.2%}".replace("%", r"\%") in rendered
+    assert f"{study.test.metrics.loc[study.selected, 'annual_mean']:.2%}".replace("%", r"\%") in rendered
+    numeric_bridge = next(equation for equation in equations if r"\text{stock means}" in equation)
+    for symbol, key in (("S", "mean_change"), ("D", "weight_drift"), ("E", "entry_delay"), ("F", "entry_fee")):
+        match = re.search(rf"{symbol}&\\approx ([+-]?\d+\.\d+)(?:\\times10\^\{{(-?\d+)\}})?", numeric_bridge)
+        assert match is not None
+        displayed_points = float(match[1]) * 10 ** int(match[2] or 0)
+        assert displayed_points == pytest.approx(100 * bridge[key], abs=.005)
+    text = "\n".join(item.value for item in diagnosis.markdown)
+    for name in study.test.metrics.index.drop(study.selected):
+        assert name in text
+    assert r"\lambda>0" in rendered
+    assert "accounting explanation" in text
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Displaying saved replay mathematics must not rerun the stock model.")
+
+    monkeypatch.setattr(selection, "run_selection", unexpected)
+    # Alter the separate latest allocation: the initial replay proof must not change.
+    study.latest[study.selected].weights.iloc[:] = 1 / len(prices.columns)
+    study.latest[study.selected].expected_return += .15
+    app.run()
+    assert not app.exception and app.session_state.selection is study
+    assert [item.proto.body for item in app.container(key="math_diagnosis").get("latex")] == equations
 
 
 def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_data):
@@ -633,9 +687,10 @@ def test_csv_frequency_reaches_later_test_without_resampling(monkeypatch, market
     assert app.session_state.result[2]["periods_per_year"] == periods
     assert study.settings["periods_per_year"] == periods
     assert study.test.settings["periods_per_year"] == periods
-    equations = "\n".join(item.proto.body for item in app.get("latex"))
-    assert equations.count(f"A={periods:g}") == 2
-    assert "A=252" not in equations
+    for key in ("math_fit", "math_replay"):
+        equations = "\n".join(item.proto.body for item in app.container(key=key).get("latex"))
+        assert f"A={periods:g}" in equations
+        assert "A=252" not in equations
     pd.testing.assert_frame_equal(app.session_state.result[1], prices, check_freq=False)
 
 
