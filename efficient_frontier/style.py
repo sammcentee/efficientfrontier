@@ -105,6 +105,54 @@ APP_ONLY_CSS = """
 .st-key-edit_setup button{border:1px solid var(--pl-hair)!important;background:#fff;min-height:30px;padding:2px 12px}
 .st-key-risk_profile{max-width:396px;margin:0 auto}
 
+/* Compact landing; result and work layouts keep their existing spacing. */
+.st-key-landing{gap:16px;padding:26px 0 20px;text-align:left}
+.st-key-landing .pl-display{margin:0;max-width:none;font-size:44px;line-height:48px;text-align:left}
+.st-key-landing .pl-lead{margin:0;max-width:800px;font-size:16px;line-height:24px;text-align:left}
+.st-key-landing .pl-sub{font-size:15px;line-height:22px}
+.st-key-landing [data-testid="stHorizontalBlock"]{gap:28px}
+.st-key-landing_math{gap:10px;min-width:0}
+.st-key-landing_math [data-testid="stMarkdownContainer"] p{margin:0;font-size:14px;line-height:21px;color:var(--pl-ink-2)}
+.st-key-landing_math [data-testid="stMarkdownContainer"]:has(.katex-display){padding:10px 14px;border:1px solid var(--pl-hair-soft);
+ border-radius:12px;background:var(--pl-tile);overflow-x:auto;max-width:100%;color:var(--pl-ink)}
+.st-key-landing_math .katex-display{margin:0;padding:2px 0}
+.st-key-landing_math .katex{font-size:1.05em;letter-spacing:normal}
+.st-key-landing_controls{gap:14px;padding:18px 20px;border:1px solid var(--pl-hair-soft);border-radius:16px;background:var(--pl-tile)}
+.st-key-landing_controls [data-testid="stWidgetLabel"] p{font-size:13px;font-weight:500;line-height:18px}
+.st-key-landing_controls [data-testid="stCaptionContainer"] p{margin:0;font-size:12px;line-height:18px;color:var(--pl-ink-3)}
+.st-key-preview_target_vol,.st-key-preview_cap{max-width:220px}
+.st-key-preview_target_vol [data-testid="stNumberInputContainer"],.st-key-preview_cap [data-testid="stNumberInputContainer"]{max-width:200px;min-height:44px;
+ border:1px solid var(--pl-hair);border-radius:10px;background:var(--pl-fill)}
+.st-key-preview_target_vol input,.st-key-preview_cap input{background:transparent;font-size:20px;font-weight:600;
+ font-variant-numeric:tabular-nums;color:var(--pl-ink)}
+.st-key-preview_target_vol [data-testid="stNumberInput"] button,.st-key-preview_cap [data-testid="stNumberInput"] button{
+ min-width:28px;width:28px;padding:0;border:0;background:transparent;color:var(--pl-ink-3)}
+.st-key-preview_target_vol [data-testid="stNumberInput"] button:hover,.st-key-preview_cap [data-testid="stNumberInput"] button:hover{
+ background:var(--pl-hair-soft);color:var(--pl-ink)}
+.st-key-landing ol.pl-preview{gap:24px;margin:0;padding:14px 0 0}
+.st-key-landing .pl-preview li{font-size:14px;line-height:19px}
+.st-key-landing .pl-preview li::before{margin-bottom:3px;font-size:12px;line-height:16px}
+.st-key-landing .pl-preview span{margin-top:3px;font-size:12px;line-height:17px}
+.st-key-landing_actions{gap:12px;align-items:center;padding-top:2px}
+.st-key-landing_actions .st-key-edit_setup button{min-height:44px;padding:0 12px;border-color:transparent!important;background:transparent}
+.st-key-landing .pl-note{margin:0;max-width:800px;font-size:12px;line-height:18px;text-align:left}
+/* T3 ultrathink spectrum, kept inside a rounded outline around the dark action. */
+.st-key-build button{position:relative;isolation:isolate;border:0!important;border-radius:14px;background:var(--pl-ink);color:#fff}
+.st-key-build button::before{content:"";position:absolute;inset:0;padding:2px;border-radius:inherit;pointer-events:none;
+ background:linear-gradient(120deg,#ff6b6b 0%,#f59e0b 18%,#22c55e 36%,#14b8a6 54%,#3b82f6 72%,#ec4899 90%,#ff6b6b 100%);
+ background-size:100% 100%;filter:saturate(.82) brightness(.92);
+ -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.st-key-build button:disabled::before{opacity:.45}
+@media (max-width:640px){
+ .st-key-landing{padding:22px 0 12px;gap:14px}
+ .st-key-landing .pl-display{font-size:34px;line-height:38px}
+ .st-key-landing [data-testid="stHorizontalBlock"]{gap:16px}
+ .st-key-landing_math [data-testid="stMarkdownContainer"]:has(.katex-display){padding:10px 8px}
+ .st-key-landing_math .katex{font-size:.96em}
+ .st-key-landing_controls{padding:16px}
+ .st-key-landing ol.pl-preview{gap:12px}
+}
+
 /* 5 Segmented controls */
 [data-testid="stButtonGroup"] [role="radiogroup"]{background:var(--pl-track);border-radius:9px;padding:2px;gap:0}
 [data-testid="stButtonGroup"] button[data-variant="segmented_control"]{border:0!important;border-radius:7px!important;

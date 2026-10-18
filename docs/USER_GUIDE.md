@@ -1,4 +1,4 @@
-# Portfolio Lab user guide
+# Efficient Frontier user guide
 
 Start with the [README quick start](../README.md#setup). This guide covers setup details, input rules, and command-line reports. The [backtest guide](BACKTESTING.md) defines the model and accounting.
 
@@ -38,14 +38,26 @@ The synthetic demo and CSV analysis work offline after setup. Yahoo prices and t
 
 ## Settings and workflow
 
-Choose the stocks, price history, and **Annual volatility budget (%)** before **Build portfolio**. The default universe combines SPY stock holdings and Nasdaq-100 stocks. **Change** contains the holding limit. **Data options** contains the price frequency for CSV data.
+The **Efficient Frontier** opening page shows the model equations before any buttons. Two compact number fields set **Annual volatility budget (%)** and **Holding limit (%)**. The **Settings** button below the introduction opens the stock source, price history, and data options. Select **Demo** there for synthetic prices.
+
+The default universe combines SPY stock holdings and Nasdaq-100 stocks. Select **Build portfolio** to download the stock prices and run the model.
 
 | Setting | Effect |
 | --- | --- |
 | Annual volatility budget (%) | Limits fitted annual volatility. Future volatility and losses can exceed it. |
-| Largest holding allowed (%) | Caps each stock target. A 10% limit needs at least ten eligible stocks. Prices can move actual weights above this limit. |
+| Holding limit (%) | Caps each stock target. A 10% limit needs at least ten eligible stocks. Prices can move actual weights above this limit. |
 | Price frequency | Sets annualization for a CSV. It does not resample prices. |
 | Price currency | Declares the common currency. The app does not check or convert currencies. ETF comparisons require USD prices. |
+
+The initial volatility budget uses QQQ's adjusted daily returns over the latest trailing year:
+
+```text
+QQQ reference volatility = sqrt(252) × sample_standard_deviation(daily returns)
+```
+
+The app shows the reference's final price date. This one-year reference does not depend on the stock model's default five-year fit window. Opening the online app fetches the reference through a cache. It does not download the full stock universe until **Build portfolio**. A manual budget edit remains in place. This current reference sets a scenario budget; it does not reproduce a risk target known at the historical entry date.
+
+If QQQ data is unavailable, the app labels a 20% manual fallback. That fallback is not a current QQQ estimate. The CLI continues to use the volatility budget supplied with `--target-volatility`.
 
 The default stock holding limit is 10%. The six-asset synthetic demo explicitly uses 20%. Small custom universes can require a larger limit. Change it before the calculation. The app does not relax it automatically.
 
@@ -66,7 +78,7 @@ The efficient frontier depends on the return estimates, covariance estimates, an
 
 SPY and QQQ use the same dates as the stocks within each panel. Their results also change between panels because the date ranges differ. They do not enter the stock allocations. **Data & method** shows the initial and latest fitted estimates. These are two separate allocations, not a sequence of replay trades.
 
-Expandable mathematical explanations show the optimization constraints, volatility estimate, buy-and-hold value path, and metric definitions. The fitted mean and volatility use the same fixed target weights for every observation in the estimation sample. They describe the starting allocation. A buy-and-hold path instead has weights that drift, even before differences in dates and fees.
+Inline typeset equations show the optimization constraints, volatility estimate, buy-and-hold value path, and metric definitions. The fitted mean and volatility use the same fixed target weights for every observation in the estimation sample. They describe the starting allocation. A buy-and-hold path instead has weights that drift, even before differences in dates and fees.
 
 If QQQ earns more with less volatility in the later test, it beat the portfolio rule on those dates. That is a real weakness in the test result. It does not show that the optimizer failed to maximize the earlier estimates. A mathematically optimal fit can still be a poor investment rule when those estimates do not persist.
 
@@ -119,7 +131,7 @@ The model needs at least two returns in both the initial training period and the
 
 The app rejects duplicate dates or columns, nonnumeric values, missing observations, and nonpositive prices. It sorts dates without filling gaps. It cannot confirm price adjustments, currency, or the interval between observations.
 
-Set **Change → Data options → Price frequency** to match the CSV:
+Set **Settings → Data options → Price frequency** to match the CSV:
 
 | Interval | Observations per year |
 | --- | ---: |

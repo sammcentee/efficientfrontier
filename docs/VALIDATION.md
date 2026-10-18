@@ -1,5 +1,15 @@
 # Validation record
 
+## Mathematical opening page and Nasdaq risk default: 18 October 2026
+
+**876 tests passed** with Python 3.14 and the existing pandas invalid-date warning. The opening page displays three typeset model equations before any interaction. Settings, compact risk inputs, and the rainbow Build action replace the previous welcome controls.
+
+The default budget uses QQQ adjusted daily returns over its latest complete trailing year. A live calculation returned **19.835042%** from 251 returns, ending 16 October 2026. Tests verify the sample standard deviation, annualization, date boundaries, incomplete-day exclusion, failed downloads, and preservation of saved or edited budgets. The interface and report retain two decimal places.
+
+Headless Chromium verified the whole opening workflow at 1366 × 768 and 1440 × 900 without scrolling; Build ended at 700 pixels or less. At 390 pixels wide, the page stacks and scrolls without horizontal overflow. The native T3 browser sandbox was unavailable. The app server on port 8518 was restarted to load the changed modules and styles. Physical devices were not tested.
+
+The live app check preserved an edited 21.25% budget through Settings, the demo calculation, all 14 result equations, and the exported report. Exported replay paths each retained one trade and zero rebalances. No browser errors occurred.
+
 ## Buy-and-hold replay and rendered mathematics: 18 October 2026
 
 **859 tests passed** with Python 3.14 and one existing pandas invalid-date warning. After the browser check found joined LaTeX commands, the formatting correction passed all 40 app tests. All 14 displayed equations also passed the bundled KaTeX parser with strict errors enabled. Dependency and whitespace checks passed, and the stock-model CLI produced its offline report.

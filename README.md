@@ -28,11 +28,13 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 
 ## Run a study
 
-1. Choose the stocks and price history, or select **Try the offline demo**.
-2. Set **Annual volatility budget (%)** and **Largest holding allowed (%)**. Defaults are 20% and 10%.
+1. Read the model equations on the **Efficient Frontier** opening page. Open **Settings** to choose stocks and history, or select the **Demo** stock source.
+2. Set **Annual volatility budget (%)** and **Holding limit (%)** in the two number fields. The holding limit defaults to 10%.
 3. Select **Build portfolio**.
 4. Compare **Latest fit** with **Historical replay**, then inspect the frontier and holdings. Open **Data & method** for coverage and trades.
 5. Select **Export** for the offline report and exact input/result CSVs.
+
+The app starts the volatility budget at QQQ's latest one-year annualized volatility, with its price date shown. This reference is separate from the stock fit window. Your edits take precedence. If the reference is unavailable, the app labels its 20% manual fallback.
 
 A 10% holding limit needs at least ten eligible stocks. The six-asset synthetic demo uses a 20% limit. An infeasible budget or holding limit stops the calculation.
 
@@ -66,7 +68,7 @@ The first test interval stays in cash at zero interest. All replay paths then bu
 
 Equal-weight stocks, SPY, and QQQ also buy once and hold. The equal-weight reference starts with equal weights but lets them drift. Within the replay, all comparisons use the same dates and fee rate, but their risks can differ. A benchmark with higher mean return and lower volatility beat the stock rule in that replay, even if the latest fitted portfolio sits above it on the fitted frontier chart.
 
-The app includes expandable mathematical explanations for the optimizer, volatility budget, buy-and-hold accounting, and performance metrics. Fitted moments describe the starting weights. They do not describe a historical buy-and-hold path.
+The app displays typeset equations for the optimizer, volatility budget, buy-and-hold accounting, and performance metrics. The introduction appears beside the controls. Fitted moments describe the starting weights. They do not describe a historical buy-and-hold path.
 
 The test status describes coverage, realized risk, and comparison results. It is not proof of future outperformance. Current member lists and complete-history requirements favor survivors. Prior review of the test dates also limits their value as new evidence.
 

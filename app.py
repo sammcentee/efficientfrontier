@@ -14,13 +14,14 @@ from efficient_frontier import story
 from efficient_frontier.backtest_report import HOLDINGS
 from efficient_frontier.data import demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, stale_price_notes
 from efficient_frontier.presentation import csv_text
+from efficient_frontier.risk_reference import load_qqq_volatility_reference
 from efficient_frontier.style import APP_CSS, PLOTLY_CONFIG
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
 from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates, selection_frontier, split_stock_prices, validate_selection_benchmarks
 from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, REPLAY_LABEL
 
 
-st.set_page_config(page_title="Portfolio Lab", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Efficient Frontier", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
 st.html(f"<style>{APP_CSS}</style>")
 
 MARKETS = ["S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings", "Upload CSV", "Demo"]
@@ -90,6 +91,11 @@ def fetch_benchmarks(dates):
     return download_benchmarks(dates)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_default_risk(reference_day):
+    return load_qqq_volatility_reference()
+
+
 @st.cache_data(show_spinner=False, max_entries=2)
 def calculate_selection(prices, benchmark_prices, settings, target_volatility, model_revision):
     """Include the selection model revision in the cached calculation identity."""
@@ -106,6 +112,7 @@ def calculate_frontier(study, prices, model_revision):
 # ----------------------------------------------------------------------------- state and callbacks
 
 def init_state():
+    new_setup = "setup" not in st.session_state
     defaults = {"setup": dict(DEFAULT_SETUP), "setup_open": False, "view": "Portfolio"}
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -116,6 +123,17 @@ def init_state():
         setup = st.session_state.setup
         st.session_state.setup = {**DEFAULT_SETUP, **setup, "target_vol": 20.0, "use_cap": True,
                                   "cap": setup.get("cap", 10.0) if setup.get("use_cap", True) else 100.0}
+    if "risk_reference_checked" not in st.session_state:
+        st.session_state.risk_reference_checked = True
+        setup = st.session_state.setup
+        if "result" not in st.session_state and setup["market"] not in ("Demo", "Upload CSV"):
+            try:
+                reference = fetch_default_risk(date.today())
+                st.session_state.qqq_reference = reference
+                if new_setup:
+                    st.session_state.setup = {**setup, "target_vol": round(reference["volatility"] * 100, 2)}
+            except (OSError, ValueError):
+                st.session_state.risk_reference_unavailable = True
 
 
 def set_state(name, value):
@@ -133,11 +151,6 @@ def start_build():
     st.session_state.pending_build = True
     st.session_state.build_error = None
     st.session_state.scroll_to = "top"
-
-
-def try_demo():
-    st.session_state.setup = {**st.session_state.setup, "market": "Demo", "use_cap": True, "cap": 20.0}
-    start_build()
 
 
 def change_market():
@@ -241,7 +254,7 @@ def make_report_callable():
 def settings_frame(metadata):
     """Study settings with plain labels. The metadata does not change."""
     return pd.DataFrame([{"Setting": "History for the initial fit" if key == "train_fraction" else story.setting_label(key),
-                          "Value": f"{value:.1%}" if key == "target_volatility" else story.setting_text(key, value)}
+                          "Value": f"{value:.2%}" if key == "target_volatility" else story.setting_text(key, value)}
                          for key, value in metadata.items() if key not in ("universe_coverage", "profile_model_revision", "selection_model_revision")])
 
 
@@ -369,7 +382,7 @@ def scroll(target):
 def context_line(text, align="center"):
     with st.container(horizontal=True, horizontal_alignment=align, vertical_alignment="center", gap="small"):
         st.html(text, width="content")
-        st.button("Change", key="edit_setup", type="tertiary", icon=":material/tune:", shortcut="S", on_click=open_setup,
+        st.button("Settings", key="edit_setup", type="tertiary", icon=":material/tune:", shortcut="S", on_click=open_setup,
                   disabled=busy)
 
 
@@ -391,8 +404,6 @@ def try_buttons(fix=False):
                 st.button("Change the study", key="fix_setup", type="primary", icon=":material/tune:", on_click=open_setup)
             else:
                 st.button("Try again", key="build", type="primary", shortcut="Mod+Enter", on_click=start_build)
-        if st.session_state.setup["market"] != "Demo":
-            st.button("Try the offline demo", key="try_demo", type="tertiary", icon=":material/science:", on_click=try_demo)
 
 
 # ----------------------------------------------------------------------------- drawer
@@ -435,10 +446,10 @@ def setup_sheet():
             end = date.today()
             start = (pd.Timestamp(end) - pd.DateOffset(years=5 if history == "5 years" else 10)).date()
             st.caption(f"{day(start)} to {day(end - pd.Timedelta(days=1))}")
-    st.slider("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"], step=1.0, key="target_vol",
+    st.number_input("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"], step=0.1, format="%.2f", key="target_vol",
               help="A fitted annual volatility ceiling. Realized volatility can exceed it. No borrowing or automatic cash allocation.")
     risk_reference()
-    st.number_input("Largest holding allowed (%)", 1.0, 100.0, setup["cap"], step=1.0, key="cap",
+    st.number_input("Holding limit (%)", 1.0, 100.0, setup["cap"], step=1.0, format="%g", key="cap",
                     help="A 10% limit needs at least ten assets. If the risk budget cannot be met, the build stops.")
     if market == "Demo":
         st.caption("The demo has six simulated assets. Its default holding limit is 20%, shown above; you can change it. At least 17% is needed.")
@@ -492,31 +503,63 @@ def hero_work():
     build(plan, lambda number: steps.info(labels[number]), progress_slot)
 
 
+def welcome_mathematics(setup):
+    periods = resolve(setup)["settings"]["periods_per_year"]
+    with st.container(key="landing_math"):
+        st.latex(r"\widehat\mu=A\bar r,\qquad "
+                 r"\widehat\Sigma=A\operatorname{Cov}_{\mathrm{sample}}(r)")
+        st.caption(f"r contains adjusted-price returns; A = {periods:g} observations per year. "
+                   "μ̂ and Σ̂ are annual sample estimates.")
+        st.latex(r"\begin{aligned}"
+                 r"w^*&=\underset{w}{\operatorname{arg\,max}}\;\widehat\mu^{\mathsf T}w\\[4pt]"
+                 r"\text{subject to}\quad&\mathbf1^{\mathsf T}w=1,\quad 0\le w_i\le h,\\"
+                 r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
+                 r"\end{aligned}")
+        st.caption("b limits fitted annual volatility; h caps each initial stock weight. "
+                   "Fully invested, with no short sales. Realized risk can exceed b.")
+        st.latex(r"V_t=\frac{V_{\mathrm{start}}}{1+c}"
+                 r"\sum_i w_i\frac{p_{i,t}}{p_{i,e}}\qquad(t\ge e)")
+        st.caption("Buy at close e, then let weights drift. p is adjusted price; c = 0.10% is the entry fee. "
+                   "Fit on the first 70%; replay the remaining 30%. The latest fit uses all history separately.")
+
+
 def welcome_or_error():
     setup = st.session_state.setup
     market = setup["market"]
     error = st.session_state.get("build_error")
+    if error is None:
+        with st.container(key="landing"):
+            st.html('<h1 class="pl-display">Efficient Frontier</h1>'
+                    '<p class="pl-lead pl-center">Maximize fitted arithmetic return within your initial volatility and holding limits.</p>')
+            mathematics, controls = st.columns([2.2, 1], gap="large")
+            with mathematics:
+                welcome_mathematics(setup)
+            with controls:
+                with st.container(key="landing_controls"):
+                    if not st.session_state.setup_open:
+                        target = st.number_input("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"],
+                                                 step=0.1, format="%.2f", key="preview_target_vol",
+                                                 help="b: the maximum fitted annual standard deviation at the initial allocation.")
+                        reference = st.session_state.get("qqq_reference")
+                        if reference:
+                            st.caption(f"Nasdaq-100 proxy · QQQ {reference['volatility']:.2%}\n\n"
+                                       f"One year through {day(reference['last_return_date'])}. "
+                                       "Daily sample volatility × √252. This is a separate window from the portfolio fit.")
+                        elif st.session_state.get("risk_reference_unavailable"):
+                            st.caption("QQQ volatility is unavailable. The 20% starting value is a manual fallback, not a current Nasdaq-100 estimate.")
+                        cap = st.number_input("Holding limit (%)", 1.0, 100.0, setup["cap"], step=1.0,
+                                              format="%g", key="preview_cap",
+                                              help="h: the maximum initial weight in one stock. A 10% cap requires at least ten stocks.")
+                        st.session_state.setup = {**setup, "target_vol": target, "cap": cap, "use_cap": True}
+            st.html(PREVIEW_HTML)
+            if not st.session_state.setup_open:
+                with st.container(key="landing_actions", horizontal=True, horizontal_alignment="center",
+                                  vertical_alignment="center", gap="medium"):
+                    st.button("Build portfolio", key="build", type="primary", shortcut="Mod+Enter", on_click=start_build)
+                    st.button("Settings", key="edit_setup", type="tertiary", icon=":material/tune:", shortcut="S", on_click=open_setup)
+        return
     with st.container(key="hero", horizontal_alignment="center"):
         context_line(story.context_setup_html(setup))
-        if error is None:
-            st.html('<h1 class="pl-display">Choose a risk budget.<br>Then test one portfolio.</h1>'
-                    '<p class="pl-lead pl-center">Choose stocks with the highest estimated average return within your volatility and holding limits. '
-                    'One fixed model uses earlier prices. The later 30% of the history checks its results.</p>')
-            if not st.session_state.setup_open:
-                target = st.slider("Annual volatility budget (%)", 1.0, 100.0, setup["target_vol"], step=1.0, key="preview_target_vol")
-                risk_reference()
-                cap = st.number_input("Largest holding allowed (%)", 1.0, 100.0, setup["cap"], step=1.0, key="preview_cap")
-                st.session_state.setup = {**setup, "target_vol": target, "cap": cap, "use_cap": True}
-                st.caption("Fully invested stocks. Realized volatility can exceed the fitted budget. A 10% holding limit needs at least ten assets. An infeasible budget stops the build.")
-                st.button("Build portfolio", key="build", type="primary", shortcut="Mod+Enter", on_click=start_build)
-            note = ("Prices download from Yahoo Finance only after you select Build portfolio. The combined universe can take several minutes."
-                    if market not in ("Upload CSV", "Demo") else "This runs offline unless you explicitly enable a benchmark download.")
-            st.html(f'<p class="pl-note">{note}</p>')
-            if market != "Demo":
-                st.button("Try the offline demo", key="try_demo", type="tertiary", icon=":material/science:", on_click=try_demo)
-                st.caption("The six-asset demo uses an explicit 20% holding limit.")
-            st.html(PREVIEW_HTML)
-            return
         kind = st.session_state.get("build_error_kind", "other")
         headline = {"yahoo": "We could not reach Yahoo Finance.", "no_prices": "Yahoo Finance had no prices for these symbols.",
                     "infeasible": "These settings have no solution.", "no_file": "The study needs a price file.",
@@ -542,7 +585,6 @@ def welcome_or_error():
 def risk_reference():
     benchmark_prices = st.session_state.get("benchmark_prices")
     if benchmark_prices is None:
-        st.caption("SPY and QQQ volatility references will be available after prices load. Nothing downloads when you move this slider.")
         return
     periods = st.session_state.result[2]["periods_per_year"]
     volatility = benchmark_prices.pct_change(fill_method=None).dropna().std() * math.sqrt(periods)
@@ -574,7 +616,7 @@ def selection_fit_math(study):
                  r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
                  r"\end{aligned}")
         st.latex(rf"b={settings['target_volatility']:g}\;"
-                 rf"({settings['target_volatility']:.0%}),\qquad "
+                 rf"({settings['target_volatility']:.2%}),\qquad "
                  rf"h={settings['max_weight']:g}\;({settings['max_weight']:.0%})".replace("%", r"\%"))
         st.write("The weights w sum to one, with no short sales. h caps each initial holding. "
                  "b caps estimated annual volatility when the allocation is chosen. "
@@ -657,8 +699,8 @@ def overview():
     selection = st.session_state.selection
     with st.container(key="hero", horizontal_alignment="center"):
         context_line(story.context_result_html(metadata, prices))
-        st.html(f'<h1 class="pl-display">{metadata["target_volatility"]:.0%} annual volatility budget.</h1>')
-        st.html(stat_strip(((f"{metadata['target_volatility']:.0%}", "Annual volatility budget", "Fitted ceiling"),
+        st.html(f'<h1 class="pl-display">{metadata["target_volatility"]:.2%} annual volatility budget.</h1>')
+        st.html(stat_strip(((f"{metadata['target_volatility']:.2%}", "Annual volatility budget", "Fitted ceiling"),
                             (f"{metadata['max_weight']:.0%}", "Holding limit", "Maximum target weight"))))
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
@@ -794,7 +836,7 @@ current_selection = (ready and "selection" in st.session_state
 busy = bool(st.session_state.get("pending_build"))
 
 with st.container(key="localnav", horizontal=True, vertical_alignment="center", gap="medium"):
-    st.html('<span class="pl-wordmark">Portfolio Lab</span>', width="stretch")
+    st.html('<span class="pl-wordmark">Efficient Frontier</span>', width="stretch")
     if ready:
         st.segmented_control("View", ["Portfolio", "Data & method"], key="view", required=True,
                              format_func=lambda name: story.VIEW_LABELS.get(name, name),
