@@ -21,7 +21,7 @@ from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVIS
 from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, REPLAY_LABEL
 
 
-st.set_page_config(page_title="Efficient Frontier", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Efficient Frontier Generator — Constrained Mean–Variance Optimization", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
 st.html(f"<style>{APP_CSS}</style>")
 
 MARKETS = ["S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings", "Upload CSV", "Demo"]
@@ -43,9 +43,9 @@ DRAWER_KEYS = [key for key in DEFAULT_SETUP if key not in FILE_KEYS]
 COVERAGE_COLUMNS = {"industry": None, "symbol": "Symbol", "name": "Company", "status": "Status", "reason": "Reason",
                     "observations": st.column_config.NumberColumn("Price rows"), "first_date": "First date", "last_date": "Last date"}
 DATE_COLUMN = st.column_config.DateColumn("Date", format="D MMM YYYY")
-PREVIEW_HTML = ('<ol class="pl-preview"><li><b>Set two limits.</b><span>Choose annual volatility and the largest holding.</span></li>'
-                '<li><b>Buy once and hold.</b><span>Compare the later result with equal-weight stocks, SPY, and QQQ.</span></li>'
-                '<li><b>Inspect the latest weights.</b><span>These use all supplied history and differ from the test holdings.</span></li></ol>')
+PREVIEW_HTML = ('<ol class="pl-preview"><li><b>Set two limits.</b><span>Set annual volatility and the initial holding cap.</span></li>'
+                '<li><b>Buy once and hold.</b><span>Fit on the first 70% of returns; hold through the final 30%.</span></li>'
+                '<li><b>Inspect the latest weights.</b><span>Fit all history separately. These weights do not produce the replay.</span></li></ol>')
 KEY_LEGEND = '<span class="pl-keys">Keys: <kbd>1</kbd> overview · <kbd>2</kbd> test · <kbd>4</kbd> data &amp; method · <kbd>S</kbd> setup · <kbd>E</kbd> export</span>'
 SCROLL_JS = """<script>/* __NONCE__ */
 (() => {
@@ -506,21 +506,35 @@ def hero_work():
 def welcome_mathematics(setup):
     periods = resolve(setup)["settings"]["periods_per_year"]
     with st.container(key="landing_math"):
-        st.latex(r"\widehat\mu=A\bar r,\qquad "
-                 r"\widehat\Sigma=A\operatorname{Cov}_{\mathrm{sample}}(r)")
-        st.caption(f"r contains adjusted-price returns; A = {periods:g} observations per year. "
-                   "μ̂ and Σ̂ are annual sample estimates.")
-        st.latex(r"\begin{aligned}"
-                 r"w^*&=\underset{w}{\operatorname{arg\,max}}\;\widehat\mu^{\mathsf T}w\\[4pt]"
-                 r"\text{subject to}\quad&\mathbf1^{\mathsf T}w=1,\quad 0\le w_i\le h,\\"
-                 r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
-                 r"\end{aligned}")
-        st.caption("b limits fitted annual volatility; h caps each initial stock weight. "
-                   "Fully invested, with no short sales. Realized risk can exceed b.")
-        st.latex(r"V_t=\frac{V_{\mathrm{start}}}{1+c}"
-                 r"\sum_i w_i\frac{p_{i,t}}{p_{i,e}}\qquad(t\ge e)")
-        st.caption("Buy at close e, then let weights drift. p is adjusted price; c = 0.10% is the entry fee. "
-                   "Fit on the first 70%; replay the remaining 30%. The latest fit uses all history separately.")
+        with st.container(key="landing_estimates"):
+            st.latex(r"\widehat\mu=A\bar r,\qquad "
+                     r"\widehat\Sigma=A\operatorname{Cov}_{\mathrm{sample}}(r)")
+            st.markdown(
+                r"$r$: vector of stock returns; $\bar r$: sample mean returns; "
+                rf"$A={periods:g}$: observations per year. "
+                r"$\widehat\mu$: fitted annual returns; $\widehat\Sigma$: annual covariance matrix; "
+                r"$\operatorname{Cov}_{\mathrm{sample}}$: sample covariance."
+            )
+        with st.container(key="landing_optimization"):
+            st.latex(r"\begin{aligned}"
+                     r"w^*&=\underset{w}{\operatorname{arg\,max}}\;\widehat\mu^{\mathsf T}w\\[4pt]"
+                     r"\text{subject to}\quad&\mathbf1^{\mathsf T}w=1,\quad 0\le w_i\le h,\\"
+                     r"&\sqrt{w^{\mathsf T}\widehat\Sigma w}\le b"
+                     r"\end{aligned}")
+            st.markdown(
+                r"$w$: initial weight vector; $w_i$: fraction in stock $i$; $w^*$: optimal weights. "
+                r"$b$: fitted annual volatility budget; $h$: initial holding limit; "
+                r"$\mathbf1$: vector of ones; $\mathsf T$: transpose; "
+                r"$\operatorname{arg\,max}$: weights that maximize fitted return."
+            )
+        with st.container(key="landing_growth"):
+            st.latex(r"V_t=\frac{V_{\mathrm{start}}}{1+c}"
+                     r"\sum_i w_i\frac{p_{i,t}}{p_{i,e}}\qquad(t\ge e)")
+            st.markdown(
+                r"$V_t$: value at observation $t$; $V_{\mathrm{start}}$: starting cash; "
+                r"$p_{i,t}$: adjusted price of stock $i$ at $t$; $e$: entry observation. "
+                r"$c=0.10\%$: fee per unit bought; $\sum_i$: sum across stocks."
+            )
 
 
 def welcome_or_error():
@@ -529,8 +543,8 @@ def welcome_or_error():
     error = st.session_state.get("build_error")
     if error is None:
         with st.container(key="landing"):
-            st.html('<h1 class="pl-display">Efficient Frontier</h1>'
-                    '<p class="pl-lead pl-center">Maximize fitted arithmetic return within your initial volatility and holding limits.</p>')
+            st.html('<h1 class="pl-display">Efficient Frontier Generator '
+                    '<span class="pl-method-title">— Constrained Mean–Variance Optimization</span></h1>')
             mathematics, controls = st.columns([2.2, 1], gap="large")
             with mathematics:
                 welcome_mathematics(setup)
@@ -835,9 +849,9 @@ current_selection = (ready and "selection" in st.session_state
                      and st.session_state.result[2].get("selection_model_revision") == SELECTION_MODEL_REVISION)
 busy = bool(st.session_state.get("pending_build"))
 
-with st.container(key="localnav", horizontal=True, vertical_alignment="center", gap="medium"):
-    st.html('<span class="pl-wordmark">Efficient Frontier</span>', width="stretch")
-    if ready:
+if ready:
+    with st.container(key="localnav", horizontal=True, vertical_alignment="center", gap="medium"):
+        st.html('<span class="pl-wordmark">Efficient Frontier Generator</span>', width="stretch")
         st.segmented_control("View", ["Portfolio", "Data & method"], key="view", required=True,
                              format_func=lambda name: story.VIEW_LABELS.get(name, name),
                              label_visibility="collapsed", disabled=busy)

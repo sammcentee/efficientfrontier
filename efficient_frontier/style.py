@@ -107,24 +107,32 @@ APP_ONLY_CSS = """
 
 /* Compact landing; result and work layouts keep their existing spacing. */
 .st-key-landing{gap:16px;padding:26px 0 20px;text-align:left}
-.st-key-landing .pl-display{margin:0;max-width:none;font-size:44px;line-height:48px;text-align:left}
-.st-key-landing .pl-lead{margin:0;max-width:800px;font-size:16px;line-height:24px;text-align:left}
-.st-key-landing .pl-sub{font-size:15px;line-height:22px}
+.st-key-landing .pl-display{margin:0;max-width:none;font-size:40px;line-height:44px;text-align:left}
+.st-key-landing .pl-method-title{display:block;margin-top:2px;font-size:21px;line-height:27px;font-weight:500;color:var(--pl-ink-2)}
 .st-key-landing [data-testid="stHorizontalBlock"]{gap:28px}
-.st-key-landing_math{gap:10px;min-width:0}
-.st-key-landing_math [data-testid="stMarkdownContainer"] p{margin:0;font-size:14px;line-height:21px;color:var(--pl-ink-2)}
-.st-key-landing_math [data-testid="stMarkdownContainer"]:has(.katex-display){padding:10px 14px;border:1px solid var(--pl-hair-soft);
- border-radius:12px;background:var(--pl-tile);overflow-x:auto;max-width:100%;color:var(--pl-ink)}
-.st-key-landing_math .katex-display{margin:0;padding:2px 0}
+.st-key-landing_math{gap:16px;min-width:0}
+.st-key-landing_estimates,.st-key-landing_optimization,.st-key-landing_growth{gap:8px;min-width:0}
+.st-key-landing_math [data-testid="stLayoutWrapper"]:has(.katex-display),
+.st-key-landing_math [data-testid="stElementContainer"]:has(.katex-display),
+.st-key-landing_math [data-testid="stMarkdown"]>div:has(.katex-display){width:100%!important;min-width:0}
+.st-key-landing_math [data-testid="stMarkdownContainer"]{margin:0}
+.st-key-landing_math [data-testid="stMarkdownContainer"] p{margin:0;font-size:13px;line-height:19px;color:var(--pl-ink-2)}
+.st-key-landing_math [data-testid="stMarkdownContainer"] p .katex{font-size:1em}
+.st-key-landing_math [data-testid="stMarkdownContainer"]:has(.katex-display){width:100%;box-sizing:border-box;padding:14px;
+ border:1px solid var(--pl-hair-soft);border-radius:12px;background:var(--pl-tile);overflow-x:auto;max-width:100%;color:var(--pl-ink)}
+.st-key-landing_math .katex-display{margin:0;padding:2px 0;overflow:visible}
 .st-key-landing_math .katex{font-size:1.05em;letter-spacing:normal}
 .st-key-landing_controls{gap:14px;padding:18px 20px;border:1px solid var(--pl-hair-soft);border-radius:16px;background:var(--pl-tile)}
 .st-key-landing_controls [data-testid="stWidgetLabel"] p{font-size:13px;font-weight:500;line-height:18px}
 .st-key-landing_controls [data-testid="stCaptionContainer"] p{margin:0;font-size:12px;line-height:18px;color:var(--pl-ink-3)}
 .st-key-preview_target_vol,.st-key-preview_cap{max-width:220px}
 .st-key-preview_target_vol [data-testid="stNumberInputContainer"],.st-key-preview_cap [data-testid="stNumberInputContainer"]{max-width:200px;min-height:44px;
- border:1px solid var(--pl-hair);border-radius:10px;background:var(--pl-fill)}
+ position:relative;border:1px solid var(--pl-hair);border-radius:10px;background:var(--pl-fill)}
+.st-key-preview_target_vol [data-testid="stNumberInputContainer"]::after,.st-key-preview_cap [data-testid="stNumberInputContainer"]::after{
+ content:"%";position:absolute;right:68px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:14px;line-height:20px;color:var(--pl-ink-3)}
 .st-key-preview_target_vol input,.st-key-preview_cap input{background:transparent;font-size:20px;font-weight:600;
- font-variant-numeric:tabular-nums;color:var(--pl-ink)}
+ padding-right:32px;font-variant-numeric:tabular-nums;color:var(--pl-ink)}
+.st-key-preview_cap{margin-top:8px}
 .st-key-preview_target_vol [data-testid="stNumberInput"] button,.st-key-preview_cap [data-testid="stNumberInput"] button{
  min-width:28px;width:28px;padding:0;border:0;background:transparent;color:var(--pl-ink-3)}
 .st-key-preview_target_vol [data-testid="stNumberInput"] button:hover,.st-key-preview_cap [data-testid="stNumberInput"] button:hover{
@@ -135,7 +143,6 @@ APP_ONLY_CSS = """
 .st-key-landing .pl-preview span{margin-top:3px;font-size:12px;line-height:17px}
 .st-key-landing_actions{gap:12px;align-items:center;padding-top:2px}
 .st-key-landing_actions .st-key-edit_setup button{min-height:44px;padding:0 12px;border-color:transparent!important;background:transparent}
-.st-key-landing .pl-note{margin:0;max-width:800px;font-size:12px;line-height:18px;text-align:left}
 /* T3 ultrathink spectrum, kept inside a rounded outline around the dark action. */
 .st-key-build button{position:relative;isolation:isolate;border:0!important;border-radius:14px;background:var(--pl-ink);color:#fff}
 .st-key-build button::before{content:"";position:absolute;inset:0;padding:2px;border-radius:inherit;pointer-events:none;
@@ -146,8 +153,8 @@ APP_ONLY_CSS = """
 @media (max-width:640px){
  .st-key-landing{padding:22px 0 12px;gap:14px}
  .st-key-landing .pl-display{font-size:34px;line-height:38px}
+ .st-key-landing .pl-method-title{font-size:18px;line-height:24px}
  .st-key-landing [data-testid="stHorizontalBlock"]{gap:16px}
- .st-key-landing_math [data-testid="stMarkdownContainer"]:has(.katex-display){padding:10px 8px}
  .st-key-landing_math .katex{font-size:.96em}
  .st-key-landing_controls{padding:16px}
  .st-key-landing ol.pl-preview{gap:12px}
