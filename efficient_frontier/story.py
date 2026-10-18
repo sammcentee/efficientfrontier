@@ -232,6 +232,25 @@ def company_names(coverage) -> dict:
     return {row.symbol: short_company_name(row.name) for row in frame[["symbol", "name"]].itertuples(index=False)}
 
 
+def holdings_cards_html(weights: pd.Series, companies: dict) -> str:
+    """Show company identities beside the saved weights, without rounding holdings away."""
+    cards = []
+    for symbol, weight in weights.items():
+        company = companies[symbol]
+        name = html.escape(company["name"])
+        source = company.get("source_url")
+        title = f'<a href="{html.escape(source, quote=True)}" target="_blank" rel="noopener noreferrer">{name}</a>' if source else name
+        amount = html.escape(f"{weight:.2%}" if weight >= 0.0001 else "<0.01%")
+        cards.append(
+            '<article class="pl-holding">'
+            f'<div class="pl-holding-head"><div><h4>{title}</h4>'
+            f'<span class="pl-holding-symbol">{html.escape(str(symbol))}</span></div>'
+            f'<strong class="pl-holding-weight">{amount}</strong></div>'
+            f'<p>{html.escape(company["description"])}</p></article>'
+        )
+    return '<div class="pl-holdings-grid">' + "".join(cards) + '</div>'
+
+
 def months_tested(study: Any) -> int:
     """Length of the held-back test period in months."""
     start, end = pd.Timestamp(study.settings["test_start"]), pd.Timestamp(study.settings["test_end"])

@@ -230,9 +230,20 @@ APP_ONLY_CSS = """
 .pl-date-windows h3{margin:0 0 8px;font-size:15px;font-weight:600;line-height:21px}
 .pl-date-windows p{margin:0 0 6px;font-size:15px;line-height:22px;color:var(--pl-ink)}
 .pl-date-windows span{font-size:14px;line-height:20px;color:var(--pl-ink-3)}
+.pl-holdings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pl-holding{padding:18px 20px;border:1px solid var(--pl-hair-soft);border-radius:16px;min-width:0}
+.pl-holding-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.pl-holding h4{margin:0;font:600 18px/24px var(--pl-font);color:var(--pl-ink);overflow-wrap:anywhere}
+.pl-holding h4 a{color:inherit;text-decoration:none}
+.pl-holding h4 a:hover{color:var(--pl-accent);text-decoration:underline}
+.pl-holding-symbol{display:block;margin-top:3px;font-size:13px;line-height:18px;color:var(--pl-ink-3)}
+.pl-holding-weight{font:600 21px/26px var(--pl-font);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pl-holding p{margin:10px 0 0;font-size:15px;line-height:22px;color:var(--pl-ink-2);overflow-wrap:anywhere}
 @media(max-width:640px){
  .pl-date-windows{grid-template-columns:1fr;gap:14px;padding:14px 0}
  .pl-date-windows article+article{border-left:0;border-top:1px solid var(--pl-hair-soft);padding:14px 0 0}
+ .pl-holdings-grid{grid-template-columns:1fr}
+ .pl-holding{padding:16px}
 }
 
 /* 8 Buttons, inputs, alerts, tables, captions */

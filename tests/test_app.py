@@ -18,7 +18,7 @@ APP = Path(__file__).resolve().parents[1] / "app.py"
 
 @pytest.fixture(autouse=True)
 def offline_app(monkeypatch):
-    from efficient_frontier import data, risk_reference, universe
+    from efficient_frontier import companies, data, risk_reference, universe
 
     st.cache_data.clear()
     monkeypatch.setattr(risk_reference, "load_qqq_volatility_reference", lambda: {
@@ -33,6 +33,12 @@ def offline_app(monkeypatch):
         calls.append((args, kwargs))
         raise AssertionError("An AppTest attempted an unmocked market download.")
 
+    def company_profile(symbol):
+        calls.append(("company profile", symbol))
+        return {"name": f"Company {symbol}", "description": f"Provides products and services for {symbol}.",
+                "source_url": f"https://example.com/{symbol}"}
+
+    monkeypatch.setattr(companies, "fetch_company_profile", company_profile)
     for module, names in ((data, ("download_prices", "download_benchmarks")),
                           (universe, ("fetch_nasdaq100", "fetch_sp500_nasdaq100", "download_universe_prices"))):
         for name in names:
@@ -269,15 +275,22 @@ def test_demo_build_is_offline_with_an_explicit_feasible_cap(offline_app):
     initial = study.test.allocations[study.selected].iloc[0]
     final = study.test.holdings[study.selected]["end_weight"]
     assert not np.allclose(initial, final)
+    holdings = "\n".join(item.proto.body for item in app.container(key="tile_holdings").get("html"))
+    assert "Simulated " in holdings and "not an actual company" in holdings
 
 
 def test_overview_shows_one_test_and_separate_latest_weights():
     app = demo_app()
     assert not app.exception
     page = html_text(app)
+    nodes = list(app.main)
+    positions = [next(i for i, node in enumerate(nodes) if node is app.container(key=key))
+                 for key in ("tile_holdings", "tile_fitted_frontier", "tile_replay_proof", "tile_final_test")]
+    assert positions == sorted(positions)
+    assert page.index("Latest fitted holdings") < page.index("Latest fitted frontier")
+    assert page.index("Latest fitted frontier") < page.index("Historical replay · buy and hold")
     assert page.index("Historical replay · buy and hold") < page.index("What drove the result?")
-    assert page.index("What drove the result?") < page.index("Latest fitted frontier")
-    assert page.index("Latest fitted frontier") < page.index("Fit and replay use different holdings")
+    assert page.index("What drove the result?") < page.index("Fit and replay use different holdings")
     assert "annual volatility budget.</h1>" not in page
     assert 'class="pl-context"' not in page
     assert "The latest fit includes the replay dates" in page
@@ -285,10 +298,12 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     assert "Historical volatility" in page and "ordinary sample covariance" in page
     assert len(app.get("plotly_chart")) == 2
     assert "validation" not in page.lower() and "blend" not in page.lower()
-    holding_section = next(item for item in app.expander if item.label.startswith("Latest fitted holdings"))
-    assert holding_section.proto.expanded is True
-    assert any("The buy-and-hold replay did not meet" in item.value for item in app.warning)
+    holding_section = next(item for item in app.expander if item.label == "All weights, including negligible allocations")
+    assert holding_section.proto.expanded is False
+    assert not any('class="pl-holdings-grid"' in item.proto.body for panel in app.expander for item in panel.get("html"))
     assert any("These weights use all supplied prices" in item.value for item in app.caption)
+    assert any("They form the selected point on the frontier below" in item.value for item in app.caption)
+    assert any("the replay below uses a separate initial allocation" in item.value for item in app.markdown)
     assert app.segmented_control(key="view").options == ["Overview", "Data & method"]
     assert "risk_profile" not in {item.key for item in app.segmented_control}
     assert "comparison_method" not in {item.key for item in app.selectbox}
@@ -365,7 +380,8 @@ def test_top_replay_proof_precedes_chart_and_uses_actual_dominance(universe_data
     proof = proof_tile.container(key="math_proof")
     nodes = list(app.main)
     proof_position = next(index for index, node in enumerate(nodes) if node is proof_tile)
-    chart_position = next(index for index, node in enumerate(nodes) if node is app.get("plotly_chart")[0])
+    replay_chart = app.container(key="tile_final_test").get("plotly_chart")[0]
+    chart_position = next(index for index, node in enumerate(nodes) if node is replay_chart)
     assert proof_position < chart_position
     assert not any("math_proof" in {item.key for item in panel.container} for panel in app.expander)
     headline = "\n".join(item.proto.body for item in proof.get("html"))
@@ -439,7 +455,7 @@ def test_visible_replay_diagnosis_reconciles_the_saved_initial_allocation(monkey
     assert [item.proto.body for item in app.container(key="math_diagnosis").get("latex")] == equations
 
 
-def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_data):
+def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_data, offline_app):
     app = app_start().button(key="build").click().run()
     assert not app.exception and not app.error
     study = app.session_state.selection
@@ -448,9 +464,72 @@ def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_dat
     expected.insert(1, "Company", "Company " + expected.Symbol)
     pd.testing.assert_frame_equal(holdings, expected)
     assert set(holdings.Symbol) == set(universe_data.prices)
+    weights = study.latest[study.selected].weights
+    displayed = weights[weights > 1e-6].sort_values(ascending=False, kind="stable")
+    cards_html = "\n".join(item.proto.body for item in app.container(key="tile_holdings").get("html"))
+    cards = re.findall(r'<article class="pl-holding">(.*?)</article>', cards_html)
+    assert len(cards) == len(displayed)
+    for card, (symbol, weight) in zip(cards, displayed.items(), strict=True):
+        assert f">Company {symbol}</a></h4>" in card
+        assert f'<span class="pl-holding-symbol">{symbol}</span>' in card
+        assert f'<strong class="pl-holding-weight">{weight:.2%}</strong>' in card
+        assert f"<p>Provides products and services for {symbol}.</p>" in card
+    initial = study.test.allocations[study.selected].iloc[0]
+    replay_symbols = initial.index[initial > 1e-6]
+    requested = {symbol for kind, symbol in offline_app if kind == "company profile"}
+    assert requested == set(displayed.index) | set(replay_symbols)
+    replay_holdings = next(item.value for item in app.dataframe if "What it does" in item.value.columns)
+    expected_replay = study.test.holdings[study.selected].loc[replay_symbols].copy()
+    expected_replay.insert(0, "Company", [f"Company {symbol}" for symbol in replay_symbols])
+    expected_replay.insert(1, "What it does", [f"Provides products and services for {symbol}." for symbol in replay_symbols])
+    pd.testing.assert_frame_equal(replay_holdings, expected_replay)
     pd.testing.assert_frame_equal(app.session_state.coverage, universe_data.coverage)
     assert app.session_state.result[2]["universe_coverage"][-1]["reason"] == "Incomplete prices"
     assert any("not a historical reconstruction" in item.value for item in app.caption)
+
+
+@pytest.mark.parametrize("stalled", [False, True])
+def test_unavailable_company_profiles_keep_results_visible_without_source_claims(monkeypatch, universe_data, stalled):
+    import concurrent.futures
+    from threading import Event
+    from efficient_frontier import companies
+
+    release, started = Event(), Event()
+    pending = []
+    original_wait = concurrent.futures.wait
+
+    def unavailable(symbol):
+        started.set()
+        if stalled:
+            release.wait()
+        return {}
+
+    def short_wait(futures, *, timeout):
+        pending.extend(futures)
+        return original_wait(futures, timeout=min(timeout, .05))
+
+    monkeypatch.setattr(companies, "fetch_company_profile", unavailable)
+    monkeypatch.setattr(concurrent.futures, "wait", short_wait)
+    try:
+        app = app_start().button(key="build").click().run(timeout=5)
+        assert not app.exception and not app.error
+        assert started.is_set()
+        if stalled:
+            assert not release.is_set() and any(future.running() for future in pending)
+        study = app.session_state.selection
+        holdings = app.container(key="tile_holdings")
+        cards_html = "\n".join(item.proto.body for item in holdings.get("html"))
+        for symbol in study.latest[study.selected].weights.loc[lambda weights: weights > 1e-6].index:
+            assert f"<h4>Company {symbol}</h4>" in cards_html
+        assert "Company description unavailable from the data provider." in cards_html
+        assert "<a " not in cards_html
+        captions = "\n".join(item.value for item in holdings.caption)
+        assert "Yahoo Finance profiles" not in captions and "open its source" not in captions
+        assert len(app.get("plotly_chart")) == 2
+        assert app.container(key="tile_replay_proof").container(key="math_proof")
+    finally:
+        release.set()
+        original_wait([future for future in pending if not future.cancelled()], timeout=5)
 
 
 def test_partial_market_prices_keep_available_comparison_and_name_missing_etf(monkeypatch, universe_data):
@@ -782,7 +861,7 @@ def test_short_uploaded_history_shows_actual_fit_replay_and_frontier_windows(mon
     frontier = app.container(key="tile_fitted_frontier")
     description = next(item for item in frontier.markdown if item.value.startswith("**Full-history fit"))
     assert f"**Full-history fit · {first_return} to {last_return}.**" in description.value
-    assert "include the replay period" in description.value
+    assert "includes the replay dates" in description.value
     nodes = list(frontier)
     assert next(i for i, node in enumerate(nodes) if node is description) < next(
         i for i, node in enumerate(nodes) if node is frontier.get("plotly_chart")[0])
