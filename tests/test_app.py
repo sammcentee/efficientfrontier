@@ -141,8 +141,7 @@ def test_combined_default_and_risk_inputs_do_no_work_before_submit(monkeypatch, 
     assert app.button(key="edit_setup").label == "Settings"
     assert "try_demo" not in {item.key for item in app.button}
     assert len(app.get("latex")) == 3
-    assert html_text(app).count("Efficient Frontier Generator") == 1
-    assert "Constrained Mean–Variance Optimization" in html_text(app)
+    assert html_text(app).count("Efficient Frontier Analysis for US Equities") == 1
     assert 'class="pl-wordmark"' not in html_text(app)
     descriptions = "\n".join(item.value for item in app.markdown)
     for definition in ("sample mean returns", "annual covariance matrix", "initial weight vector",
@@ -213,7 +212,7 @@ def test_qqq_default_is_dated_and_does_not_overwrite_user_edits(monkeypatch, uni
     app.number_input(key="preview_target_vol").set_value(19.84).run()
     app.button(key="build").click().run()
     assert not app.exception and not app.error
-    assert "19.84% annual volatility budget" in html_text(app)
+    assert app.session_state.selection.settings["target_volatility"] == pytest.approx(.1984)
     assert r"b=0.1984\;(19.84\%)" in "\n".join(item.proto.body for item in app.get("latex"))
 
 
@@ -275,8 +274,11 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     app = demo_app()
     assert not app.exception
     page = html_text(app)
-    assert page.index("Fit and replay use different holdings") < page.index("Latest fitted frontier")
-    assert page.index("Latest fitted frontier") < page.rindex("Historical replay · buy and hold")
+    assert page.index("Historical replay · buy and hold") < page.index("What drove the result?")
+    assert page.index("What drove the result?") < page.index("Latest fitted frontier")
+    assert page.index("Latest fitted frontier") < page.index("Fit and replay use different holdings")
+    assert "annual volatility budget.</h1>" not in page
+    assert 'class="pl-context"' not in page
     assert "The latest fit includes the replay dates" in page
     assert "First historical fit" not in page
     assert "Historical volatility" in page and "ordinary sample covariance" in page
@@ -307,8 +309,7 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     assert not app.exception
     assert "open_mathematics" not in {item.key for item in app.button}
     assert not any(item.label.startswith("Mathematics ·") for item in app.expander)
-    assert "Mathematics · portfolio selection" in html_text(app)
-    assert "Mathematics · buy-and-hold returns" in html_text(app)
+    assert "Mathematics ·" not in html_text(app)
     equations = "\n".join(item.proto.body for item in app.get("latex"))
     # Adjacent raw strings must not turn spacing into unknown KaTeX commands.
     assert not re.search(r"\\(?:qquad|quad)[A-Za-z]", equations)

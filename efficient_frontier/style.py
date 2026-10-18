@@ -80,6 +80,7 @@ APP_ONLY_CSS = """
 .stApp:has(.st-key-cancel_build) [data-testid="stPopover"],
 .stApp:has(.st-key-study_work) [data-testid="stPopover"]{opacity:.35;pointer-events:none}
 .st-key-tile_skeleton>:not(:first-child){display:none}
+.stApp:has(.st-key-cancel_build) :is(.st-key-edit_setup,.pl-context,.st-key-localnav){display:none!important}
 
 /* 3 Nav bar */
 .st-key-localnav,[data-testid="stLayoutWrapper"]:has(>.st-key-localnav){position:sticky;top:0;z-index:990}
@@ -89,7 +90,7 @@ APP_ONLY_CSS = """
  box-shadow:0 0 0 100vmax rgba(245,245,247,.8);clip-path:inset(0 -100vmax)}
 .st-key-localnav::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;z-index:-1;background:rgba(0,0,0,.08);
  box-shadow:0 0 0 100vmax rgba(0,0,0,.08);clip-path:inset(0 -100vmax)}
-.pl-wordmark{font:600 19px/1 var(--pl-display);letter-spacing:-.02em;white-space:nowrap;color:var(--pl-ink)}
+.pl-wordmark{font:600 19px/1.2 var(--pl-display);letter-spacing:-.02em;color:var(--pl-ink)}
 .st-key-view [data-testid="stButtonGroup"] [role="radiogroup"]{background:none;padding:0;gap:20px}
 .st-key-view [data-testid="stButtonGroup"] button[data-variant="segmented_control"]{background:none!important;border:0!important;box-shadow:none!important;
  min-height:32px;padding:0 2px;color:var(--pl-ink-3)}
@@ -108,7 +109,6 @@ APP_ONLY_CSS = """
 /* Compact landing; result and work layouts keep their existing spacing. */
 .st-key-landing{gap:12px;padding:22px 0 20px;text-align:left}
 .st-key-landing .pl-display{margin:0;max-width:none;font-size:40px;line-height:44px;text-align:left}
-.st-key-landing .pl-method-title{display:block;margin-top:2px;font-size:21px;line-height:27px;font-weight:500;color:var(--pl-ink-2)}
 .st-key-landing [data-testid="stHorizontalBlock"]{gap:28px}
 .st-key-landing_math{gap:12px;min-width:0}
 .st-key-landing_estimates,.st-key-landing_optimization,.st-key-landing_growth{gap:8px;min-width:0}
@@ -155,7 +155,6 @@ APP_ONLY_CSS = """
 @media (max-width:640px){
  .st-key-landing{padding:22px 0 12px;gap:14px}
  .st-key-landing .pl-display{font-size:34px;line-height:38px}
- .st-key-landing .pl-method-title{font-size:18px;line-height:24px}
  .st-key-landing [data-testid="stHorizontalBlock"]{gap:16px}
  .st-key-landing_math .katex{font-size:.96em}
  .st-key-landing_controls{padding:16px}
@@ -180,6 +179,18 @@ APP_ONLY_CSS = """
 @supports (animation-timeline:view()){@media (prefers-reduced-motion:no-preference){
  [class*="st-key-tile_"]:not(.st-key-tile_holdings){animation:pl-rise linear both;animation-timeline:view();animation-range:entry 0% entry 160px}}}
 @keyframes pl-rise{from{opacity:0;transform:translateY(28px)}}
+
+/* Lead with the observed result, then its explanation. */
+.st-key-tile_final_test{padding:24px 28px!important;animation:none!important}
+.st-key-tile_final_test .pl-stats{margin:4px 0}
+.st-key-tile_final_test .pl-num{font-size:32px;line-height:36px}
+.pl-replay-findings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px}
+.pl-replay-findings p{margin:0;font-size:15px;line-height:22px;color:var(--pl-ink-2)}
+@media(max-width:640px){
+ .st-key-tile_final_test{padding:20px 16px!important}
+ .st-key-tile_final_test .pl-num{font-size:24px;line-height:28px}
+ .pl-replay-findings{grid-template-columns:1fr}
+}
 
 /* 7 Expanders as disclosure rows (1.65: details > summary > span > [icon span, label div]) */
 [data-testid="stExpander"] details{border:0;border-top:1px solid var(--pl-hair-soft);border-radius:0;background:transparent}
@@ -258,7 +269,7 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
  [data-testid="stMainBlockContainer"]{padding:0 16px 48px}
  .st-key-hero{padding:36px 0 32px}
  .pl-wordmark{font-size:17px}
- .st-key-localnav{min-height:48px}
+ .st-key-localnav{min-height:48px;gap:8px!important}
  .st-key-view [data-testid="stButtonGroup"] [role="radiogroup"]{gap:14px}
  .st-key-export [data-testid="stMarkdownContainer"]{display:none}
  .st-key-export button{width:36px;min-width:36px;height:36px;min-height:36px;padding:0;justify-content:center}
