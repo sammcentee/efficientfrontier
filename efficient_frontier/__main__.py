@@ -44,7 +44,9 @@ def write_report_bundle(bundle, output):
                                "evidence_summary.csv", "evidence_windows.csv", "evidence_relative_curve.csv",
                                "universe_coverage.csv", "policy.json", "latest_weights.csv", "latest_estimates.csv",
                                "fit_estimates.csv", "eligibility.csv", "latest/frontier.csv",
-                               "latest/frontier_weights.csv", "latest/fitted_comparison.csv")]
+                               "latest/frontier_weights.csv", "latest/fitted_comparison.csv",
+                               "out_of_sample/windows.csv", "out_of_sample/metrics.csv", "out_of_sample/weights.csv",
+                               "out_of_sample/eligibility.csv")]
         for kind in ("holdings", "allocations", "trades"):
             previous_backtests.extend((output / "backtests").glob(f"[0-9][0-9]_{kind}.csv"))
             for phase in ("validation", "test"):

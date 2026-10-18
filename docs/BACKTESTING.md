@@ -46,9 +46,39 @@ The initial and latest fits exclude stocks with at least 20 consecutive unchange
 
 Current membership and complete-history requirements create selection and survivorship bias. Prior review of the test dates also creates research hindsight. Correct time order alone does not make those dates fresh prospective evidence.
 
+## Walk-forward out-of-sample tests
+
+The Overview compares in-sample and out-of-sample results with five walk-forward tests. They use the same volatility budget, holding limit, covariance setting, fee rate, and holding rule as the replay. With `T` return intervals, window `k` uses these boundaries:
+
+```text
+s_k = floor(T × (0.5 + 0.1 × (k - 1)))    for k = 1..5
+e_k = s_(k+1) for k = 1..4, and e_5 = T
+```
+
+For each window:
+
+1. Fit the model on returns `1..s_k` only.
+2. Out of sample: start with cash at close `s_k`, buy at close `s_k + 1` after the entry fee, and hold through close `e_k`.
+3. In sample: start with cash at close `0`, buy the same weights at close `1` after the entry fee, and hold through close `s_k`.
+4. Measure equal-weight stocks, SPY, and QQQ on the same dates with the same rule.
+
+Both sides are measured from the purchase close. The cash interval and the entry fee are the same on both sides, but one interval weighs far more in a short test window than in a long fit window. The walk-forward measures therefore leave that interval out. Each side reports the annual arithmetic mean, realized volatility, CAGR, total return, and maximum drawdown of its held path:
+
+```text
+mu_in(k)  = p × mean(R[2..s_k])
+mu_out(k) = p × mean(R[s_k + 2..e_k])
+change    = mean over completed windows of (mu_out(k) - mu_in(k))
+```
+
+The test windows do not overlap. Together they cover the final 50% of returns. Each fit uses only stock prices through its own close `s_k`. For a fixed input stock list, later prices cannot change an earlier window. The universe loaders screen complete history over the whole period, so that screen can remove a stock from every window. The volatility budget and holding limit are fixed inputs for every window. The app's default budget uses QQQ's latest year, which ends after the walk-forward fits. The app says so when that default applies.
+
+A window whose fit is infeasible keeps its dates and reason. The averages use only the completed windows. Each window needs at least three fit returns and three test returns, so the history needs at least 29 returns. Shorter histories show the reason instead of results.
+
+The in-sample figure differs from the fitted mean `mu @ w`, which uses fixed weights. The optimizer favors stocks with high past means, within the volatility budget and holding limit. Part of each past mean is chance, so in-sample results tend to look better than later results. Equal-weight stocks use no return estimates. Their change between the two sides is a rough market control. Their holdings differ from the stock portfolio, so the control is approximate. The app reports the stock portfolio's average margin over equal-weight stocks on each side. Short windows also give noisy annual means.
+
 ## App exports
 
-The ZIP contains an offline HTML report and exact CSV data. `metadata.json` records the model revision, settings, initial training dates, test dates, sources, warnings, and test reasons.
+The ZIP contains an offline HTML report and exact CSV data. `metadata.json` records the model revision, settings, initial training dates, test dates, sources, warnings, and test reasons. Its `out_of_sample` entry records the walk-forward settings and notes, or the reason the history is too short.
 
 | File | Contents |
 | --- | --- |
@@ -66,6 +96,10 @@ The ZIP contains an offline HTML report and exact CSV data. `metadata.json` reco
 | `test/NN_allocations.csv` | Initial target weights for one path |
 | `test/NN_holdings.csv` | Asset exposures and profit contributions |
 | `test/NN_trades.csv` | Initial fit and purchase date, turnover, and entry fee |
+| `out_of_sample/windows.csv` | Fit and test dates, return counts, and any infeasible-fit reason for each walk-forward window, when the history allows five windows |
+| `out_of_sample/metrics.csv` | In-sample and out-of-sample results for every path in each window, measured from the purchase close, when at least one window has a feasible fit |
+| `out_of_sample/weights.csv` | Stock weights fitted for each window |
+| `out_of_sample/eligibility.csv` | Dated stock eligibility decisions for each walk-forward fit |
 | `universe_coverage.csv` | Source coverage and exclusions, when supplied |
 
 `metadata.json` maps each numbered file prefix to its path name and records `holding_policy: buy_and_hold`. Keep the input CSVs and all recorded settings to reproduce the calculation. The CLI accepts explicit assumptions even though the app fixes its training share, fees, and shrinkage. The stock model has no rebalance schedule.

@@ -22,6 +22,8 @@ from efficient_frontier.universe import download_universe_prices, fetch_nasdaq10
 from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates, selection_frontier, split_stock_prices, validate_selection_benchmarks
 from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, selection_replay_findings_html, REPLAY_LABEL
 from efficient_frontier.selection_report import selection_replay_dominance, selection_replay_return_bridge
+from efficient_frontier.selection_report import OUT_OF_SAMPLE_TITLE, out_of_sample_chart, out_of_sample_findings, out_of_sample_formats, out_of_sample_frame, out_of_sample_paths_frame, out_of_sample_text, percent, points
+from efficient_frontier.out_of_sample import run_out_of_sample
 
 
 st.set_page_config(page_title="Efficient Frontier Analysis for US Equities", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
@@ -121,6 +123,12 @@ def calculate_selection(prices, benchmark_prices, settings, target_volatility, m
 def calculate_frontier(study, prices, model_revision):
     """Retain the latest fitted frontier across view changes and exports."""
     return selection_frontier(study, prices)
+
+
+@st.cache_data(show_spinner=False, max_entries=2)
+def calculate_out_of_sample(study, prices, model_revision):
+    """Retain the walk-forward tests across view changes and exports."""
+    return run_out_of_sample(study, prices)
 
 
 # ----------------------------------------------------------------------------- state and callbacks
@@ -261,8 +269,14 @@ def make_report_callable():
     """Capture the completed selection and its inputs without recalculating on export."""
     _, prices, metadata = st.session_state.result
     selection = st.session_state.selection
-    return lambda: selection_report_zip(selection, prices, metadata,
-                                        frontier_data=calculate_frontier(selection, prices, SELECTION_MODEL_REVISION))
+    def export():
+        try:
+            out_of_sample = calculate_out_of_sample(selection, prices, SELECTION_MODEL_REVISION)
+        except ValueError:
+            out_of_sample = None
+        return selection_report_zip(selection, prices, metadata, out_of_sample=out_of_sample,
+                                    frontier_data=calculate_frontier(selection, prices, SELECTION_MODEL_REVISION))
+    return export
 
 
 def settings_frame(metadata):
@@ -710,54 +724,98 @@ def replay_points(value):
     return rf"{mantissa}\times10^{{{int(exponent)}}}"
 
 
-def selection_replay_proof(study):
-    settings = study.settings
-    comparisons = selection_replay_dominance(study.test)
-    portfolio = comparisons.loc[study.selected]
-    dominators = comparisons.loc[comparisons.classification == "reference_dominates"]
-    with st.container(key="math_proof"):
-        headline = ("This portfolio was dominated in the replay." if not dominators.empty
-                    else "No reference dominates this portfolio.")
-        st.html(f'<h2 class="pl-proof-title">{headline}</h2>')
-        st.markdown(f"**Replay period only · {day(settings['test_start'])} to {day(settings['test_end'])}**")
-        if not dominators.empty:
-            name = dominators.annual_mean.idxmax()
-            reference = dominators.loc[name]
-            mean_gap = reference.annual_mean - portfolio.annual_mean
-            risk_gap = reference.volatility - portfolio.volatility
-            mean_result = "a higher annual arithmetic mean" if mean_gap > 0 else "the same annual arithmetic mean"
-            risk_result = "lower realized volatility" if risk_gap < 0 else "the same realized volatility"
-            st.markdown(f"**{name}** delivered {mean_result} with {risk_result}.")
-            st.latex(r"\begin{aligned}"
-                     rf"\mu_B-\mu_P&\approx {replay_points(mean_gap)}\;\text{{pp}}\\[4pt]"
-                     rf"\sigma_B-\sigma_P&\approx {replay_points(risk_gap)}\;\text{{pp}}"
-                     r"\end{aligned}")
-        else:
-            st.write("The observed comparisons do not establish that a reference wins on mean and volatility. "
-                     "A higher mean with higher volatility is a trade-off. "
-                     "The proof below applies only when a reference has at least as high a mean and no higher volatility, "
-                     "with one strict improvement.")
-        st.markdown(r"$\boldsymbol{P}:$ stock portfolio; $\boldsymbol{B}:$ reference; $\boldsymbol{X}:$ either path; "
-                    r"$\boldsymbol{\mu}:$ net annual arithmetic mean; $\boldsymbol{\sigma}:$ realized annual volatility. "
-                    r"**pp:** percentage points; $\boldsymbol{U_\lambda}:$ mean–variance score; "
-                    r"$\boldsymbol{\lambda>0}:$ penalty on variance.")
-        st.latex(r"\begin{gathered}U_\lambda(X)=\mu_X-\frac{\lambda}{2}\sigma_X^2\\[14pt]"
-                 r"U_\lambda(B)-U_\lambda(P)\\[4pt]"
-                 r"=(\mu_B-\mu_P)+\frac{\lambda}{2}(\sigma_P^2-\sigma_B^2)>0\end{gathered}")
-        if not dominators.empty:
-            st.markdown("**Both terms are nonnegative and at least one is positive. "
-                        "The reference wins for every positive variance penalty.**")
-            st.write("The selected portfolio was not mean–variance efficient among these replay paths. "
-                     "Changing how much you penalize variance cannot reverse this ranking under this score.")
-        else:
-            st.markdown("**Under the stated conditions, both terms are nonnegative and at least one is positive. "
-                        "The reference would win for every positive variance penalty. These results do not meet those conditions.**")
-            st.write("The absence of a dominant reference does not establish efficiency against every possible allocation.")
-        st.caption(f"This verdict uses the final {1 - settings['train_fraction']:.0%} of return observations. "
-                   f"The latest frontier uses the full return history, {day(settings['initial_training_start'])} "
-                   f"to {day(settings['price_end'])}, including the replay dates. "
-                   "That separate fit does not guarantee later performance. This proof concerns the observed mean–variance score, "
-                   "not every utility function or future returns.")
+def budget_note(study, windows):
+    """State when the applied volatility budget is the QQQ default and that year ends after walk-forward fits."""
+    reference = st.session_state.get("qqq_reference")
+    if not reference or abs(study.settings["target_volatility"] - round(reference["volatility"] * 100, 2) / 100) >= 1e-12:
+        return ""
+    end = pd.Timestamp(reference["last_return_date"])
+    if end <= windows.fit_end.min():
+        return ""
+    which = "every walk-forward fit" if end > windows.fit_end.max() else "some walk-forward fits"
+    return (f"The volatility budget equals QQQ's volatility over the year through {day(end)}. "
+            f"That year ends after {which}, so those fits use one input from later dates. ")
+
+
+def shared_fit_note(study, windows):
+    shared = windows.index[windows.fit_end == pd.Timestamp(study.settings["initial_training_end"])]
+    return (f"Window {shared[0]} uses the same fit as the replay. The replay holds it longer and does not refit."
+            if len(shared) else "")
+
+
+def out_of_sample_section(study, prices):
+    try:
+        with st.spinner("Run the out-of-sample tests"):
+            result = calculate_out_of_sample(study, prices, SELECTION_MODEL_REVISION)
+    except ValueError as exc:
+        st.html(title_html(OUT_OF_SAMPLE_TITLE))
+        st.info(str(exc))
+        return
+    windows = result.windows
+    share = 1 - result.settings["first_fit_fraction"]
+    st.html(title_html(OUT_OF_SAMPLE_TITLE, f"{len(windows)} walk-forward tests · each fit uses only earlier stock prices"))
+    findings = out_of_sample_findings(result)
+    if findings is None:
+        st.warning("No window had a feasible fit, so there is no in-sample or out-of-sample result.")
+        for number, row in windows.iterrows():
+            st.caption(f"Window {number}: {row.status}")
+        return
+    headline, lines = out_of_sample_text(findings)
+    st.html(f'<h2 class="pl-oos-title">{html.escape(headline)}</h2>')
+    st.html(stat_strip(((percent(findings["in_sample"]), "In sample", "Average annual mean while held"),
+                        (percent(findings["out_of_sample"]), "Out of sample", "Average annual mean while held"),
+                        (points(findings["change"]), "Change", "Out of sample minus in sample"))))
+    st.write(" ".join(lines))
+    st.plotly_chart(out_of_sample_chart(result), width="stretch", theme=None, config=PLOTLY_CONFIG)
+    frame = out_of_sample_frame(result)
+    st.dataframe(frame.style.format(out_of_sample_formats(frame)), width="stretch", column_config={"_index": "Window"})
+    months = 12 * findings["test_returns"] / study.settings["periods_per_year"]
+    length = (f"roughly {months:.0f} month{'s' if round(months) != 1 else ''}" if months >= 1 else "less than one month")
+    st.caption(f"Each fit starts on {day(windows.fit_start.iloc[0])} and ends at the close before its test dates. "
+               f"Each test window has about {findings['test_returns']:,} returns, {length}. "
+               "Annual means from short windows are noisy. "
+               "Both sides are measured from the purchase close, so the cash interval and the entry fee do not enter these figures. "
+               "They therefore differ from the fitted mean and from the replay below, which includes its entry interval. "
+               + shared_fit_note(study, windows))
+    with st.expander("Every path in each window"):
+        paths = out_of_sample_paths_frame(result)
+        st.dataframe(paths.style.format(out_of_sample_formats(paths)), width="stretch")
+        st.caption("Annual mean and realized annual volatility of each buy-and-hold path, measured from the purchase close. "
+                   "The budget limits fitted volatility at each fit. Realized volatility can be higher on either side.")
+    for number, row in windows.loc[windows.status != ""].iterrows():
+        st.warning(f"Window {number} has no result. {row.status}")
+    if result.notes:
+        with st.expander("Notes from the walk-forward fits"):
+            for note in result.notes:
+                st.write(note)
+    with st.container(key="math_out_of_sample"):
+        st.markdown("**How each test works**")
+        st.write("Window k fits the model on returns 1 to sₖ only. Interval sₖ+1 stays in cash. "
+                 "The portfolio buys at close sₖ+1, pays the entry fee, and holds to close eₖ with no later trades. "
+                 "The next window adds those returns to its fit and repeats. "
+                 f"The {len(windows)} test windows do not overlap. Together they cover the final {share:.0%} of returns.")
+        st.latex(r"\underbrace{r_1,\;\dots,\;r_{s_k}}_{\text{fit: choose }w_k}\;\Big|\;"
+                 r"\underbrace{r_{s_k+1}}_{\text{cash, buy}}\;\Big|\;"
+                 r"\underbrace{r_{s_k+2},\;\dots,\;r_{e_k}}_{\text{test: hold }w_k}")
+        st.write("The in-sample result buys the same weights wₖ at close 1, after one cash interval, and holds them to close sₖ. "
+                 "Both sides use the same rule. Both are measured from the purchase close.")
+        st.latex(r"\mu^{\rm in}_k=\frac{A}{s_k-1}\sum_{t=2}^{s_k}R^{(k)}_t,\qquad "
+                 r"\mu^{\rm out}_k=\frac{A}{e_k-s_k-1}\sum_{t=s_k+2}^{e_k}R^{(k)}_t")
+        st.latex(r"\bar\Delta=\frac{1}{|C|}\sum_{k\in C}\left(\mu^{\rm out}_k-\mu^{\rm in}_k\right)"
+                 rf"\approx {replay_points(findings['change'])}\;\text{{pp}},\qquad |C|={findings['completed']}")
+        st.markdown(r"$\boldsymbol{r_t}:$ stock returns; $\boldsymbol{w_k}:$ weights fitted on returns 1 to $\boldsymbol{s_k}$; "
+                    r"$\boldsymbol{R^{(k)}_t}:$ return of $\boldsymbol{w_k}$ bought once and held; "
+                    rf"$\boldsymbol{{A={study.settings['periods_per_year']:g}}}:$ observations per year; "
+                    r"$\boldsymbol{C}:$ the windows with a feasible fit; **pp:** percentage points.")
+        st.markdown("**Why in-sample results tend to look better**")
+        st.write("The optimizer favors stocks with high past means, within the volatility budget and holding limit. "
+                 "Part of each past mean is chance. The optimizer cannot separate chance from a lasting return, so it buys both. "
+                 "On its own fit dates, the allocation therefore tends to look better than it does later. "
+                 "Equal-weight stocks use no return estimates, so their change between the two sides is a rough market control. "
+                 "Their holdings differ from the stock portfolio, so the control is approximate.")
+        st.caption("Every window uses the same input stock list. A current membership list favors surviving companies. "
+                   + budget_note(study, windows)
+                   + "You can already know these dates, so these are historical checks, not forecasts.")
 
 
 def selection_replay_explanation(study, prices):
@@ -765,7 +823,7 @@ def selection_replay_explanation(study, prices):
     portfolio = comparisons.loc[study.selected]
     bridge = selection_replay_return_bridge(study, prices)
     with st.container(key="math_diagnosis"):
-        st.markdown("### The measures behind the proof")
+        st.markdown("### Compare the replay with each reference")
         st.write("The chart compares compound wealth. The efficient frontier compares arithmetic mean and volatility. "
                  "Use the same return measure on both sides before calling a result dominated.")
         st.latex(r"\begin{aligned}G_X&=\prod_{t=1}^{N}(1+R_{X,t})-1\\[6pt]"
@@ -849,7 +907,7 @@ def selection_period(study, title, benchmark_note, settings):
             f'<span>{settings["initial_training_returns"]:,} returns choose the replay holdings.</span></article>'
             f'<article><h3>Replay · final {1 - settings["train_fraction"]:.0%}</h3>'
             f'<p>{day(settings["test_start"])} to {day(settings["test_end"])}</p>'
-            f'<span>{settings["test_returns"]:,} later returns form the chart and proof.</span></article>'
+            f'<span>{settings["test_returns"]:,} later returns form the replay chart and table.</span></article>'
             '<article><h3>Latest frontier · full history</h3>'
             f'<p>{day(settings["initial_training_start"])} to {day(settings["price_end"])}</p>'
             '<span>A separate fit, including the replay dates.</span></article></div>'
@@ -931,9 +989,8 @@ def overview():
         if metadata.get("candidate_note"):
             st.info(metadata["candidate_note"])
     st.html('<div id="pl-market"></div>')
-    with st.container(border=True, key="tile_replay_proof"):
-        st.markdown("**Historical replay · separate initial allocation**")
-        selection_replay_proof(selection)
+    with st.container(border=True, key="tile_out_of_sample"):
+        out_of_sample_section(selection, prices)
     with st.container(border=True, key="tile_final_test"):
         selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection), selection.settings)
         selection_replay_explanation(selection, prices)
@@ -980,8 +1037,11 @@ def data_method():
             "This does not maximize compound growth or the return-to-volatility ratio.\n"
             "3. **Buy once and hold.** Use the first 70% of return observations for one initial fit. "
             "Buy once at the next close, then let those holdings drift through the remaining 30%. "
-            "There are no later refits or rebalances.\n"
-            "4. **Fit the latest weights.** Apply the same model to all supplied history. "
+            "The replay has no later refits or rebalances.\n"
+            "4. **Test out of sample.** Fit separately on the first 50%, 60%, 70%, 80%, and 90% of returns. "
+            "Hold each allocation through the next tenth of the history, which its fit did not use. "
+            "Compare each result with the same allocation on its own fit dates.\n"
+            "5. **Fit the latest weights.** Apply the same model to all supplied history. "
             "These weights describe a separate starting allocation. They do not produce the replay."
         )
         st.caption("The initial target uses prices through the prior close and trades at the next close. "

@@ -776,7 +776,9 @@ def test_reruns_clean_only_known_selection_exports(tmp_path):
     generated = ["policy.json", "latest_weights.csv", "latest_estimates.csv", "fit_estimates.csv", "eligibility.csv",
                  "latest/frontier.csv", "latest/frontier_weights.csv", "latest/fitted_comparison.csv",
                  "validation/metrics.csv", "validation/equity.csv", "validation/01_allocations.csv",
-                 "test/metrics.csv", "test/equity.csv", "test/01_holdings.csv", "test/01_trades.csv"]
+                 "test/metrics.csv", "test/equity.csv", "test/01_holdings.csv", "test/01_trades.csv",
+                 "out_of_sample/windows.csv", "out_of_sample/metrics.csv", "out_of_sample/weights.csv",
+                 "out_of_sample/eligibility.csv"]
     write_report_bundle(bundle(["report.html", *generated]), tmp_path)
     notes = [tmp_path / "notes.txt", tmp_path / "validation" / "notes.csv", tmp_path / "test" / "01_custom.csv"]
     for path in notes:

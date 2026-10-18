@@ -1,8 +1,8 @@
 # SPY and QQQ benchmark comparisons
 
-A benchmark gives a reference for historical portfolio results. The app compares one historical-mean portfolio with equal-weight stocks, SPY, and QQQ in one later test. The result status describes that historical comparison. It does not establish future outperformance. Separate legacy CLI and API tools retain the statistical analysis below.
+A benchmark gives a reference for historical portfolio results. The app compares one historical-mean portfolio with equal-weight stocks, SPY, and QQQ in one later replay and in five walk-forward test windows. The result status describes the replay comparison. It does not establish future outperformance. Separate legacy CLI and API tools retain the statistical analysis below.
 
-The stock model and all three references buy once and hold. Equal-weight stocks start with equal weights across initially eligible stocks, then let those weights drift. All rows use the same test dates, entry delay, and purchase fee rate. There are no later trades or terminal sales. None of the three references is scaled to the model's volatility budget.
+The stock model and all three references buy once and hold. Equal-weight stocks start with equal weights across initially eligible stocks, then let those weights drift. In the replay, all rows use the same test dates, entry delay, and purchase fee rate. The walk-forward windows use the same rule but are measured from the purchase close, without the entry interval and fee. There are no later trades or terminal sales. None of the three references is scaled to the model's volatility budget.
 
 Read each row's return and realized volatility together. Higher return with lower volatility means that reference beat the portfolio rule in this test. These later outcomes do not measure whether the optimizer found the best portfolio under its earlier estimates. The fitted frontier, fit table, and `fit_estimates.csv` show the estimates separately from the later test. SPY and QQQ frontier markers use the same historical dates as the stock fit.
 
@@ -100,7 +100,7 @@ The selected trading fee is separate from fund expenses already reflected in ETF
 
 ## Exports
 
-In the app, select **Export**, or press **E** when no text field has focus. The bundle contains the single later test and its descriptive status.
+In the app, select **Export**, or press **E** when no text field has focus. The bundle contains the later replay, its descriptive status, and the walk-forward windows.
 
 | File | Contents |
 | --- | --- |
@@ -110,7 +110,8 @@ In the app, select **Export**, or press **E** when no text field has focus. The 
 | `test/NN_allocations.csv` | Each path's initial target weights |
 | `test/NN_holdings.csv` | Each path's asset exposure and profit contributions |
 | `test/NN_trades.csv` | Each path's initial purchase date, turnover, and entry fee |
-| `metadata.json` | Settings, model revision, sources, test reasons, and numbered file map |
+| `out_of_sample/metrics.csv` | Walk-forward results for the model and all available references, when at least one window has a feasible fit |
+| `metadata.json` | Settings, model revision, sources, test reasons, walk-forward settings, and numbered file map |
 
 The report also retains exact stock prices, latest fitted weights, and eligibility records. See the [complete app export list](BACKTESTING.md#app-exports). The statistical files below belong to the separate legacy tools.
 

@@ -65,9 +65,13 @@ The model maximizes historical arithmetic mean return within the volatility budg
 
 ## Latest fit and historical replay
 
-Overview starts with the latest fitted holdings, then their mean–variance frontier, then the replay proof. Each holding shows its company name, weight, ticker, and a short business description when available. These descriptions come from current Yahoo Finance profiles; they are not historical records. CSV and demo studies stay offline and clearly label missing or simulated company information. The full weights remain available below the cards.
+Overview starts with the latest fitted holdings, then their mean–variance frontier, then an in-sample and out-of-sample comparison. Each holding shows its company name, weight, ticker, and a short business description when available. These descriptions come from current Yahoo Finance profiles; they are not historical records. CSV and demo studies stay offline and clearly label missing or simulated company information. The full weights remain available below the cards.
 
-The proof concerns the separate initial allocation used in the historical replay. A reference that improves mean or volatility without worsening the other wins for every positive variance penalty. If no reference dominates, the verdict says so. The buy-and-hold growth chart, replay metrics, and exact return reconciliation follow.
+The comparison uses five walk-forward tests. The first fit uses the first 50% of returns. The remaining returns form five consecutive test windows of nearly equal length. Each window fits the model on all earlier stock prices only. It buys once at the next close and holds through that window, with no later trades. The in-sample result buys the same allocation and holds it over its own fit dates. Both sides use the same holding rule. Both are measured from the purchase close, so the one cash interval and the entry fee do not weigh more on the short test window.
+
+The section shows the average annual mean on each side and one chart row for each window. A table gives the stock portfolio and equal-weight stocks on both sides of each window. An expander gives every path, with annual mean and volatility. SPY, QQQ, and equal-weight stocks use the same dates as the stock portfolio. Equal-weight stocks use no return estimates, so their change between the two sides is a rough market control. Their holdings differ from the stock portfolio, so the control is approximate.
+
+In-sample results tend to look better. The optimizer favors stocks with high past means, within the volatility budget and holding limit, and part of each past mean is chance. The default volatility budget uses QQQ's latest year, which ends after the walk-forward fits. The section says so when that default applies. A window with an infeasible fit keeps its dates and the reason. Histories shorter than 29 returns cannot form five windows, and the section says so. The buy-and-hold growth chart, replay metrics, and exact return reconciliation follow.
 
 The date summary above the chart separates the initial fit (first 70% of returns), replay (final 30%), and latest frontier (all returns). These are observation counts, not fixed calendar periods. Five years of daily prices gives roughly three and a half years for the initial fit and eighteen months for the replay. Annualized metrics describe units, not a one-year test. Each run shows its actual return dates.
 
@@ -79,6 +83,7 @@ The efficient frontier depends on the return estimates, covariance estimates, an
 | Fitted volatility | Sample volatility from the same fitting dates and target weights. The budget limits this estimate. |
 | Fitted frontier | Feasible stock portfolios with the highest estimated return at each risk level. |
 | Replay mean and volatility | Net results after one initial purchase, with no further trades and weights that drift with prices. |
+| In-sample and out-of-sample means | Annual means of one walk-forward allocation while held, from the purchase close, on its fit dates and on its later test window. |
 
 **The latest fit includes the replay dates. The replay did not use the latest holdings.** The comparison below the replay shows the two calculations side by side. **Latest fitted frontier · in-sample** uses one allocation chosen from the full history. **Historical replay · buy and hold** buys one allocation from the initial training sample and holds it through the later prices. Both panels report an annual arithmetic mean, but they use different dates, weights, and fee treatment.
 
@@ -94,6 +99,7 @@ The app fixes the other assumptions:
 
 - Use the first 70% of return observations for the initial fit and the final 30% for the later test.
 - Fit once on the initial training sample. Buy once, then hold without rebalancing.
+- For the walk-forward tests, fit separately on the first 50%, 60%, 70%, 80%, and 90% of returns. Hold each allocation through the next tenth of the history only.
 - Charge 10 basis points, or 0.10%, on the initial purchase. Do not charge a terminal sale.
 - Use ordinary sample covariance, without shrinkage.
 
@@ -159,7 +165,7 @@ Yahoo/yfinance is unofficial. The [yfinance project](https://github.com/ranarous
 
 ## SPY and QQQ comparisons
 
-The app runs one later test as part of **Build portfolio**. It compares the model with equal-weight eligible stocks, SPY, and QQQ. All four paths buy once and hold. These three references have no volatility budget.
+The app runs one later replay and five walk-forward tests as part of **Build portfolio**. This section describes the replay. It compares the model with equal-weight eligible stocks, SPY, and QQQ. All four paths buy once and hold. These three references have no volatility budget.
 
 Equal-weight stocks give each initially eligible stock the same starting weight, then let those weights drift. SPY tracks the S&P 500, and QQQ tracks the Nasdaq-100. These references do not match the model's volatility. Compare each row's return and realized volatility together.
 
@@ -196,7 +202,7 @@ Yahoo inputs include SPY/QQQ comparisons by default. CSV analysis stays offline 
 
 The stock model uses long-only, fully invested weights and a 10% holding limit by default. Pass `--max-weight` to set a different limit. A 1% limit needs at least 100 eligible assets. The cap applies to the initial target weights. Prices can move actual weights above it during the holding period.
 
-The default destination is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and exact CSV inputs and results. The app export contains the later test, latest weights, fitted estimates, and dated eligibility decisions. See the [export list](BACKTESTING.md#app-exports).
+The default destination is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and exact CSV inputs and results. The app export contains the later test, the walk-forward windows, latest weights, fitted estimates, and dated eligibility decisions. See the [export list](BACKTESTING.md#app-exports).
 
 Generated files in the destination are replaced on rerun. Use a separate `--output` folder to preserve an experiment. A shorter rerun removes obsolete generated files and preserves unrelated files. The HTML includes Plotly JavaScript and works offline. Its **Print / save PDF** button uses the browser's print engine.
 
