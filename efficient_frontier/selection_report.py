@@ -108,6 +108,34 @@ def selection_comparison_html(study, prices: pd.DataFrame) -> str:
     )
 
 
+def selection_replay_findings_html(study) -> str:
+    """Compare net total returns and observed risk with each available ETF."""
+    selected = study.metrics.loc[SELECTED]
+
+    def difference(value, reference):
+        points = 100 * (value - reference)
+        if points == 0:
+            return "the same"
+        amount = f"{abs(points):.2f}"
+        size = "less than 0.01 percentage point" if amount == "0.00" else f"{amount} percentage points"
+        return f"{size} {'higher' if points > 0 else 'lower'}"
+
+    rows, missing = [], []
+    for symbol, name in BENCHMARK_NAMES.items():
+        if name not in study.metrics.index:
+            missing.append(symbol)
+            continue
+        reference = study.metrics.loc[name]
+        rows.append(
+            f'<p><strong>Versus unscaled {symbol} in this replay:</strong> net total return was '
+            f'{difference(selected.total_return, reference.total_return)}, with realized annual volatility '
+            f'{difference(selected.volatility, reference.volatility)}.</p>'
+        )
+    if missing:
+        rows.append(f'<p>{" and ".join(missing)} comparison {"is" if len(missing) == 1 else "data are"} unavailable for this replay.</p>')
+    return '<div class="pl-replay-findings">' + "".join(rows) + '</div>'
+
+
 def selection_replay_verdict_html(study) -> str:
     """State observed mean/volatility dominance without changing the CAGR checks."""
     selected = study.metrics.loc[SELECTED]

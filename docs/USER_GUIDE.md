@@ -1,4 +1,4 @@
-# Efficient Frontier user guide
+# Efficient Frontier Analysis for US Equities user guide
 
 Start with the [README quick start](../README.md#setup). This guide covers setup details, input rules, and command-line reports. The [backtest guide](BACKTESTING.md) defines the model and accounting.
 
@@ -38,9 +38,9 @@ The synthetic demo and CSV analysis work offline after setup. Yahoo prices and t
 
 ## Settings and workflow
 
-The **Efficient Frontier Generator: Constrained Mean–Variance Optimization** opening page shows the model equations before any buttons. Two compact number fields set **Annual volatility budget** and **Holding limit**. The **Settings** button below the introduction opens the stock source, price history, and data options. Select **Demo** there for synthetic prices.
+The **Efficient Frontier Analysis for US Equities** opening page introduces the model with typeset equations. Two compact number fields set **Annual volatility budget** and **Holding limit**. The **Settings** button opens the stock source, price history, and data options. Select **Demo** there for synthetic prices.
 
-The default universe combines SPY stock holdings and Nasdaq-100 stocks. Select **Build portfolio** to download the stock prices and run the model.
+The default universe combines SPY stock holdings and Nasdaq-100 stocks. Select **Build portfolio** to download the stock prices and run the model. During calculation, the app shows progress and **Cancel**. **Settings** returns in the results navigation.
 
 | Setting | Effect |
 | --- | --- |
@@ -65,6 +65,8 @@ The model maximizes historical arithmetic mean return within the volatility budg
 
 ## Latest fit and historical replay
 
+Results start with the buy-and-hold growth chart, portfolio return, realized volatility, drawdown, and concise SPY/QQQ comparisons. The complete replay metrics follow. The latest fitted frontier, holdings, and mathematical explanations appear later.
+
 The efficient frontier depends on the return estimates, covariance estimates, and allowed holdings. The optimizer finds the highest fitted mean within your limits. It does not maximize CAGR or the return-to-volatility ratio. It cannot ensure that the chosen stocks will have the highest later return.
 
 | Number | What it measures |
@@ -74,7 +76,7 @@ The efficient frontier depends on the return estimates, covariance estimates, an
 | Fitted frontier | Feasible stock portfolios with the highest estimated return at each risk level. |
 | Replay mean and volatility | Net results after one initial purchase, with no further trades and weights that drift with prices. |
 
-**The latest fit includes the replay dates. The replay did not use the latest holdings.** The opening comparison shows the two calculations side by side. **Latest fitted frontier · in-sample** uses one allocation chosen from the full history. **Historical replay · buy and hold** buys one allocation from the initial training sample and holds it through the later prices. Both panels report an annual arithmetic mean, but they use different dates, weights, and fee treatment.
+**The latest fit includes the replay dates. The replay did not use the latest holdings.** The comparison below the replay shows the two calculations side by side. **Latest fitted frontier · in-sample** uses one allocation chosen from the full history. **Historical replay · buy and hold** buys one allocation from the initial training sample and holds it through the later prices. Both panels report an annual arithmetic mean, but they use different dates, weights, and fee treatment.
 
 SPY and QQQ use the same dates as the stocks within each panel. Their results also change between panels because the date ranges differ. They do not enter the stock allocations. **Data & method** shows the initial and latest fitted estimates. These are two separate allocations, not a sequence of replay trades.
 

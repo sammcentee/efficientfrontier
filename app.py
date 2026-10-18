@@ -18,10 +18,10 @@ from efficient_frontier.risk_reference import load_qqq_volatility_reference
 from efficient_frontier.style import APP_CSS, PLOTLY_CONFIG
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
 from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates, selection_frontier, split_stock_prices, validate_selection_benchmarks
-from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, REPLAY_LABEL
+from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, selection_replay_findings_html, REPLAY_LABEL
 
 
-st.set_page_config(page_title="Efficient Frontier Generator: Constrained Mean–Variance Optimization", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Efficient Frontier Analysis for US Equities", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
 st.html(f"<style>{APP_CSS}</style>")
 
 MARKETS = ["S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers", "Original 60 holdings", "Upload CSV", "Demo"]
@@ -493,8 +493,7 @@ def hero_work():
     setup = st.session_state.setup
     plan = resolve(setup)
     with st.container(key="hero", horizontal_alignment="center"):
-        context_line(story.context_setup_html(setup))
-        st.html('<h1 class="pl-display pl-working">Build and check one candidate.</h1>')
+        st.html('<h1 class="pl-display pl-working">Building your portfolio</h1>')
         steps = st.empty()
         labels = {2: "Load the selected prices", 3: "Prepare the risk budget", 4: "Fit one stock model, then replay buy and hold"}
         steps.info("Read the selected universe")
@@ -543,8 +542,7 @@ def welcome_or_error():
     error = st.session_state.get("build_error")
     if error is None:
         with st.container(key="landing"):
-            st.html('<h1 class="pl-display">Efficient Frontier Generator '
-                    '<span class="pl-method-title">Constrained Mean–Variance Optimization</span></h1>')
+            st.html('<h1 class="pl-display">Efficient Frontier Analysis for US Equities</h1>')
             mathematics, controls = st.columns([2.2, 1], gap="large")
             with mathematics:
                 welcome_mathematics(setup)
@@ -610,7 +608,6 @@ def risk_reference():
 def selection_fit_math(study):
     settings = study.settings
     with st.container(key="math_fit"):
-        st.html(title_html("Mathematics · portfolio selection"))
         st.markdown("**Estimate returns and covariance**")
         st.write("For each stock, use simple returns between consecutive adjusted prices. "
                  "The fit contains m return observations. A is the number of observations per year.")
@@ -650,7 +647,6 @@ def selection_replay_math(study):
     settings = study.settings
     fee = settings["cost_bps"] / 10_000
     with st.container(key="math_replay"):
-        st.html(title_html("Mathematics · buy-and-hold returns"))
         st.markdown("**One purchase, then no rebalancing**")
         st.write(f"Fit once through {day(settings['initial_training_end'])}. "
                  f"Buy at the next close, {day(settings['test_start'])}. "
@@ -691,42 +687,46 @@ def selection_replay_math(study):
 
 def selection_period(study, title, benchmark_note):
     st.html(title_html(title))
-    st.write("Choose the stock allocation once using earlier prices, buy once, then let the holdings drift. "
-             "This path does not use the latest fitted weights.")
+    st.caption(f"{day(study.equity.index[1])} to {day(study.equity.index[-1])}. "
+               "Bought once using earlier prices. The latest fitted weights did not produce this path.")
+    chart = selection_chart(study)
+    chart.update_layout(height=360, legend={"maxheight": 120})
+    st.plotly_chart(chart, width="stretch", theme=None, config=PLOTLY_CONFIG)
+    result = study.metrics.loc["Historical-mean portfolio"]
+    st.html(stat_strip(((f"{result.total_return:.2%}", "Net total return", "Over the replay period"),
+                        (f"{result.volatility:.2%}", "Realized volatility", "Annualized"),
+                        (f"{result.max_drawdown:.2%}", "Maximum drawdown", "Largest fall from a peak"))))
+    st.html(selection_replay_findings_html(study))
     verdict = selection_replay_verdict_html(study)
     if verdict:
         st.html(verdict)
-    st.caption(f"Return dates: {day(study.equity.index[1])} to {day(study.equity.index[-1])}. "
-               f"Starting capital at the {day(study.equity.index[0])} close. "
-               "All rows use the same dates and fee rate. Each row measures its own net return path. "
-               "Annual mean scales the average return to one year. CAGR measures compound growth.")
     columns = ["annual_mean", "cagr", "volatility", "max_drawdown"]
     metrics = selection_metrics_frame(study)[columns].rename(index={"Historical-mean portfolio": REPLAY_LABEL})
     st.dataframe(metrics.style.format("{:.2%}", na_rep="—"), width="stretch",
                  column_config={"_index": "Rule or baseline", **SELECTION_METRIC_LABELS})
-    st.plotly_chart(selection_chart(study), width="stretch", theme=None, config=PLOTLY_CONFIG)
-    st.caption(benchmark_note)
+    st.caption("All rows use the same dates and fee rate. Annual mean scales the average return to one year; "
+               "CAGR measures compound growth. " + benchmark_note)
 
 
 def overview():
     _, prices, metadata = st.session_state.result
     selection = st.session_state.selection
-    with st.container(key="hero", horizontal_alignment="center"):
-        context_line(story.context_result_html(metadata, prices))
-        st.html(f'<h1 class="pl-display">{metadata["target_volatility"]:.2%} annual volatility budget.</h1>')
-        st.html(stat_strip(((f"{metadata['target_volatility']:.2%}", "Annual volatility budget", "Fitted ceiling"),
-                            (f"{metadata['max_weight']:.0%}", "Holding limit", "Maximum target weight"))))
+    st.html('<div id="pl-market"></div>')
+    with st.container(border=True, key="tile_final_test"):
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
-        if metadata.get("candidate_note"):
-            st.info(metadata["candidate_note"])
-    with st.container(border=True, key="tile_fit_replay"):
-        st.html(selection_comparison_html(selection, prices))
+        selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection))
+    with st.container(border=True, key="tile_replay_drivers"):
+        st.html(story.result_drivers_html(selection.test, selection.selected))
+        with st.expander("Replay holdings and contributions"):
+            st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
+                         column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}})
     with st.container(border=True, key="tile_fitted_frontier"):
         frontier_data = calculate_frontier(selection, prices, SELECTION_MODEL_REVISION)
-        st.html(selection_frontier_summary_html(selection, prices, frontier_data))
         st.plotly_chart(selection_frontier_chart(frontier_data, selection), width="stretch", theme=None, config=PLOTLY_CONFIG)
-        selection_fit_math(selection)
+        st.html(selection_frontier_summary_html(selection, prices, frontier_data))
+        if metadata.get("candidate_note"):
+            st.info(metadata["candidate_note"])
     names = story.company_names(st.session_state.get("coverage"))
     portfolio = selection.latest[selection.selected]
     with st.expander(f"Latest fitted holdings · fitted through {day(prices.index[-1])}", expanded=True):
@@ -740,14 +740,10 @@ def overview():
         st.dataframe(frame, hide_index=True, width="stretch", column_config={"Weight": st.column_config.NumberColumn("Weight", format="percent")})
         for note in stale_price_notes(prices):
             st.warning(note)
-    st.html('<div id="pl-market"></div>')
-    with st.container(border=True, key="tile_final_test"):
-        selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection))
+    with st.container(border=True, key="tile_fit_replay"):
+        st.html(selection_comparison_html(selection, prices))
+        selection_fit_math(selection)
         selection_replay_math(selection)
-        st.html(story.result_drivers_html(selection.test, selection.selected))
-        with st.expander("What drove the stock rule’s test result?"):
-            st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
-                         column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}})
     if selection.warnings:
         st.warning(selection.warnings[0])
         with st.expander("All data and model notes"):
@@ -767,7 +763,6 @@ def data_method():
     selection = st.session_state.selection
     study = selection.test
     coverage = st.session_state.get("coverage")
-    context_line(story.context_result_html(metadata, prices), align="left")
     st.html('<h1 class="pl-page">Data &amp; method</h1>')
     with st.container(border=True, key="tile_method"):
         st.html(title_html("One stock model"))
@@ -849,12 +844,13 @@ current_selection = (ready and "selection" in st.session_state
                      and st.session_state.result[2].get("selection_model_revision") == SELECTION_MODEL_REVISION)
 busy = bool(st.session_state.get("pending_build"))
 
-if ready:
+if ready and not busy:
     with st.container(key="localnav", horizontal=True, vertical_alignment="center", gap="medium"):
-        st.html('<span class="pl-wordmark">Efficient Frontier Generator</span>', width="stretch")
+        st.html('<span class="pl-wordmark">Efficient Frontier Analysis for US Equities</span>', width="stretch")
         st.segmented_control("View", ["Portfolio", "Data & method"], key="view", required=True,
                              format_func=lambda name: story.VIEW_LABELS.get(name, name),
                              label_visibility="collapsed", disabled=busy)
+        st.button("Settings", key="edit_setup", type="tertiary", icon=":material/tune:", shortcut="S", on_click=open_setup)
         if current_selection:
             st.download_button("Export", data=make_report_callable(), file_name="portfolio-lab.zip", mime="application/zip",
                                key="export", type="primary", icon=":material/ios_share:", on_click="ignore", shortcut="E",

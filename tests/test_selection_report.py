@@ -13,9 +13,9 @@ import pytest
 
 from efficient_frontier.backtest import BacktestStudy
 from efficient_frontier.core import Portfolio
-from efficient_frontier.selection import selection_fit_estimates, selection_frontier
+from efficient_frontier.selection import BENCHMARK_NAMES, SELECTED, selection_fit_estimates, selection_frontier
 from efficient_frontier.selection_report import (
-    LATEST_LABEL, REPLAY_LABEL, selection_replay_verdict_html,
+    LATEST_LABEL, REPLAY_LABEL, selection_replay_findings_html, selection_replay_verdict_html,
     selection_benchmark_note, selection_chart, selection_fit_summary_html, selection_frontier_chart,
     selection_frontier_summary_html,
     selection_report_html, selection_report_zip,
@@ -187,6 +187,53 @@ def test_replay_verdict_uses_mean_volatility_dominance_not_cagr(selection_inputs
         assert "QQQ dominated the stock rule" in verdict
         assert f"{mean:.2%} versus 28.27%" in verdict
         assert f"{volatility:.2%} versus 19.22%" in verdict
+
+
+@pytest.mark.parametrize("total_return,volatility,return_finding,risk_finding", [
+    (.6, .18, "20.00 percentage points higher", "2.00 percentage points lower"),
+    (.2, .24, "20.00 percentage points lower", "4.00 percentage points higher"),
+    (.4, .20, "the same", "the same"),
+    (-.1, .20, "50.00 percentage points lower", "the same"),
+    (.400001, .199999, "less than 0.01 percentage point higher", "less than 0.01 percentage point lower"),
+])
+def test_replay_findings_compare_total_return_and_risk_without_annualizing_again(
+        selection_inputs, total_return, volatility, return_finding, risk_finding):
+    study = selection_inputs[0].test
+    study.metrics = study.metrics.rename(index=BENCHMARK_NAMES)
+    study.metrics.loc[SELECTED, ["total_return", "volatility", "annual_mean", "cagr"]] = [total_return, volatility, -.9, -.8]
+    study.metrics.loc[BENCHMARK_NAMES["SPY"], ["total_return", "volatility", "annual_mean", "cagr"]] = [.4, .2, .9, .8]
+    before = study.metrics.copy(deep=True)
+    findings = selection_replay_findings_html(study)
+    spy = findings.split("Versus unscaled SPY", 1)[1].split("</p>", 1)[0]
+    assert f"net total return was {return_finding}" in spy
+    assert f"realized annual volatility {risk_finding}" in spy
+    assert "in this replay" in spy
+    assert "annual mean" not in findings and "CAGR" not in findings
+    pd.testing.assert_frame_equal(study.metrics, before)
+
+
+@pytest.mark.parametrize("available", [(), ("SPY",), ("QQQ",), ("SPY", "QQQ")])
+def test_replay_findings_compare_each_available_etf_and_name_missing_comparisons(selection_inputs, available):
+    study = selection_inputs[0].test
+    study.metrics = study.metrics.rename(index=BENCHMARK_NAMES)
+    study.metrics = study.metrics.drop(index=[name for symbol, name in BENCHMARK_NAMES.items() if symbol not in available])
+    study.metrics.loc[SELECTED, ["total_return", "volatility"]] = [.5, .20]
+    for symbol in available:
+        study.metrics.loc[BENCHMARK_NAMES[symbol], ["total_return", "volatility"]] = [.4, .18] if symbol == "SPY" else [.7, .24]
+    findings = selection_replay_findings_html(study)
+    for symbol in BENCHMARK_NAMES:
+        assert (f"Versus unscaled {symbol}" in findings) == (symbol in available)
+    if "SPY" in available:
+        assert "net total return was 10.00 percentage points higher" in findings
+        assert "realized annual volatility 2.00 percentage points higher" in findings
+    if "QQQ" in available:
+        assert "net total return was 20.00 percentage points lower" in findings
+        assert "realized annual volatility 4.00 percentage points lower" in findings
+    missing = [symbol for symbol in BENCHMARK_NAMES if symbol not in available]
+    assert ("unavailable" in findings) == bool(missing)
+    if missing:
+        assert " and ".join(missing) + " comparison" in findings
+    assert "Equal-weight" not in findings
 
 
 def test_replay_verdict_escapes_reference_name(selection_inputs):
