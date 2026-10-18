@@ -18,9 +18,13 @@ APP = Path(__file__).resolve().parents[1] / "app.py"
 
 @pytest.fixture(autouse=True)
 def offline_app(monkeypatch):
-    from efficient_frontier import data, universe
+    from efficient_frontier import data, risk_reference, universe
 
     st.cache_data.clear()
+    monkeypatch.setattr(risk_reference, "load_qqq_volatility_reference", lambda: {
+        "volatility": .20, "first_return_date": "2025-10-17", "last_return_date": "2026-10-16",
+        "observations": 251, "symbol": "QQQ", "source": "Yahoo Finance adjusted close", "periods_per_year": 252,
+    })
     demo = data.demo_prices().iloc[:240].copy()
     monkeypatch.setattr(data, "demo_prices", lambda: demo.copy())
     calls = []
@@ -100,7 +104,9 @@ def open_setup(app):
 
 
 def demo_app():
-    return app_start().button(key="try_demo").click().run()
+    app = open_setup(app_start())
+    app.radio(key="market").set_value("Demo").run()
+    return app.button(key="build").click().run()
 
 
 def html_text(app):
@@ -132,18 +138,23 @@ def test_combined_default_and_risk_inputs_do_no_work_before_submit(monkeypatch, 
     app = app_start()
     assert not app.exception
     assert app.button(key="build").label == "Build portfolio"
-    assert app.slider(key="preview_target_vol").value == 20.
+    assert app.button(key="edit_setup").label == "Settings"
+    assert "try_demo" not in {item.key for item in app.button}
+    assert len(app.get("latex")) == 3
+    assert "<h1 class=\"pl-display\">Efficient Frontier</h1>" in html_text(app)
+    assert "Choose a risk budget" not in html_text(app)
+    assert app.number_input(key="preview_target_vol").value == 20.
     assert app.number_input(key="preview_cap").value == 10.
     assert app.session_state.setup["market"] == "S&P 500 + Nasdaq-100"
     assert "result" not in app.session_state and "selection" not in app.session_state
     assert not app.get("download_button")
-    app.slider(key="preview_target_vol").set_value(18.).run()
+    app.number_input(key="preview_target_vol").set_value(18.).run()
     app.number_input(key="preview_cap").set_value(12.).run()
     open_setup(app)
     assert app.radio(key="market").value == "S&P 500 + Nasdaq-100"
     assert app.radio(key="market").options == ["S&P 500 + Nasdaq-100", "Nasdaq-100", "My tickers",
                                                "Original 60 holdings", "Upload CSV", "Demo"]
-    assert app.slider(key="target_vol").value == 18. and app.number_input(key="cap").value == 12.
+    assert app.number_input(key="target_vol").value == 18. and app.number_input(key="cap").value == 12.
     app.segmented_control(key="history").set_value("10 years").run()
     assert not app.exception and universe_data.calls == offline_app == []
 
@@ -159,7 +170,7 @@ def test_prebuild_target_and_cap_reach_the_real_selection(monkeypatch, universe_
 
     monkeypatch.setattr(selection, "run_selection", calculate)
     app = app_start()
-    app.slider(key="preview_target_vol").set_value(18.).run()
+    app.number_input(key="preview_target_vol").set_value(18.).run()
     app.number_input(key="preview_cap").set_value(12.).run()
     app.button(key="build").click().run()
     assert not app.exception and not app.error
@@ -170,6 +181,67 @@ def test_prebuild_target_and_cap_reach_the_real_selection(monkeypatch, universe_
     assert app.session_state.selection.settings["max_weight"] == .12
     assert "backtests" not in app.session_state and "latest_profiles" not in app.session_state
     pd.testing.assert_frame_equal(app.session_state.result[1], universe_data.prices)
+
+
+def test_qqq_default_is_dated_and_does_not_overwrite_user_edits(monkeypatch, universe_data):
+    from efficient_frontier import risk_reference
+
+    calls = []
+
+    def reference():
+        calls.append(True)
+        return {"volatility": .198350420824, "last_return_date": "2026-10-16"}
+
+    monkeypatch.setattr(risk_reference, "load_qqq_volatility_reference", reference)
+    app = app_start()
+    assert not app.exception
+    assert app.number_input(key="preview_target_vol").value == 19.84
+    assert any("16 Oct 2026" in item.value and "QQQ 19.84%" in item.value for item in app.caption)
+    app.number_input(key="preview_target_vol").set_value(17.25).run()
+    open_setup(app)
+    assert app.number_input(key="target_vol").value == 17.25
+    app.button(key="cancel_setup").click().run()
+    assert app.number_input(key="preview_target_vol").value == 17.25
+    assert calls == [True]
+    app.number_input(key="preview_target_vol").set_value(19.84).run()
+    app.button(key="build").click().run()
+    assert not app.exception and not app.error
+    assert "19.84% annual volatility budget" in html_text(app)
+    assert r"b=0.1984\;(19.84\%)" in "\n".join(item.proto.body for item in app.get("latex"))
+
+
+def test_existing_manual_budget_equal_to_old_default_is_preserved(monkeypatch):
+    from efficient_frontier import risk_reference
+
+    saved = dict(app_start().session_state.setup)
+    saved["market"] = "My tickers"
+    monkeypatch.setattr(risk_reference, "load_qqq_volatility_reference", lambda: {
+        "volatility": .198350420824, "last_return_date": "2026-10-16",
+    })
+    st.cache_data.clear()
+    app = AppTest.from_file(str(APP), default_timeout=30)
+    app.session_state.setup = saved
+    app.session_state.setup_open = True
+    app.run()
+    assert not app.exception
+    assert app.session_state.setup["target_vol"] == 20.
+    assert app.number_input(key="target_vol").value == 20.
+
+
+def test_unavailable_qqq_reference_keeps_manual_controls_and_math(monkeypatch):
+    from efficient_frontier import risk_reference
+
+    def unavailable():
+        raise OSError("Network is unreachable")
+
+    monkeypatch.setattr(risk_reference, "load_qqq_volatility_reference", unavailable)
+    app = app_start()
+    assert not app.exception
+    assert len(app.get("latex")) == 3
+    assert any("manual fallback, not a current Nasdaq-100 estimate" in item.value for item in app.caption)
+    assert app.number_input(key="preview_target_vol").value == 20.
+    app.number_input(key="preview_target_vol").set_value(23.).run()
+    assert app.session_state.setup["target_vol"] == 23.
 
 
 def test_demo_build_is_offline_with_an_explicit_feasible_cap(offline_app):
@@ -222,7 +294,7 @@ def test_overview_shows_one_test_and_separate_latest_weights():
 
 def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe_data):
     app = app_start()
-    app.slider(key="preview_target_vol").set_value(18.).run()
+    app.number_input(key="preview_target_vol").set_value(18.).run()
     app.number_input(key="preview_cap").set_value(12.).run()
     app.button(key="build").click().run()
     assert not app.exception
@@ -235,7 +307,7 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     assert not re.search(r"\\(?:qquad|quad)[A-Za-z]", equations)
     assert r"\widehat\mu=A\bar r" in equations
     assert r"\widehat\Sigma=\frac{A}{m-1}" in equations
-    assert r"b=0.18\;(18\%)" in equations
+    assert r"b=0.18\;(18.00\%)" in equations
     assert r"h=0.12\;(12\%)" in equations
     assert r"V_e=\frac{V_{\mathrm{start}}}{1+c}" in equations
     assert r"c=0.001\;(0.10\%)" in equations
@@ -323,7 +395,7 @@ def test_draft_cancel_and_reopen_preserve_applied_risk_and_prices():
     app = demo_app()
     original = app.session_state.selection
     prices = app.session_state.result[1].copy()
-    open_setup(app).slider(key="target_vol").set_value(25.).run()
+    open_setup(app).number_input(key="target_vol").set_value(25.).run()
     app.number_input(key="cap").set_value(30.).run()
     assert any("differs from this result" in item.value for item in app.info)
     assert app.session_state.selection is original
@@ -332,7 +404,7 @@ def test_draft_cancel_and_reopen_preserve_applied_risk_and_prices():
     assert not app.exception and not app.session_state.setup_open
     assert app.session_state.setup["target_vol"] == 20. and app.session_state.setup["cap"] == 20.
     open_setup(app)
-    assert app.slider(key="target_vol").value == 20. and app.number_input(key="cap").value == 20.
+    assert app.number_input(key="target_vol").value == 20. and app.number_input(key="cap").value == 20.
     pd.testing.assert_frame_equal(app.session_state.result[1], prices)
     assert not any("differs from this result" in item.value for item in app.info)
 
@@ -344,7 +416,7 @@ def test_submit_applies_limits_and_fixed_assumptions_despite_old_custom_values()
         app.session_state[key] = value
     open_setup(app)
     assert not {"risk_free", "train_pct", "shrink"} & {item.key for item in [*app.slider, *app.number_input]}
-    app.slider(key="target_vol").set_value(25.)
+    app.number_input(key="target_vol").set_value(25.)
     app.number_input(key="cap").set_value(30.)
     app.button(key="build").click().run()
     assert not app.exception and not app.error
@@ -356,7 +428,7 @@ def test_submit_applies_limits_and_fixed_assumptions_despite_old_custom_values()
     assert app.session_state.selection.settings["cost_bps"] == 10.
     assert "target_vol" not in app.session_state and "cap" not in app.session_state
     open_setup(app)
-    assert app.slider(key="target_vol").value == 25. and app.number_input(key="cap").value == 30.
+    assert app.number_input(key="target_vol").value == 25. and app.number_input(key="cap").value == 30.
     assert {key: app.session_state.setup[key] for key in ("train_pct", "shrink", "risk_free")} == {
         "train_pct": 70, "shrink": 0, "risk_free": 2.}
     assert not any("differs from this result" in item.value for item in app.info)
@@ -580,7 +652,7 @@ def test_export_is_deferred_and_captures_completed_selection_not_draft(monkeypat
     app = demo_app()
     assert not app.exception and payloads == []
     study = app.session_state.selection
-    open_setup(app).slider(key="target_vol").set_value(25.).run()
+    open_setup(app).number_input(key="target_vol").set_value(25.).run()
     assert payloads == []
     exported = deferred[app.get("download_button")[0].proto.deferred_file_id]()
     assert exported is payloads[0] and len(payloads) == 1
@@ -609,7 +681,7 @@ def test_infeasible_rebuild_clears_stale_results_and_preserves_failed_settings()
         assert key not in app.session_state
     assert not app.get("download_button")
     app.button(key="fix_setup").click().run()
-    assert app.number_input(key="cap").value == 5. and app.slider(key="target_vol").value == 20.
+    assert app.number_input(key="cap").value == 5. and app.number_input(key="target_vol").value == 20.
     app.number_input(key="cap").set_value(20.)
     app.button(key="build").click().run()
     assert not app.exception and not app.error and "selection" in app.session_state
@@ -617,15 +689,16 @@ def test_infeasible_rebuild_clears_stale_results_and_preserves_failed_settings()
 
 def test_infeasible_volatility_target_does_not_relax_the_limits():
     app = app_start()
-    app.slider(key="preview_target_vol").set_value(1.).run()
-    app.button(key="try_demo").click().run()
+    app.number_input(key="preview_target_vol").set_value(1.).run()
+    open_setup(app).radio(key="market").set_value("Demo").run()
+    app.button(key="build").click().run()
     assert not app.exception and app.error
     assert "These settings have no solution." in html_text(app)
     assert "No constraint is relaxed automatically." in html_text(app)
     assert app.session_state.setup["target_vol"] == 1. and app.session_state.setup["cap"] == 20.
     assert "selection" not in app.session_state and not app.get("download_button")
     app.button(key="fix_setup").click().run()
-    assert app.slider(key="target_vol").value == 1. and app.number_input(key="cap").value == 20.
+    assert app.number_input(key="target_vol").value == 1. and app.number_input(key="cap").value == 20.
 
 
 def test_missing_csv_clears_stale_result_without_network(offline_app):
@@ -678,7 +751,7 @@ def test_old_study_waits_for_intentional_migration_and_retains_input_prices(monk
     app.button(key="migrate_selection").click().run()
     assert not app.exception and app.session_state.setup_open
     assert app.radio(key="market").value == "Demo"
-    assert app.slider(key="target_vol").value == 20. and app.number_input(key="cap").value == 20.
+    assert app.number_input(key="target_vol").value == 20. and app.number_input(key="cap").value == 20.
     assert "selection" not in app.session_state and offline_app == []
 
 

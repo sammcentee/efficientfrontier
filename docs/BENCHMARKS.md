@@ -41,7 +41,7 @@ Both stock-universe loaders also need SPY and QQQ dates to check constituent his
 
 ## App use
 
-1. Select **Change**, then open **Data options**.
+1. Select **Settings**, then open **Data options**.
 2. Enable **Compare with the S&P 500 and the Nasdaq-100**.
 3. Set **Price currency** to **USD** only when every asset price uses USD. Otherwise, select **Other currency**.
 4. Select **Build portfolio**.

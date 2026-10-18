@@ -169,7 +169,7 @@ def selection_summary_html(study, metadata: dict) -> str:
     notes = "".join(f"<li>{html.escape(str(reason))}</li>" for reason in reasons)
     benchmark_note = metadata.get("benchmarks_note", "")
     return (
-        f'<h2>{heading}</h2><p>Annual volatility budget: {study.settings["target_volatility"]:.1%}. '
+        f'<h2>{heading}</h2><p>Annual volatility budget: {study.settings["target_volatility"]:.2%}. '
         f'Largest holding: {study.settings["max_weight"]:.1%}. '
         'The model maximizes the fitted historical mean within the volatility budget and holding limit.</p>'
         '<p>The budget limits estimated volatility. Future volatility and losses can exceed it. '
