@@ -1,0 +1,70 @@
+{
+  "frozen_before_new_strategy_results": true,
+  "version": "index_research_v1",
+  "stock_rules": [
+    "equal_weight",
+    "inverse_volatility",
+    "low_volatility_100",
+    "momentum_50",
+    "risk_adjusted_momentum_50"
+  ],
+  "tracked_index_funds": [
+    "SPMO",
+    "MTUM",
+    "SPLV",
+    "USMV",
+    "RSP",
+    "QUAL"
+  ],
+  "additional_rule": "QQQ_or_cash_10_month_SMA",
+  "benchmarks": [
+    "SPY",
+    "QQQ"
+  ],
+  "direction": "long_only_no_borrowing",
+  "stock_rebalance": "calendar_month_end_signal_next_trading_close_execution",
+  "volatility_overlay": {
+    "target": 0.1,
+    "lookback_returns": 126,
+    "rebalance": "calendar_month_end_next_close",
+    "exposure_cap": 1.0,
+    "same_for_all": true
+  },
+  "cash_daily_return": 0.0,
+  "cost_bps_per_amount_bought_or_sold": 10,
+  "cost_stress_bps": 25,
+  "inverse_volatility_lookback": 252,
+  "inverse_volatility_weight_cap": 0.1,
+  "momentum_signal": "adjusted month-end level m-1 / m-12 - 1; 11 months skipping latest month",
+  "momentum_weights": "top50_equal_2pct",
+  "risk_adjusted_momentum": "same momentum divided by daily sample volatility over same window",
+  "new_stock_history": "/tmp/efficientfrontier-simplify/prices.csv",
+  "stock_development_end": "2025-04-16",
+  "stock_final_evaluation_start": "2025-04-17",
+  "stock_final_evaluation_end": "2026-10-16",
+  "stock_history_limit": "Current constituents with complete history; survivor-biased. These dates were already reviewed. Exploratory only.",
+  "tracked_fund_requested_start": "2015-10-01",
+  "tracked_fund_development_end": "2022-12-30",
+  "tracked_fund_final_evaluation_start": "2023-01-03",
+  "tracked_fund_final_evaluation_end": "2026-10-16",
+  "funds_are_separate_implementations": "Fund results do not validate our custom stock rule. Fund adjusted returns include fund expenses; wrapper trading fees are additional.",
+  "selection_metric": "maximum of worst annual arithmetic mean advantage versusSPY andQQQ after all development net paths normalized to one common realized volatility",
+  "exact_volatility_comparison": "For each evaluation group q=min(all realized volatilities); scale each net-return path by q/sigma<=1. Statistical normalization only, not an executable cash sleeve.",
+  "primary_research_pipelines": "raw holdings plus common causal10pct volatility overlay; select based on overlay pipeline development results; report both",
+  "locked_evaluation": "Choose one stock rule and one published-fund rule on their development periods. Freeze before inspecting final results. Retain every candidate result and all tested variants.",
+  "uncertainty": {
+    "paired_block_bootstrap_repetitions": 10000,
+    "block_lengths": [
+      10,
+      21,
+      63
+    ],
+    "primary_block": 21,
+    "seed": 20261018,
+    "simultaneous_comparisons": "all candidates in each prespecified risk-controlled pipeline versus both benchmarks",
+    "per_study_simultaneous_confidence": 0.975,
+    "primary_inference_pipeline": "risk_controlled; raw paths and cost sensitivity are descriptive",
+    "approximate_two_study_familywise_confidence_target": 0.95
+  },
+  "claim_limit": "Historical results are not proof of future outperformance. Prior research, universe limitations, factor choice and fund survival remain outside statistical correction."
+}
