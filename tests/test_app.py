@@ -141,7 +141,14 @@ def test_combined_default_and_risk_inputs_do_no_work_before_submit(monkeypatch, 
     assert app.button(key="edit_setup").label == "Settings"
     assert "try_demo" not in {item.key for item in app.button}
     assert len(app.get("latex")) == 3
-    assert "<h1 class=\"pl-display\">Efficient Frontier</h1>" in html_text(app)
+    assert html_text(app).count("Efficient Frontier Generator") == 1
+    assert "Constrained Mean–Variance Optimization" in html_text(app)
+    assert 'class="pl-wordmark"' not in html_text(app)
+    descriptions = "\n".join(item.value for item in app.markdown)
+    for definition in ("sample mean returns", "annual covariance matrix", "initial weight vector",
+                       "fraction in stock", "optimal weights", "vector of ones", "transpose",
+                       "starting cash", "entry observation", "fee per unit bought", "sum across stocks"):
+        assert definition in descriptions
     assert "Choose a risk budget" not in html_text(app)
     assert app.number_input(key="preview_target_vol").value == 20.
     assert app.number_input(key="preview_cap").value == 10.

@@ -38,7 +38,7 @@ The synthetic demo and CSV analysis work offline after setup. Yahoo prices and t
 
 ## Settings and workflow
 
-The **Efficient Frontier** opening page shows the model equations before any buttons. Two compact number fields set **Annual volatility budget (%)** and **Holding limit (%)**. The **Settings** button below the introduction opens the stock source, price history, and data options. Select **Demo** there for synthetic prices.
+The **Efficient Frontier Generator — Constrained Mean–Variance Optimization** opening page shows the model equations before any buttons. Two compact number fields set **Annual volatility budget (%)** and **Holding limit (%)**. The **Settings** button below the introduction opens the stock source, price history, and data options. Select **Demo** there for synthetic prices.
 
 The default universe combines SPY stock holdings and Nasdaq-100 stocks. Select **Build portfolio** to download the stock prices and run the model.
 

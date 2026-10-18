@@ -28,7 +28,7 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 
 ## Run a study
 
-1. Read the model equations on the **Efficient Frontier** opening page. Open **Settings** to choose stocks and history, or select the **Demo** stock source.
+1. Read the model equations on the **Efficient Frontier Generator — Constrained Mean–Variance Optimization** opening page. Open **Settings** to choose stocks and history, or select the **Demo** stock source.
 2. Set **Annual volatility budget (%)** and **Holding limit (%)** in the two number fields. The holding limit defaults to 10%.
 3. Select **Build portfolio**.
 4. Compare **Latest fit** with **Historical replay**, then inspect the frontier and holdings. Open **Data & method** for coverage and trades.
