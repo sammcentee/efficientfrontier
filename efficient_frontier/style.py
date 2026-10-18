@@ -143,11 +143,11 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
 .st-key-build button p,.st-key-fix_setup button p{font-size:17px;font-weight:500}
 [data-testid="stAlertContainer"]{border-radius:16px}
 [data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
-:is(.st-key-tile_fitted_estimates,.st-key-tile_fitted_frontier) .scroll{overflow-x:auto}
-:is(.st-key-tile_fitted_estimates,.st-key-tile_fitted_frontier) table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
-:is(.st-key-tile_fitted_estimates,.st-key-tile_fitted_frontier) th,:is(.st-key-tile_fitted_estimates,.st-key-tile_fitted_frontier) td{padding:10px 12px;border-bottom:1px solid var(--pl-hair-soft);text-align:right}
-:is(.st-key-tile_fitted_estimates,.st-key-tile_fitted_frontier) thead th{background:var(--pl-canvas);font-weight:500;color:var(--pl-ink-3)}
-:is(.st-key-tile_fitted_estimates,.st-key-tile_fitted_frontier) tbody th{text-align:left;font-weight:500}
+.st-key-tile_fitted_frontier .scroll{overflow-x:auto}
+.st-key-tile_fitted_frontier table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.st-key-tile_fitted_frontier th,.st-key-tile_fitted_frontier td{padding:10px 12px;border-bottom:1px solid var(--pl-hair-soft);text-align:right}
+.st-key-tile_fitted_frontier thead th{background:var(--pl-canvas);font-weight:500;color:var(--pl-ink-3)}
+.st-key-tile_fitted_frontier tbody th{text-align:left;font-weight:500}
 [data-testid="stCaptionContainer"]{color:var(--pl-ink-3);opacity:1}
 .st-key-mustread [data-testid="stCaptionContainer"]{font-size:17px;line-height:1.47;color:var(--pl-ink)}
 /* Rule labels are long. The default chip limit cut "Refit on all past prices · Medium" by a few pixels on a phone. */
@@ -274,6 +274,17 @@ ul.pl-list{list-style:none;margin:0;padding:0}
 .pl-ldot{display:inline-block;width:10px;height:10px;margin-right:10px;border-radius:50%}
 
 /* Result tile */
+.pl-fit-replay{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin:24px 0}
+.pl-fit-replay article{min-width:0;padding:0 0 0 24px;border-left:1px solid var(--pl-hair)}
+.pl-fit-replay article:first-child{padding:0;border:0}
+.pl-fit-replay h3{margin:0 0 8px;font-size:19px;line-height:25px}
+.pl-fit-replay p{margin:10px 0 0;font-size:14px;line-height:21px}
+.pl-fit-replay .pl-fit-dates{color:var(--pl-ink-3);font-variant-numeric:tabular-nums}
+.pl-fit-replay dl{margin:20px 0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;align-items:baseline}
+.pl-fit-replay dt{font-size:14px;line-height:20px;color:var(--pl-ink-2)}
+.pl-fit-replay dd{margin:0;font-size:22px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums}
+.pl-replay-verdict{padding:16px 20px;border-left:3px solid var(--pl-ink);background:var(--pl-fill);font-size:16px;line-height:25px}
+@media(max-width:640px){.pl-fit-replay{grid-template-columns:1fr}.pl-fit-replay article{padding:20px 0 0;border-left:0;border-top:1px solid var(--pl-hair)}}
 .pl-kicker{display:block;margin:0 0 18px;font:500 13px/18px var(--pl-font);letter-spacing:.01em;color:var(--pl-ink-3)}
 .pl-bignums{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)}
 .pl-bignum{min-width:0;padding:0 28px;border-left:1px solid var(--pl-hair-soft)}

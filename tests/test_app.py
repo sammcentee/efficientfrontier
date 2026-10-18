@@ -188,9 +188,10 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     app = demo_app()
     assert not app.exception
     page = html_text(app)
-    assert page.index("Latest fitted frontier") < page.index("Fitted annual mean")
-    assert page.index("Fitted annual mean") < page.index("Later historical test")
-    assert "First historical fit" in page and "Latest fit" in page
+    assert page.index("Fit and replay use different holdings") < page.index("Latest fitted frontier")
+    assert page.index("Latest fitted frontier") < page.rindex("Historical replay · earlier weights")
+    assert "The latest fit includes the replay dates" in page
+    assert "First historical fit" not in page
     assert "Historical volatility" in page and "ordinary sample covariance" in page
     assert len(app.get("plotly_chart")) == 2
     assert "validation" not in page.lower() and "blend" not in page.lower()
@@ -206,7 +207,8 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     displayed = [item.value for item in app.dataframe if "annual_mean" in item.value.columns]
     assert len(displayed) == 1
     columns = ["annual_mean", "cagr", "volatility", "max_drawdown"]
-    pd.testing.assert_frame_equal(displayed[0], study.test.metrics[columns])
+    pd.testing.assert_frame_equal(displayed[0], study.test.metrics[columns].rename(
+        index={study.selected: "Stock rule · earlier allocations"}))
     assert list(study.latest) == [study.selected]
 
 
@@ -240,6 +242,7 @@ def test_partial_market_prices_keep_available_comparison_and_name_missing_etf(mo
     assert list(study.benchmark_prices) == ["SPY"] and not study.supported
     assert list(study.test.equity) == ["Historical-mean portfolio", "Equal-weight stocks", "S&P 500 (SPY)"]
     assert any("unavailable for QQQ" in reason for reason in study.reasons)
+    app.segmented_control(key="view").set_value("Data & method").run()
     assert "unavailable for QQQ" in html_text(app)
     pd.testing.assert_frame_equal(app.session_state.result[1], universe_data.prices)
 
@@ -712,7 +715,7 @@ def test_data_method_is_passive_and_shows_only_the_completed_model(monkeypatch):
     captions = "\n".join(item.value for item in app.caption)
     assert "0.10%" in captions and "2% risk-free rate" in captions
     assert "buy once and hold" in captions
-    assert "not whether the fitted optimization was solved correctly" in captions
+    assert "not checks of optimizer accuracy" in html_text(app)
     assert app.session_state.result[0] is None and app.session_state.selection is study
     nonce = app.session_state.get("scroll_nonce", 0)
     app.run()

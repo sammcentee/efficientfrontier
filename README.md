@@ -31,7 +31,7 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 1. Choose the stocks and price history, or select **Try the offline demo**.
 2. Set **Annual volatility budget (%)** and **Largest holding allowed (%)**. Defaults are 20% and 10%.
 3. Select **Build portfolio**.
-4. Read **Latest fitted frontier** and its stock holdings, then **Later historical test**. Open **Data & method** for coverage and trades.
+4. Compare **Latest fit** with **Historical replay**, then inspect the frontier and holdings. Open **Data & method** for coverage and trades.
 5. Select **Export** for the offline report and exact input/result CSVs.
 
 A 10% holding limit needs at least ten eligible stocks. The six-asset synthetic demo uses a 20% limit. An infeasible budget or holding limit stops the calculation.
@@ -54,15 +54,17 @@ The first test interval stays in cash at zero interest. The model omits taxes, c
 
 ## Read the results
 
+**The latest fit includes the replay dates. The replay did not use the latest holdings.** The fit chooses one allocation using all supplied history. The replay follows successive earlier allocations, each fitted before its subsequent returns were known. The two panels use different dates, weights, and fee treatment.
+
 | Result | Meaning |
 | --- | --- |
 | Fitted annual mean | Average return from a fit's history, using its target weights, before fees |
 | Fitted volatility | Sample volatility from the fit's dates and target weights; the budget applies to this estimate |
 | Fitted frontier | Best estimated stock returns across risk levels, with SPY/QQQ as separate reference points |
-| Later test | Net historical performance from successive earlier fits |
+| Historical replay | Net historical performance from successive earlier fits |
 | Latest holdings | A new fit using all supplied history; these weights did not produce the earlier test |
 
-Equal-weight stocks rebalance on the same schedule. SPY and QQQ buy once and hold. All comparisons use the same dates and fee rate, but their risks can differ. Read return and realized volatility together.
+Equal-weight stocks rebalance on the same schedule. SPY and QQQ buy once and hold. Within the replay, all comparisons use the same dates and fee rate, but their risks can differ. A benchmark with higher mean return and lower volatility beat the stock rule in that replay, even if the latest fitted portfolio sits above it on the fitted frontier chart.
 
 The test status describes coverage, realized risk, and comparison results. It is not proof of future outperformance. Current member lists and complete-history requirements favor survivors. Prior review of the test dates also limits their value as new evidence.
 

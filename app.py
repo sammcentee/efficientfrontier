@@ -17,7 +17,7 @@ from efficient_frontier.presentation import csv_text
 from efficient_frontier.style import APP_CSS, PLOTLY_CONFIG
 from efficient_frontier.universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
 from efficient_frontier.selection import MODEL_REVISION as SELECTION_MODEL_REVISION, run_selection, selection_fit_estimates, selection_frontier, split_stock_prices, validate_selection_benchmarks
-from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_fit_summary_html, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html
+from efficient_frontier.selection_report import selection_report_zip, selection_summary_html, selection_metrics_frame, selection_chart, SELECTION_METRIC_LABELS, selection_benchmark_note, FIT_METRIC_LABELS, selection_frontier_chart, selection_frontier_summary_html, selection_comparison_html, selection_replay_verdict_html, REPLAY_LABEL
 
 
 st.set_page_config(page_title="Portfolio Lab", page_icon=":material/donut_large:", layout="wide", initial_sidebar_state="collapsed")
@@ -553,16 +553,21 @@ def risk_reference():
 
 def selection_period(study, title, benchmark_note):
     st.html(title_html(title))
-    st.caption(benchmark_note)
-    st.caption(f"{day(study.equity.index[0])} to {day(study.equity.index[-1])}. "
-               "These are later outcomes, not the estimates used to choose stocks. "
+    st.write("The rule chooses each allocation using earlier prices, then earns subsequent returns. "
+             "This path does not use the latest fitted weights.")
+    verdict = selection_replay_verdict_html(study)
+    if verdict:
+        st.html(verdict)
+    st.caption(f"Return dates: {day(study.equity.index[1])} to {day(study.equity.index[-1])}. "
+               f"Starting capital at the {day(study.equity.index[0])} close. "
                "All rows use the same dates and fee rate. Each row measures its own net return path. "
                "Annual mean scales the average return to one year. CAGR measures compound growth.")
     columns = ["annual_mean", "cagr", "volatility", "max_drawdown"]
-    metrics = selection_metrics_frame(study)[columns]
+    metrics = selection_metrics_frame(study)[columns].rename(index={"Historical-mean portfolio": REPLAY_LABEL})
     st.dataframe(metrics.style.format("{:.2%}", na_rep="—"), width="stretch",
                  column_config={"_index": "Rule or baseline", **SELECTION_METRIC_LABELS})
     st.plotly_chart(selection_chart(study), width="stretch", theme=None, config=PLOTLY_CONFIG)
+    st.caption(benchmark_note)
 
 
 def overview():
@@ -577,17 +582,17 @@ def overview():
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
         if metadata.get("candidate_note"):
             st.info(metadata["candidate_note"])
+    with st.container(border=True, key="tile_fit_replay"):
+        st.html(selection_comparison_html(selection, prices))
     with st.container(border=True, key="tile_fitted_frontier"):
         frontier_data = calculate_frontier(selection, prices, SELECTION_MODEL_REVISION)
         st.html(selection_frontier_summary_html(selection, prices, frontier_data))
         st.plotly_chart(selection_frontier_chart(frontier_data, selection), width="stretch", theme=None, config=PLOTLY_CONFIG)
-    with st.container(border=True, key="tile_fitted_estimates"):
-        st.html(selection_fit_summary_html(selection, prices))
     names = story.company_names(st.session_state.get("coverage"))
     portfolio = selection.latest[selection.selected]
     with st.expander(f"Latest fitted holdings · fitted through {day(prices.index[-1])}", expanded=True):
-        st.caption("These weights use all supplied prices. The later test used older fits with different holdings. "
-                   "The fitted mean estimates average annual return. It is not the test’s compound growth rate (CAGR).")
+        st.caption("These weights use all supplied prices, including the replay dates. "
+                   "The historical replay used earlier allocations.")
         if not selection.supported:
             st.warning("The later test of this rule did not meet the performance checks. It used earlier weights.")
         frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
@@ -596,16 +601,9 @@ def overview():
         st.dataframe(frame, hide_index=True, width="stretch", column_config={"Weight": st.column_config.NumberColumn("Weight", format="percent")})
         for note in stale_price_notes(prices):
             st.warning(note)
-    with st.container(border=True, key="tile_selection_decision"):
-        st.html(selection_summary_html(selection, metadata))
     st.html('<div id="pl-market"></div>')
     with st.container(border=True, key="tile_final_test"):
-        selection_period(selection.test, "Later historical test", selection_benchmark_note(selection))
-        st.caption("The first 70% of the history supplies the first fit. The remaining 30% tests the same rule, "
-                   "with a new fit every 21 price rows using only prior prices. "
-                   "The latest holdings did not produce this path. "
-                   "If a benchmark has higher return with lower volatility, it beat the rule in this test. "
-                   "That does not show that the earlier fitted maximum was calculated incorrectly.")
+        selection_period(selection.test, "Historical replay · earlier weights", selection_benchmark_note(selection))
         st.html(story.result_drivers_html(selection.test, selection.selected))
         with st.expander("What drove the stock rule’s test result?"):
             st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
@@ -651,10 +649,8 @@ def data_method():
         st.caption("The fixed 2% risk-free rate affects Sharpe and Sortino metrics in the export only. "
                    "It does not change stock weights or pay interest on cash. "
                    "Taxes, currency conversion, liquidity, and future membership changes are excluded.")
-        st.caption("The historical check needs at least one year of test returns and both ETFs. "
-                   "The portfolio must stay within the realized volatility budget. "
-                   "No comparison can have higher compound growth with no more volatility. "
-                   "This checks later performance, not whether the fitted optimization was solved correctly.")
+    with st.expander("Historical performance checks"):
+        st.html(selection_summary_html(selection, metadata))
     with st.expander("Estimates at every fit"):
         st.caption("Each row uses only prices available at its fit date and the saved target weights. "
                    "Both volatility estimates use ordinary sample covariance because this model has no covariance shrinkage. "

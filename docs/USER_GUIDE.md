@@ -51,7 +51,7 @@ The default stock holding limit is 10%. The six-asset synthetic demo explicitly 
 
 The model maximizes historical arithmetic mean return within the volatility budget and holding limit. Stock weights are long-only and sum to one.
 
-## Fitted estimates and later results
+## Latest fit and historical replay
 
 The efficient frontier depends on the return estimates, covariance estimates, and allowed holdings. The optimizer finds the highest fitted mean within your limits. It does not maximize CAGR or the return-to-volatility ratio. It cannot ensure that the chosen stocks will have the highest later return.
 
@@ -60,11 +60,11 @@ The efficient frontier depends on the return estimates, covariance estimates, an
 | Fitted annual mean | Average return in the fitting sample, using that fit's target weights, before fees. |
 | Fitted volatility | Sample volatility from the same fitting dates and target weights. The budget limits this estimate. |
 | Fitted frontier | Feasible stock portfolios with the highest estimated return at each risk level. |
-| Later test mean and volatility | Actual results in the historical replay, after fees, with holdings that change at each scheduled trade. |
+| Replay mean and volatility | Actual results in the historical replay, after fees, with holdings that change at each scheduled trade. |
 
-**Latest fitted stock frontier** shows the latest fit. The app also shows the first and latest fit estimates separately from **Later historical test**. SPY and QQQ markers use the same dates as the latest stock fit. They do not enter its allocations.
+**The latest fit includes the replay dates. The replay did not use the latest holdings.** The opening comparison shows the two calculations side by side. **Latest fitted frontier · in-sample** uses one allocation chosen from the full history. **Historical replay · earlier weights** follows allocations chosen before each subsequent return. Both panels report an annual arithmetic mean, but they use different dates, weights, and fee treatment.
 
-The latest holdings use all supplied history. They did not produce the earlier test path. **Data & method → Estimates at every fit** shows every intermediate fit.
+SPY and QQQ use the same dates as the stocks within each panel. Their results also change between panels because the date ranges differ. They do not enter the stock allocations. **Data & method → Estimates at every fit** shows every intermediate fit.
 
 If QQQ earns more with less volatility in the later test, it beat the portfolio rule on those dates. That is a real weakness in the test result. It does not show that the optimizer failed to maximize the earlier estimates. A mathematically optimal fit can still be a poor investment rule when those estimates do not persist.
 

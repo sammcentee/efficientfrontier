@@ -29,6 +29,8 @@ FIT_METRIC_LABELS = {
     "model_volatility": "Model volatility",
     "historical_volatility": "Historical volatility",
 }
+LATEST_LABEL = "Latest stock allocation"
+REPLAY_LABEL = "Stock rule · earlier allocations"
 HISTORY_NOTE = (
     "The same model rule applies throughout the later test. Historical data reviewed earlier can introduce research hindsight. "
     "A chronological split alone is not fresh prospective evidence. These descriptive checks do not prove future outperformance."
@@ -46,7 +48,8 @@ def selection_chart(study):
     colors = {SELECTED: ACCENT, BASELINE: INK_3, **BENCHMARK_COLORS}
     dashes = {BASELINE: "dash", BENCHMARK_NAMES["SPY"]: "dot"}
     for name, trace in zip(study.equity.columns, figure.data):
-        trace.update(showlegend=True, line={"color": colors.get(name, INK_3),
+        trace.update(name=REPLAY_LABEL if name == SELECTED else trace.name,
+                     showlegend=True, line={"color": colors.get(name, INK_3),
                                            "dash": dashes.get(name, "solid")})
     return figure
 
@@ -61,7 +64,7 @@ def selection_frontier_chart(frontier_data, study):
     ))
     for name, row in comparisons.iterrows():
         selected = name == SELECTED
-        label = "Selected stock portfolio" if selected else str(name)
+        label = LATEST_LABEL if selected else str(name)
         risk_label = "Model volatility" if selected and study.settings["shrinkage"] else "Annual volatility"
         figure.add_trace(go.Scatter(
             x=[row.model_volatility], y=[row.fitted_mean], mode="markers", name=html.escape(label),
@@ -73,11 +76,57 @@ def selection_frontier_chart(frontier_data, study):
         figure.data[0].hovertemplate = hover.replace("Annual volatility", "Model volatility")
     figure.add_vline(x=study.settings["target_volatility"], line_dash="dot", line_color=INK_3,
                      annotation_text="Volatility budget", annotation_position="top left")
-    style_chart(figure, "Latest fitted frontier", height=420)
+    style_chart(figure, "Latest fitted frontier · in-sample", height=420)
     figure.update_layout(legend={"maxheight": 120})
     figure.update_xaxes(title="Annual volatility", tickformat=".0%", rangemode="tozero")
     figure.update_yaxes(title="Annual arithmetic mean", tickformat=".0%")
     return figure
+
+
+def selection_comparison_html(study, prices: pd.DataFrame) -> str:
+    """Contrast the latest allocation with the replay of earlier decisions."""
+    latest = study.latest[study.selected]
+    replay = study.test
+    result = replay.metrics.loc[study.selected]
+    return (
+        '<h2>Fit and replay use different holdings</h2>'
+        '<p><strong>The latest fit includes the replay dates. '
+        'The replay did not use the latest holdings.</strong></p>'
+        '<div class="pl-fit-replay"><article>'
+        '<h3>Latest fit · in-sample</h3>'
+        f'<p class="pl-fit-dates">{prices.index[1].date()} to {prices.index[-1].date()}</p>'
+        f'<dl><dt>Annual arithmetic mean · before fees</dt><dd>{latest.expected_return:.2%}</dd>'
+        f'<dt>Fitted model volatility</dt><dd>{latest.volatility:.2%}</dd></dl>'
+        '<p>One allocation chosen using the full history. Its target weights apply to every historical daily return.</p>'
+        '</article><article><h3>Historical replay · earlier weights</h3>'
+        f'<p class="pl-fit-dates">{replay.equity.index[1].date()} to {replay.equity.index[-1].date()}</p>'
+        f'<dl><dt>Annual arithmetic mean · after fees</dt><dd>{result.annual_mean:.2%}</dd>'
+        f'<dt>Realized volatility</dt><dd>{result.volatility:.2%}</dd></dl>'
+        f'<p>Earlier allocations, refitted every {study.settings["rebalance_every"]:g} observations using prior prices. '
+        'Weights drift between trades. Trading fees apply.</p></article></div>'
+        '<p>Different dates, allocations, and fee treatment. A high fitted mean does not establish that the rule beats the benchmarks.</p>'
+    )
+
+
+def selection_replay_verdict_html(study) -> str:
+    """State observed mean/volatility dominance without changing the CAGR checks."""
+    selected = study.metrics.loc[SELECTED]
+    references = study.metrics.drop(index=SELECTED)
+    dominates = references.loc[
+        (references.annual_mean >= selected.annual_mean)
+        & (references.volatility <= selected.volatility)
+        & ((references.annual_mean > selected.annual_mean) | (references.volatility < selected.volatility))
+    ]
+    if dominates.empty:
+        return ""
+    name = dominates.annual_mean.idxmax()
+    reference = dominates.loc[name]
+    return (
+        '<p class="pl-replay-verdict"><strong>'
+        f'{html.escape(str(name))} dominated the stock rule on mean and volatility in this replay.</strong><br>'
+        f'Annual arithmetic mean: {reference.annual_mean:.2%} versus {selected.annual_mean:.2%}. '
+        f'Realized volatility: {reference.volatility:.2%} versus {selected.volatility:.2%}.</p>'
+    )
 
 
 def selection_frontier_summary_html(study, prices: pd.DataFrame, frontier_data) -> str:
@@ -87,7 +136,7 @@ def selection_frontier_summary_html(study, prices: pd.DataFrame, frontier_data) 
     shrinkage = study.settings["shrinkage"]
     if shrinkage:
         columns.insert(1, "model_volatility")
-    display = comparisons.loc[:, columns].rename(columns=FIT_METRIC_LABELS)
+    display = comparisons.loc[:, columns].rename(columns=FIT_METRIC_LABELS, index={study.selected: LATEST_LABEL})
     risk_note = (
         f'Stock model volatility uses {shrinkage:.0%} covariance shrinkage; ETF volatility does not. '
         'Historical volatility uses ordinary sample covariance for every row. '
@@ -98,15 +147,15 @@ def selection_frontier_summary_html(study, prices: pd.DataFrame, frontier_data) 
     )
     notes = "".join(f'<li>{html.escape(str(warning))}</li>' for warning in warnings)
     return (
-        '<h2>Latest fitted frontier</h2>'
+        '<h2>Latest fitted frontier · in-sample</h2>'
         f'<p>Return dates: {prices.index[1].date()} to {prices.index[-1].date()}. '
-        'These are fitted arithmetic means and volatilities before trading fees, not forecasts or later test results.</p>'
+        'The same dates choose and evaluate these weights, before trading fees. '
+        'This is an in-sample optimum, not a historical trading result.</p>'
         '<p>The line shows the highest fitted mean available at each volatility among the eligible stocks, '
         f'with no short selling and at most {study.settings["max_weight"]:.0%} in one stock. '
         'The selected point maximizes that mean within the volatility budget.</p>'
         f'<p>{risk_note}</p><div class="scroll">{_percent_table(display)}</div>'
-        '<p>SPY and QQQ are passive ETF references. They are not portfolio candidates and do not follow the stock holding limit. '
-        'An ETF above the line need not be feasible within this stock universe and holding limit. '
+        '<p>SPY and QQQ use the same fit dates. They are not portfolio candidates and do not follow the stock holding limit. '
         'None of the ETF positions is scaled to match the selected volatility.</p>'
         + (f'<ul>{notes}</ul>' if notes else '')
     )
@@ -114,7 +163,7 @@ def selection_frontier_summary_html(study, prices: pd.DataFrame, frontier_data) 
 
 def selection_summary_html(study, metadata: dict) -> str:
     """Describe the one model and its later historical check."""
-    heading = "Later test: performance checks passed" if study.supported else "Later test: performance checks not met"
+    heading = "Replay: performance checks passed" if study.supported else "Replay: performance checks not met"
     reasons = list(dict.fromkeys(study.reasons))
     notes = "".join(f"<li>{html.escape(str(reason))}</li>" for reason in reasons)
     benchmark_note = metadata.get("benchmarks_note", "")
@@ -212,16 +261,18 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict, *, fronti
         full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG,
     )
     result = study.test
-    metrics = selection_metrics_frame(result).rename(columns=SELECTION_METRIC_LABELS)
+    metrics = selection_metrics_frame(result).rename(columns=SELECTION_METRIC_LABELS, index={study.selected: REPLAY_LABEL})
     chart = selection_chart(result).to_html(
         full_html=False, include_plotlyjs=False, config=PLOTLY_CONFIG,
     )
     test_section = (
-        '<section id="test"><h2>Later historical test</h2>'
+        '<section id="test"><h2>Historical replay · earlier weights</h2>'
+        '<p>The rule chooses each allocation using earlier prices, then earns subsequent returns. '
+        'This path does not use the latest fitted weights.</p>'
+        f'{selection_replay_verdict_html(result)}'
         f'<p>Baseline: {result.equity.index[0].date()}. '
         f'Evaluation returns: {result.equity.index[1].date()} to {result.equity.index[-1].date()}.</p>'
-        '<p>These are realized results from the earlier portfolio weights, with scheduled refits. '
-        'They are not the estimates from the latest fit. All rows use the same dates and fee rate.</p>'
+        '<p>All rows use the same replay dates and fee rate.</p>'
         f'<p>{selection_benchmark_note(study)}</p>'
         '<p>Arithmetic means average the net period returns, including entry fees. CAGR compounds the same returns. '
         'The table keeps a fixed order and does not choose a model from the results.</p>'
@@ -259,15 +310,16 @@ def selection_report_html(study, prices: pd.DataFrame, metadata: dict, *, fronti
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Portfolio Lab · Historical-mean portfolio</title><style>{REPORT_CSS}</style><script>{get_plotlyjs()}</script></head>
-<body><main><p class="eyebrow">Historical research</p><h1>One portfolio, one model</h1>
+<body><main><p class="eyebrow">Historical research</p><h1>One model: latest fit and historical replay</h1>
 <button onclick="window.print()">Print / save PDF</button>
+<section id="fit-and-replay">{selection_comparison_html(study, prices)}</section>
 <section id="latest-frontier">{selection_frontier_summary_html(study, prices, frontier_data)}
 <div class="chart">{frontier_chart}</div></section>
 <section id="latest-selection"><h2>Latest fitted stock weights · {prices.index[-1].date()}</h2>{latest}</section>
-<section id="fit-estimates">{selection_fit_summary_html(study, prices)}</section>
-<section id="selection-decision">{selection_summary_html(study, metadata)}</section>
 {test_section}
 <section id="selection-assumptions"><h2>Method and limits</h2>
+<details id="selection-decision"><summary>Historical performance checks</summary>{selection_summary_html(study, metadata)}</details>
+<details id="fit-estimates"><summary>First and latest fitted estimates</summary>{selection_fit_summary_html(study, prices)}</details>
 <p>The model maximizes historical arithmetic mean return under a fitted volatility budget and a per-stock holding limit.
 Stock weights are long-only and sum to one. Each scheduled refit uses all available earlier returns.</p>
 <p>Initial training share: {study.settings['train_fraction']:.0%}.
