@@ -69,7 +69,7 @@ def selection_inputs():
                   "model_revision": "single_mean_v1", "train_fraction": .7, "shrinkage": .1,
                   "latest_as_of": str(dates[-1].date()), "risk_free_rate": .02,
                   "initial_training_start": str(dates[1].date()), "initial_training_end": str(dates[8].date()),
-                  "test_start": str(dates[9].date()), "rebalance_every": 21},
+                  "test_start": str(dates[9].date()), "holding_policy": "buy_and_hold"},
         warnings=["Current constituents can introduce survivorship bias."], benchmark_prices=benchmarks,
         eligibility=pd.DataFrame({"fit_date": [str(dates[-1].date())] * 2, "symbol": ["AAA", "BBB"],
                                   "eligible": [True, True], "reason": ["", ""]}),
@@ -155,9 +155,10 @@ def test_comparison_precedes_frontier_and_keeps_latest_fit_separate_from_replay(
 
 def test_benchmark_and_fit_explanations_use_the_actual_model_settings(selection_inputs):
     study, prices, _ = selection_inputs
-    study.settings.update(rebalance_every=4, shrinkage=.2)
+    study.settings.update(shrinkage=.2)
     note = selection_benchmark_note(study)
-    assert "every 4 observations" in note
+    assert "at entry, then lets the weights drift" in note
+    assert "All four paths buy once and hold" in note
     assert "SPY tracks the S&P 500" in note and "QQQ tracks the Nasdaq-100" in note
     assert "buy once and hold" in note
     assert "None is scaled to the model volatility budget" in note
@@ -254,7 +255,9 @@ def test_result_tables_keep_backend_order_and_show_net_mean_separately_from_cagr
     for key in ("annual_mean", "cagr", "volatility", "max_drawdown"):
         expected = study.test.metrics.loc[study.selected, key]
         assert f"{expected:.2%}" in table
-    assert "Historical replay · earlier weights" in document
+    assert "Historical replay · buy and hold" in document
+    assert "no later rebalances" in document
+    assert "refitted every" not in document
     assert re.search(r"historical.{0,100}reviewed|reviewed.{0,100}historical", document, re.I | re.S)
     assert "descriptive checks" in document.lower()
     assert study.reasons[0] in document
@@ -277,10 +280,10 @@ def test_latest_holdings_stay_visible_before_later_checks(selection_inputs, supp
 
 def test_report_discloses_actual_test_assumptions(selection_inputs):
     study, _, _ = selection_inputs
-    study.settings.update(train_fraction=.6, rebalance_every=4, cost_bps=25., shrinkage=.2, periods_per_year=52.)
+    study.settings.update(train_fraction=.6, cost_bps=25., shrinkage=.2, periods_per_year=52.)
     document = selection_report_html(*selection_inputs)
     section = document.split('id="selection-assumptions"', 1)[1].split("</section>", 1)[0]
-    for value in ("Initial training share: 60%", "Refit every 4 observations",
+    for value in ("Initial training share: 60%", "Holding policy: buy once and hold",
                   "25 basis points (0.25%)", "Covariance shrinkage: 20%", "52 observations per year"):
         assert value in section
 

@@ -104,7 +104,9 @@ def historical_cli(args, settings):
 def selection_cli(args, settings):
     """Run the separate risk-target selection and retain every reproducible result."""
     if args.rolling_window is not None:
-        raise ValueError("--target-volatility uses expanding past-only fits; omit --rolling-window.")
+        raise ValueError("--target-volatility buys once and holds; omit --rolling-window.")
+    if args.rebalance_every is not None:
+        raise ValueError("--target-volatility buys once and holds; omit --rebalance-every. That option applies to legacy backtests only.")
     synthetic = not (args.csv is not None or args.tickers is not None or args.original_holdings
                      or args.nasdaq100 or args.sp500_nasdaq100)
     if synthetic and (args.benchmark_csv is not None or args.download_benchmarks):
@@ -167,13 +169,13 @@ def selection_cli(args, settings):
             benchmark_prices = None
             metadata["benchmarks_note"] = f"Market benchmarks are unavailable: {exc}"
     study = run_selection(prices, benchmark_prices, target_volatility=args.target_volatility, **settings,
-                          rebalance_every=args.rebalance_every, cost_bps=args.cost_bps)
+                          cost_bps=args.cost_bps)
     export_directory = args.output.resolve()
     reproduce = ["python", "-m", "efficient_frontier", "--csv", str(export_directory / "prices.csv"),
                  "--target-volatility", str(args.target_volatility)]
     for key in ("train_fraction", "risk_free_rate", "max_weight", "shrinkage", "periods_per_year"):
         reproduce.extend(["--" + key.replace("_", "-"), str(settings[key])])
-    reproduce.extend(["--rebalance-every", str(args.rebalance_every), "--cost-bps", str(args.cost_bps), "--currency", currency])
+    reproduce.extend(["--cost-bps", str(args.cost_bps), "--currency", currency])
     reproduce.extend(["--benchmark-csv", str(export_directory / "benchmark_prices.csv")] if benchmark_prices is not None else ["--no-benchmarks"])
     reproduce.extend(["--output", str(export_directory / "reproduced")])
     metadata["reproduce_command"] = shlex.join(reproduce)
@@ -189,7 +191,7 @@ def selection_cli(args, settings):
         print(f"Note: {note}")
     if "benchmarks_note" in metadata:
         print(f"Note: {metadata['benchmarks_note']}")
-    print("\nLater historical test (one fixed rule):")
+    print("\nHistorical replay (buy once and hold):")
     print(selection_metrics_frame(study.test).round(4).to_string())
     print("Earlier research on these dates can introduce hindsight. A historical test alone is not unseen prospective evidence.")
     print(f"Report: {(args.output / 'report.html').resolve()}")
@@ -227,11 +229,13 @@ def main():
     parser.add_argument("--periods-per-year", type=float, default=252,
                         help="Observations per year: 252 trading days, 365 calendar days, 52 weeks, or 12 months; no resampling")
     parser.add_argument("--backtests", action="store_true", help="Compare buy-and-hold, fixed rebalancing, expanding and rolling windows")
-    parser.add_argument("--rebalance-every", type=int, default=21, help="Backtest trading interval in observations (not calendar months)")
+    parser.add_argument("--rebalance-every", type=int, help="Legacy backtest trading interval in observations; default 21. Not used by the buy-and-hold stock model")
     parser.add_argument("--rolling-window", type=int, help="Rolling estimation returns; default is 126 for historical membership, otherwise the initial training length")
     parser.add_argument("--cost-bps", type=float, default=10., help="Backtest fee per unit of bought or sold notional, in basis points")
     parser.add_argument("--output", type=Path, default=Path("results/latest"))
     args = parser.parse_args()
+    if args.target_volatility is None and args.rebalance_every is None:
+        args.rebalance_every = 21
     if args.max_weight is None:
         args.max_weight = .1 if args.target_volatility is not None else 1.0
     if args.shrinkage is None:

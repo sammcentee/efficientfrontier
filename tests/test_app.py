@@ -2,6 +2,7 @@ from datetime import date
 from io import BytesIO
 import json
 from pathlib import Path
+import re
 from types import SimpleNamespace
 import zipfile
 
@@ -182,6 +183,13 @@ def test_demo_build_is_offline_with_an_explicit_feasible_cap(offline_app):
     assert any("synthetic" in item.value for item in app.info)
     assert study.latest[study.selected].weights.max() <= .2 + 1e-6
     assert study.latest[study.selected].weights.sum() == pytest.approx(1)
+    assert study.settings["holding_policy"] == "buy_and_hold"
+    assert "rebalance_every" not in study.settings
+    for name in study.test.allocations:
+        assert len(study.test.allocations[name]) == len(study.test.trades[name]) == 1
+    initial = study.test.allocations[study.selected].iloc[0]
+    final = study.test.holdings[study.selected]["end_weight"]
+    assert not np.allclose(initial, final)
 
 
 def test_overview_shows_one_test_and_separate_latest_weights():
@@ -189,7 +197,7 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     assert not app.exception
     page = html_text(app)
     assert page.index("Fit and replay use different holdings") < page.index("Latest fitted frontier")
-    assert page.index("Latest fitted frontier") < page.rindex("Historical replay · earlier weights")
+    assert page.index("Latest fitted frontier") < page.rindex("Historical replay · buy and hold")
     assert "The latest fit includes the replay dates" in page
     assert "First historical fit" not in page
     assert "Historical volatility" in page and "ordinary sample covariance" in page
@@ -197,7 +205,7 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     assert "validation" not in page.lower() and "blend" not in page.lower()
     holding_section = next(item for item in app.expander if item.label.startswith("Latest fitted holdings"))
     assert holding_section.proto.expanded is True
-    assert any("The later test of this rule did not meet" in item.value for item in app.warning)
+    assert any("The buy-and-hold replay did not meet" in item.value for item in app.warning)
     assert any("These weights use all supplied prices" in item.value for item in app.caption)
     assert app.segmented_control(key="view").options == ["Overview", "Data & method"]
     assert "risk_profile" not in {item.key for item in app.segmented_control}
@@ -208,8 +216,37 @@ def test_overview_shows_one_test_and_separate_latest_weights():
     assert len(displayed) == 1
     columns = ["annual_mean", "cagr", "volatility", "max_drawdown"]
     pd.testing.assert_frame_equal(displayed[0], study.test.metrics[columns].rename(
-        index={study.selected: "Stock rule · earlier allocations"}))
+        index={study.selected: "Stock portfolio · buy and hold"}))
     assert list(study.latest) == [study.selected]
+
+
+def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe_data):
+    app = app_start()
+    app.slider(key="preview_target_vol").set_value(18.).run()
+    app.number_input(key="preview_cap").set_value(12.).run()
+    app.button(key="build").click().run()
+    assert not app.exception
+    for label in ("How the portfolio is chosen", "How buy-and-hold results are calculated"):
+        panel = next(item for item in app.expander if item.label == label)
+        assert panel.proto.expanded is False
+    equations = "\n".join(item.proto.body for item in app.get("latex"))
+    # Adjacent raw strings must not turn spacing into unknown KaTeX commands.
+    assert not re.search(r"\\(?:qquad|quad)[A-Za-z]", equations)
+    assert r"\widehat\mu=A\bar r" in equations
+    assert r"\widehat\Sigma=\frac{A}{m-1}" in equations
+    assert r"b=0.18\;(18\%)" in equations
+    assert r"h=0.12\;(12\%)" in equations
+    assert r"V_e=\frac{V_{\mathrm{start}}}{1+c}" in equations
+    assert r"c=0.001\;(0.10\%)" in equations
+    assert r"V_t&=V_e\sum_i w_i g_{i,t}" in equations
+    assert r"a_{i,t}=\frac{w_i g_{i,t}}{\sum_j w_j g_{j,t}}" in equations
+    assert r"\frac{A}{N-1}" in equations
+    assert r"\mathrm{CAGR}" in equations and r"\mathrm{MDD}" in equations
+    assert r"\widehat\mu" not in html_text(app)
+    text = "\n".join(item.value for item in app.markdown)
+    assert "Neither limit triggers a trade" in text
+    assert "no later refits, trades" in text
+    assert "including the entry-fee interval" in text
 
 
 def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_data):
@@ -308,7 +345,8 @@ def test_submit_applies_limits_and_fixed_assumptions_despite_old_custom_values()
     metadata = app.session_state.result[2]
     assert {key: metadata[key] for key in ("target_volatility", "max_weight", "risk_free_rate", "train_fraction", "shrinkage")} == {
         "target_volatility": .25, "max_weight": .3, "risk_free_rate": .02, "train_fraction": .7, "shrinkage": 0.}
-    assert app.session_state.selection.settings["rebalance_every"] == 21
+    assert app.session_state.selection.settings["holding_policy"] == "buy_and_hold"
+    assert "rebalance_every" not in app.session_state.selection.settings
     assert app.session_state.selection.settings["cost_bps"] == 10.
     assert "target_vol" not in app.session_state and "cap" not in app.session_state
     open_setup(app)
@@ -509,6 +547,9 @@ def test_csv_frequency_reaches_later_test_without_resampling(monkeypatch, market
     assert app.session_state.result[2]["periods_per_year"] == periods
     assert study.settings["periods_per_year"] == periods
     assert study.test.settings["periods_per_year"] == periods
+    equations = "\n".join(item.proto.body for item in app.get("latex"))
+    assert equations.count(f"A={periods:g}") == 2
+    assert "A=252" not in equations
     pd.testing.assert_frame_equal(app.session_state.result[1], prices, check_freq=False)
 
 
@@ -626,6 +667,7 @@ def test_old_study_waits_for_intentional_migration_and_retains_input_prices(monk
     assert not app.exception and "selection" not in app.session_state
     assert any("previous selection model" in item.value for item in app.info)
     assert not app.get("download_button")
+    assert not app.get("plotly_chart") and not app.get("latex")
     pd.testing.assert_frame_equal(app.session_state.result[1], prices)
     app.button(key="migrate_selection").click().run()
     assert not app.exception and app.session_state.setup_open

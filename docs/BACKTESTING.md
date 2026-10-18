@@ -1,6 +1,6 @@
 # Model, historical test, and accounting
 
-The app fits stock weights from historical means and covariance, then tests earlier fits on later prices. The CLI runs the same model with `--target-volatility .20`. Earlier frontier and backtest APIs remain separate research tools.
+The app fits stock weights from historical means and covariance, buys the initial allocation once, and holds it through later prices. The CLI runs the same model with `--target-volatility .20`. Earlier frontier and backtest APIs remain separate research tools.
 
 ## Portfolio model
 
@@ -19,30 +19,30 @@ Historical arithmetic mean is the only return objective. A higher fitted mean do
 
 This is a convex mean-variance problem for the supplied estimates and feasible stock weights. The objective is the fitted mean at a volatility ceiling. Sharpe and CAGR are separate metrics. See the [MOSEK mean-variance formulation](https://docs.mosek.com/portfolio-cookbook/markowitz.html). Estimation error can make optimal fitted weights perform poorly later. See [MOSEK's estimation-error discussion](https://docs.mosek.com/portfolio-cookbook/estimationerror.html).
 
-The budget constrains `sqrt(w.T @ Sigma @ w)`. With ordinary sample covariance, this equals the annual sample volatility of the same fixed-weight return series. The later replay uses different dates and changing holdings, so its realized volatility can differ.
+The budget constrains `sqrt(w.T @ Sigma @ w)`. With ordinary sample covariance, this equals the annual sample volatility of the same fixed-weight return series. These fitted moments describe the starting allocation. They do not trace its buy-and-hold performance. The later replay uses different dates and weights that drift, so its realized volatility can differ.
 
 The latest fitted frontier uses all supplied stock history and the holding cap. Its selected point applies the requested volatility budget. SPY and QQQ markers use historical means and volatility on those same dates. These markers are separate comparisons, not feasible stock portfolios.
 
 The CLI accepts an explicit `--shrinkage` value for research. With value `a`, it uses `(1 - a) * S + a * diag(diag(S))`, where `S` is sample covariance. A nonzero value can raise or lower fitted portfolio risk relative to ordinary historical volatility. The app and stock-model CLI default to zero. The legacy CLI defaults to 0.1.
 
-With `T` return intervals, the first `floor(0.7 × T)` form the initial training sample. The remaining 30% form one later test. Every 21 observations, the model refits with all returns through the close before execution. The same rule applies throughout. Latest weights use all supplied history and never enter earlier trades.
+With `T` return intervals, the first `floor(0.7 × T)` form the initial training sample. The remaining 30% form one later test. The model fits once on the initial sample, buys once, and holds without rebalancing. Latest weights use all supplied history and never enter the replay.
 
 The test has four paths:
 
 | Path | Rule |
 | --- | --- |
-| Historical-mean portfolio | Refit stock weights every 21 observations. |
-| Equal-weight stocks | Hold equal target weights across eligible stocks, with the same eligibility checks and trade schedule. |
+| Stock portfolio · buy and hold | Fit once on the initial sample, buy once, then let weights drift. |
+| Equal-weight stocks | Buy equal weights across initially eligible stocks once, then let weights drift. |
 | S&P 500 (SPY) | Buy once and hold. |
 | Nasdaq-100 (QQQ) | Buy once and hold. |
 
-The three references have no volatility budget. Equal weights satisfy the holding cap when the stock model is feasible. ETF weights remain separate from the stock holding cap. Missing benchmark data leaves only the available paths and prevents a pass.
+The three references have no volatility budget. The initial equal weights satisfy the holding cap when the stock model is feasible. ETF weights remain separate from the stock holding cap. Missing benchmark data leaves only the available paths and prevents a pass.
 
-All paths share the test dates, initial cash interval, and fee rate. The app charges 10 basis points on bought and sold amounts. It does not charge a terminal sale. See [trade timing](#timing-and-information) and [fee accounting](#costs-and-constraints).
+All paths share the test dates, initial cash interval, and fee rate. The app charges 10 basis points on each initial purchase. There are no later trades or terminal sales. See [trade timing](#timing-and-information) and [fee accounting](#costs-and-constraints).
 
 The result status is a descriptive check of that test period. A pass requires both ETFs, at least `ceil(periods_per_year)` test intervals, and model volatility within the budget. It also requires that no reference has strictly higher net CAGR with no more realized volatility. Equal returns can pass. A lower-return, lower-risk model can also pass. This status does not mean the model beats every reference, and it does not establish statistical significance or future skill.
 
-At every fit, the engine excludes stocks with at least 20 consecutive unchanged price intervals in the past sample. It preserves the original prices and exports each dated eligibility decision. Repeated quotes do not prove false data. If a held stock later triggers the screen, the study stops. It does not assume a verified sale at that quote.
+The initial and latest fits exclude stocks with at least 20 consecutive unchanged price intervals in their respective samples. The engine preserves the original prices and exports each dated eligibility decision. Repeated quotes do not prove false data. Later eligibility decisions affect only the separate latest allocation. They do not trigger trades in the replay.
 
 Current membership and complete-history requirements create selection and survivorship bias. Prior review of the test dates also creates research hindsight. Correct time order alone does not make those dates fresh prospective evidence.
 
@@ -60,30 +60,61 @@ The ZIP contains an offline HTML report and exact CSV data. `metadata.json` reco
 | `latest/frontier.csv` | Fitted return and risk at each frontier point |
 | `latest/frontier_weights.csv` | Stock weights at each frontier point |
 | `latest/fitted_comparison.csv` | Selected stock portfolio and SPY/QQQ estimates on the same latest fit dates |
-| `fit_estimates.csv` | Each historical and latest fit's dates, sample size, mean, model risk, ordinary historical risk, and largest target weight |
+| `fit_estimates.csv` | Initial and latest fit dates, sample sizes, means, model risk, ordinary historical risk, and largest target weights |
 | `test/metrics.csv` | Net performance for each path |
 | `test/equity.csv` | Exact portfolio values through the later test |
-| `test/NN_allocations.csv` | Target weights for one path |
+| `test/NN_allocations.csv` | Initial target weights for one path |
 | `test/NN_holdings.csv` | Asset exposures and profit contributions |
-| `test/NN_trades.csv` | Fits, trade dates, turnover, and fees |
+| `test/NN_trades.csv` | Initial fit and purchase date, turnover, and entry fee |
 | `universe_coverage.csv` | Source coverage and exclusions, when supplied |
 
-`metadata.json` maps each numbered file prefix to its path name. Keep the input CSVs and all recorded settings to reproduce the calculation. The CLI accepts explicit assumptions even though the app fixes its training share, refit schedule, fees, and shrinkage.
+`metadata.json` maps each numbered file prefix to its path name and records `holding_policy: buy_and_hold`. Keep the input CSVs and all recorded settings to reproduce the calculation. The CLI accepts explicit assumptions even though the app fixes its training share, fees, and shrinkage. The stock model has no rebalance schedule.
 
 ## Timing and information
 
 1. Split the observed returns in time order. Use the first `floor(train_fraction × T)` for the initial fit.
 2. Set initial wealth to one at the final training close. Hold cash until the next supplied close. Deduct entry fees there.
-3. At each execution close, value existing holdings first. Fit new targets with returns only through the preceding close. Deduct fees and establish the new holdings.
-4. Let new targets earn returns from the next interval. Refit every `rebalance_every` observations. Do not add an unused trade at the final close.
+3. Buy the initial target allocation at that close, after fees.
+4. Keep the same adjusted-price units through the final date. Let weights drift with prices. Do not rebalance or sell at the end.
 
 This one-interval delay prevents a signal from receiving a return already in its fit. Execution still assumes the next supplied adjusted close, fractional holdings, and unlimited capacity. Fees approximate spreads, slippage, and commissions. The model has no market-impact, tax, or currency-conversion calculation.
 
-The schedule counts supplied rows. Twenty-one observations approximate one month only for daily market data. With weekly data, a CLI interval of four means four weekly observations. Missing dates can make these intervals longer.
+The stock-model CLI rejects `--rebalance-every`. This option belongs to legacy `--backtests`, where it counts supplied rows. Twenty-one observations approximate one month only for daily market data. With weekly data, an interval of four means four weekly observations. Missing dates can make these intervals longer.
 
 `--periods-per-year` controls annualization and defaults to 252. It does not resample prices or change trade dates. The app uses daily market prices and 252 observations per year for Yahoo input. CSV presets are 252, 365, 52, and 12. Custom app values must be finite and at least one. The CLI accepts any positive finite value.
 
 The model needs at least two initial training returns and two later returns. Five price rows meet that minimum only with a suitable split. The app's fixed 70/30 split needs at least six rows. Short histories and large asset counts make estimates less reliable.
+
+## Buy-and-hold accounting
+
+Let `e` be the purchase close, `w` the initial target weights, and `c = cost_bps / 10000`. Initial capital is one. The purchase fee comes from that same capital:
+
+```text
+V[start] = 1
+V[e] = 1 / (1 + c)
+R[e] = -c / (1 + c)
+q[i] = V[e] × w[i] / P[i, e]
+
+For each later date t:
+V[t] = sum(q[i] × P[i, t])
+a[i, t] = q[i] × P[i, t] / V[t]
+R[t] = V[t] / V[t - 1] - 1
+```
+
+`P` contains adjusted prices. `q` therefore denotes constant units of the adjusted-price series, not a reconstructed broker share ledger. `a` denotes the actual weights at each close. Price changes alter those weights without any trade. The target weight cap and volatility budget constrain the initial allocation. They do not cap later weights or realized volatility.
+
+The first replay return is the entry-fee loss, because the portfolio holds cash before purchase. Later returns come from the fixed units. There is no terminal sale or fee. SPY, QQQ, and the equal-weight stock reference use this same entry and holding rule.
+
+Let `p` denote observations per year and `N` the number of replay returns, including the entry interval:
+
+```text
+Annual arithmetic mean = p × mean(R)
+Realized volatility = sqrt(p) × sample_standard_deviation(R)
+CAGR = (V[end] / V[start]) ** (p / N) - 1
+Maximum drawdown = min(V[t] / max(V[s] for s <= t) - 1)
+```
+
+The optimizer maximizes `mu @ w` from the training sample. It does not maximize the later realized mean or constrain the later realized volatility. The replay measures those outcomes after the initial decision.
 
 ## Legacy strategy comparison
 
