@@ -226,9 +226,10 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     app.number_input(key="preview_cap").set_value(12.).run()
     app.button(key="build").click().run()
     assert not app.exception
-    for label in ("Mathematics · portfolio selection", "Mathematics · buy-and-hold returns"):
-        panel = next(item for item in app.expander if item.label == label)
-        assert panel.proto.expanded is True
+    assert "open_mathematics" not in {item.key for item in app.button}
+    assert not any(item.label.startswith("Mathematics ·") for item in app.expander)
+    assert "Mathematics · portfolio selection" in html_text(app)
+    assert "Mathematics · buy-and-hold returns" in html_text(app)
     equations = "\n".join(item.proto.body for item in app.get("latex"))
     # Adjacent raw strings must not turn spacing into unknown KaTeX commands.
     assert not re.search(r"\\(?:qquad|quad)[A-Za-z]", equations)
@@ -247,11 +248,11 @@ def test_mathematical_definitions_use_rendered_latex_and_applied_limits(universe
     assert "Neither limit triggers a trade" in text
     assert "no later refits, trades" in text
     assert "including the entry-fee interval" in text
-    app.button(key="open_mathematics").click().run()
+    app.segmented_control(key="view").set_value("Data & method").run()
     assert not app.exception
     assert app.session_state.view == "Data & method"
     assert "\n".join(item.proto.body for item in app.get("latex")) == equations
-    assert all(item.proto.expanded for item in app.expander if item.label.startswith("Mathematics ·"))
+    assert not any(item.label.startswith("Mathematics ·") for item in app.expander)
 
 
 def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_data):
