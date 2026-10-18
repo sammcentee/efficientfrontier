@@ -65,7 +65,9 @@ The model maximizes historical arithmetic mean return within the volatility budg
 
 ## Latest fit and historical replay
 
-Overview starts with the replay verdict and its mean–variance proof. A reference that improves mean or volatility without worsening the other wins for every positive variance penalty. If no reference dominates, the opening verdict says so. The buy-and-hold growth chart, replay metrics, and exact return reconciliation follow. The latest fitted frontier and holdings appear later.
+Overview starts with the latest fitted holdings, then their mean–variance frontier, then the replay proof. Each holding shows its company name, weight, ticker, and a short business description when available. These descriptions come from current Yahoo Finance profiles; they are not historical records. CSV and demo studies stay offline and clearly label missing or simulated company information. The full weights remain available below the cards.
+
+The proof concerns the separate initial allocation used in the historical replay. A reference that improves mean or volatility without worsening the other wins for every positive variance penalty. If no reference dominates, the verdict says so. The buy-and-hold growth chart, replay metrics, and exact return reconciliation follow.
 
 The date summary above the chart separates the initial fit (first 70% of returns), replay (final 30%), and latest frontier (all returns). These are observation counts, not fixed calendar periods. Five years of daily prices gives roughly three and a half years for the initial fit and eighteen months for the replay. Annualized metrics describe units, not a one-year test. Each run shows its actual return dates.
 
@@ -97,7 +99,7 @@ The app fixes the other assumptions:
 
 The initial fit uses prices through the close before execution. The first test interval stays in cash. The portfolio buys at that interval's close and earns returns from the next interval. It does not reset weights, add stocks, or sell stocks during the replay. The latest full-history fit remains separate.
 
-The result status checks the model's later performance. A pass needs both ETF references, at least one year of later returns, and realized volatility within the budget. A pass also requires that no reference has higher net CAGR with no more volatility. These are descriptive checks, not statistical proof. A failed check keeps the latest holdings collapsed with an explanation.
+The result status checks the model's later performance. A pass needs both ETF references, at least one year of later returns, and realized volatility within the budget. A pass also requires that no reference has higher net CAGR with no more volatility. These are descriptive checks, not statistical proof. The latest holdings remain visible regardless of the replay result.
 
 **Annual mean** averages the net test returns and scales that average to a year. **CAGR** compounds the same returns. A 50% gain followed by a 50% loss has a zero arithmetic mean but loses 25% of the initial value. The fitted mean uses different dates and weights.
 

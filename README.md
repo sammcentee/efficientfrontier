@@ -31,7 +31,7 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 1. Read the model equations on the **Efficient Frontier Analysis for US Equities** opening page. Open **Settings** to choose stocks and history, or select the **Demo** stock source.
 2. Set **Annual volatility budget** and **Holding limit** in the two number fields. The holding limit defaults to 10%.
 3. Select **Build portfolio**.
-4. Read the replay verdict and its mean–variance proof first. Then compare the growth chart, SPY and QQQ, and the latest frontier and holdings.
+4. Inspect the latest stock holdings and their fitted frontier. Then read the replay proof and compare the later results with SPY and QQQ.
 5. Select **Export** for the offline report and exact input/result CSVs.
 
 The app starts the volatility budget at QQQ's latest one-year annualized volatility, with its price date shown. This reference is separate from the stock fit window. Your edits take precedence. If the reference is unavailable, the app labels its 20% manual fallback.
@@ -56,7 +56,7 @@ The first test interval stays in cash at zero interest. All replay paths then bu
 
 ## Read the results
 
-Overview starts with a verdict and proof based on the observed annual means and volatilities. It states whether a reference dominates the portfolio and what that implies for every positive variance penalty. The growth chart, replay metrics, and exact return reconciliation follow. The latest fit appears later. Open **Settings** from the results navigation, or **Data & method** for coverage and trades.
+Overview starts with the latest stock holdings, followed by their fitted frontier, then the replay proof. Company cards show names, weights, and a short business description from current Yahoo Finance profiles when available. CSV and demo studies stay offline. The proof states whether a reference dominates the separate replay allocation and what that implies for every positive variance penalty. The growth chart, replay metrics, and exact return reconciliation follow. Open **Settings** from the results navigation, or **Data & method** for coverage and trades.
 
 **The latest fit includes the replay dates. The replay did not use the latest holdings.** The fit chooses one allocation using all supplied history. The replay buys one allocation from the initial training sample, then holds it through the later prices without rebalancing. The two panels use different dates, weights, and fee treatment.
 

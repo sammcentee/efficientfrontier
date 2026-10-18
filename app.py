@@ -1,6 +1,7 @@
 """Run with ./run.sh from the repository root."""
 
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor, wait
 from hashlib import sha256
 import html
 from io import BytesIO
@@ -12,6 +13,7 @@ import streamlit as st
 
 from efficient_frontier import story
 from efficient_frontier.backtest_report import HOLDINGS
+from efficient_frontier.companies import fetch_company_profile
 from efficient_frontier.data import demo_prices, download_benchmarks, download_prices, load_csv, original_tickers, parse_tickers, stale_price_notes
 from efficient_frontier.presentation import csv_text
 from efficient_frontier.risk_reference import load_qqq_volatility_reference
@@ -95,6 +97,17 @@ def fetch_benchmarks(dates):
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_default_risk(reference_day):
     return load_qqq_volatility_reference()
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=32)
+def fetch_company_profiles(symbols):
+    pool = ThreadPoolExecutor(max_workers=4)
+    pending = {pool.submit(fetch_company_profile, symbol): symbol for symbol in symbols}
+    try:
+        done, _ = wait(pending, timeout=10)
+        return {pending[future]: future.result() for future in done}
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
@@ -866,10 +879,60 @@ def selection_period(study, title, benchmark_note, settings):
 def overview():
     _, prices, metadata = st.session_state.result
     selection = st.session_state.selection
-    st.html('<div id="pl-market"></div>')
-    with st.container(border=True, key="tile_replay_proof"):
+    portfolio = selection.latest[selection.selected]
+    displayed = portfolio.weights[portfolio.weights > 1e-6].sort_values(ascending=False, kind="stable")
+    initial = selection.test.allocations[selection.selected].iloc[0]
+    replay_symbols = initial.index[initial > 1e-6]
+    names = story.company_names(st.session_state.get("coverage"))
+    with st.container(border=True, key="tile_holdings"):
+        st.html(title_html("Latest fitted holdings", f"Fitted through {day(prices.index[-1])}"))
         if "synthetic" in metadata["source"]:
             st.info("Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.")
+        st.caption("These weights use all supplied prices, including the replay dates. "
+                   "They form the selected point on the frontier below. "
+                   "The historical replay used a separate initial allocation.")
+        profiles = {}
+        if metadata["source"] == "Yahoo Finance":
+            symbols = tuple(sorted(set(displayed.index) | set(replay_symbols)))
+            with st.spinner("Load company descriptions"):
+                profiles = fetch_company_profiles(symbols)
+        companies = {}
+        for symbol in prices.columns:
+            profile = profiles.get(symbol, {})
+            if metadata["universe"] == "Demo":
+                label = symbol.removeprefix("DEMO_").replace("_", " ").lower()
+                name = f"Simulated {label}"
+                description = f"Synthetic {label} prices for the offline demonstration; not an actual company."
+            else:
+                name = profile.get("name") or names.get(symbol, symbol)
+                description = profile.get("description") or (
+                    "Company description unavailable. This uploaded file contains price data only."
+                    if metadata["universe"] == "Upload CSV" else "Company description unavailable from the data provider.")
+            companies[symbol] = {"name": name, "description": description, "source_url": profile.get("source_url", "")}
+        st.html(story.holdings_cards_html(displayed, companies))
+        if any(profile.get("source_url") for profile in profiles.values()):
+            st.caption("Available company descriptions are current Yahoo Finance profiles, not historical descriptions. "
+                       "Select a company name to open its source.")
+        frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
+        frame.insert(1, "Company", frame.Symbol.map({symbol: details["name"] for symbol, details in companies.items()}))
+        with st.expander("All weights, including negligible allocations"):
+            st.dataframe(frame, hide_index=True, width="stretch",
+                         column_config={"Weight": st.column_config.NumberColumn("Weight", format="percent")})
+        for note in stale_price_notes(prices):
+            st.warning(note)
+    with st.container(border=True, key="tile_fitted_frontier"):
+        frontier_data = calculate_frontier(selection, prices, SELECTION_MODEL_REVISION)
+        st.markdown(f"**Full-history fit · {day(selection.settings['initial_training_start'])} "
+                    f"to {day(selection.settings['price_end'])}.** "
+                    "The selected point represents the holdings above. This fit includes the replay dates; "
+                    "the replay below uses a separate initial allocation.")
+        st.plotly_chart(selection_frontier_chart(frontier_data, selection), width="stretch", theme=None, config=PLOTLY_CONFIG)
+        st.html(selection_frontier_summary_html(selection, prices, frontier_data))
+        if metadata.get("candidate_note"):
+            st.info(metadata["candidate_note"])
+    st.html('<div id="pl-market"></div>')
+    with st.container(border=True, key="tile_replay_proof"):
+        st.markdown("**Historical replay · separate initial allocation**")
         selection_replay_proof(selection)
     with st.container(border=True, key="tile_final_test"):
         selection_period(selection.test, "Historical replay · buy and hold", selection_benchmark_note(selection), selection.settings)
@@ -877,31 +940,12 @@ def overview():
     with st.container(border=True, key="tile_replay_drivers"):
         st.html(story.result_drivers_html(selection.test, selection.selected))
         with st.expander("Replay holdings and contributions"):
-            st.dataframe(selection.test.holdings[selection.selected].style.format("{:.2%}"), width="stretch",
+            holdings = selection.test.holdings[selection.selected].loc[replay_symbols].copy()
+            numeric_columns = list(holdings.columns)
+            holdings.insert(0, "Company", [companies[symbol]["name"] for symbol in holdings.index])
+            holdings.insert(1, "What it does", [companies[symbol]["description"] for symbol in holdings.index])
+            st.dataframe(holdings.style.format("{:.2%}", subset=numeric_columns), width="stretch",
                          column_config={"_index": "Symbol", **{name: label for name, (label, _) in HOLDINGS.items()}})
-    with st.container(border=True, key="tile_fitted_frontier"):
-        frontier_data = calculate_frontier(selection, prices, SELECTION_MODEL_REVISION)
-        st.markdown(f"**Full-history fit · {day(selection.settings['initial_training_start'])} "
-                    f"to {day(selection.settings['price_end'])}.** "
-                    "These dates include the replay period. This frontier describes a separate fitted allocation, "
-                    "not the holdings used in the earlier chart.")
-        st.plotly_chart(selection_frontier_chart(frontier_data, selection), width="stretch", theme=None, config=PLOTLY_CONFIG)
-        st.html(selection_frontier_summary_html(selection, prices, frontier_data))
-        if metadata.get("candidate_note"):
-            st.info(metadata["candidate_note"])
-    names = story.company_names(st.session_state.get("coverage"))
-    portfolio = selection.latest[selection.selected]
-    with st.expander(f"Latest fitted holdings · fitted through {day(prices.index[-1])}", expanded=True):
-        st.caption("These weights use all supplied prices, including the replay dates. "
-                   "The historical replay bought a separate allocation once, before the later returns.")
-        if not selection.supported:
-            st.warning("The buy-and-hold replay did not meet the performance checks. It used a separate initial allocation.")
-        frame = portfolio.weights.sort_values(ascending=False).rename("Weight").rename_axis("Symbol").reset_index()
-        if names:
-            frame.insert(1, "Company", frame.Symbol.map(names))
-        st.dataframe(frame, hide_index=True, width="stretch", column_config={"Weight": st.column_config.NumberColumn("Weight", format="percent")})
-        for note in stale_price_notes(prices):
-            st.warning(note)
     with st.container(border=True, key="tile_fit_replay"):
         st.html(selection_comparison_html(selection, prices))
         selection_fit_math(selection)

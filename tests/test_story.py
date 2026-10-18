@@ -73,6 +73,23 @@ def test_short_company_name_for_every_nasdaq_100_member():
     assert shown[shown != members["short_name"]].to_dict() == {}
 
 
+def test_holdings_cards_escape_provider_text_and_keep_small_positions_visible():
+    saved = pd.Series([.123456, .000009], index=["A&B", "<TINY>"])
+    original = saved.copy()
+    companies = {
+        "A&B": {"name": '<Company & "Co">', "description": '<script>external text</script>',
+                "source_url": "https://finance.yahoo.com/quote/A%26B/profile/"},
+        "<TINY>": {"name": "Small holding", "description": "Makes tools."},
+    }
+    rendered = story.holdings_cards_html(saved, companies)
+    assert '&lt;Company &amp; &quot;Co&quot;&gt;' in rendered
+    assert '&lt;script&gt;external text&lt;/script&gt;' in rendered and '<script>' not in rendered
+    assert 'A&amp;B' in rendered and '&lt;TINY&gt;' in rendered
+    assert '12.35%' in rendered and '&lt;0.01%' in rendered
+    assert 'href="https://finance.yahoo.com/quote/A%26B/profile/"' in rendered
+    pd.testing.assert_series_equal(saved, original)
+
+
 def market_study(cagr):
     return SimpleNamespace(metrics=pd.DataFrame({"cagr": [cagr], "total_return": [cagr * 1.5]}, index=[SELECTED]))
 
