@@ -1,0 +1,241 @@
+{
+  "reviewed_on": "2026-10-18",
+  "purpose": "Primary-source identification of six funds fixed before performance inspection. No fund selected from performance.",
+  "scope_notes": [
+    "Fund inception is the start of live fund history, not the earlier hypothetical index backtest.",
+    "ETF total-return histories test these implemented index strategies, including historical rule changes. They do not validate a new custom stock-selection rule.",
+    "Custom rules can differ in universe, return window, risk estimator, selection count, weighting, turnover, review dates, execution and corporate-action handling.",
+    "None of these six underlying indexes promises constant realized portfolio volatility. Any common cash or volatility overlay is a separate research rule.",
+    "Fund expenses and tracking effects already affect observed fund prices/NAV. Do not deduct the published expense ratio a second time.",
+    "This is a targeted material-change review, not an exhaustive reconstruction of every historical index rule."
+  ],
+  "funds": [
+    {
+      "ticker": "SPMO",
+      "name": "Invesco S&P 500 Momentum ETF",
+      "inception": "2015-10-09",
+      "index": "S&P 500 Momentum Index",
+      "universe": "Contemporaneous S&P 500 constituents",
+      "signal": "Full 12-month local price change ending one month before the rebalance reference date, divided by daily price-return standard deviation over that same window. Nine-month fallback when 12-month history is unavailable.",
+      "timing_example": "March rebalance uses February month-end reference; the signal compares January month-end with January month-end one year earlier. This is not the usual 11-month months-2-to-12 signal.",
+      "selection": "Highest-scoring quintile, approximately 100 stocks; count can vary with eligibility and corporate events. Not the separate S&P 500 Momentum Top 50 index.",
+      "score": "Cross-sectional risk-adjusted momentum z-score, clipped at +/-3. Positive z maps to 1+z; negative z maps to 1/(1-z).",
+      "weighting": "Float-adjusted market capitalization multiplied by momentum score, normalized subject to concentration limits. Current methodology applies the lower of 9% at company level and three times the security capitalization weight in the index.",
+      "rebalance": "Semiannual: after the third Friday close in March and September. Reference dates are the last business days of February and August.",
+      "material_changes": [
+        {
+          "effective": "2026-09-18 after close",
+          "change": "9% concentration cap changed from security to company level."
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://www.invesco.com/us/en/financial-products/etfs/invesco-sp-500-momentum-etf.html",
+          "supports": "Fund identity, index, inception."
+        },
+        {
+          "url": "https://www.spglobal.com/spdji/en/documents/methodologies/methodology-sp-momentum-indices.pdf",
+          "version": "October 2026",
+          "supports": "Pages 7-10 selection/weights/reviews; Appendix A exact lookback; Appendix B score; Appendix D cap change."
+        }
+      ]
+    },
+    {
+      "ticker": "MTUM",
+      "name": "iShares MSCI USA Momentum Factor ETF",
+      "inception": "2013-04-16",
+      "index": "MSCI USA Momentum SR Variant Index",
+      "universe": "MSCI USA large- and mid-cap stocks",
+      "signal": "Six- and twelve-month local price changes, each excluding the latest month, less the local risk-free rate. Each is divided by annualized standard deviation of three years of weekly local price returns.",
+      "score": "Standardize the two horizon signals, combine their z-scores equally, standardize again, clip the combined z-score at +/-3, then transform to a positive momentum score.",
+      "selection": "Targets 125 securities. Iterative replacements favor higher momentum while restricting one-way turnover to 30% per review; it is not an unconstrained fresh top-125 portfolio every quarter.",
+      "weighting": "Parent-index market-cap weight multiplied by momentum score. Issuer cap 5%, plus group concentration rules: weights above 4.5% aggregate to at most 22.5% at review. Between reviews, a 25% aggregate breach for groups above 5% triggers recapping.",
+      "rebalance": "February, May, August and November reviews, plus conditional reviews and concentration recapping specified by the methodology.",
+      "material_changes": [
+        {
+          "effective": "2020-11-23",
+          "change": "Fund switched from MSCI USA Momentum Index to MSCI USA Momentum SR Variant Index. Prospectus splice ends the previous index on 2020-11-22."
+        },
+        {
+          "effective": "February 2024 review",
+          "change": "Removed staggered multi-day implementation; changed semiannual reviews to quarterly; revised selection/weights and diversification rules."
+        },
+        {
+          "effective": "August 2024 review",
+          "change": "Updated 5% group-entity capping."
+        }
+      ],
+      "source_conflict": "MSCI index landing-page description still mentions three-day staggering. The dated August 2024 methodology explicitly removes it; use the dated methodology and issuer prospectus.",
+      "sources": [
+        {
+          "url": "https://www.ishares.com/us/products/251614/ishares-msci-usa-momentum-factor-etf",
+          "supports": "Fund identity, current index, inception."
+        },
+        {
+          "url": "https://www.ishares.com/us/literature/summary-prospectus/sp-ishares-edge-msci-usa-momentum-factor-etf-7-31.pdf",
+          "supports": "Principal strategies and benchmark-history splice."
+        },
+        {
+          "url": "https://www.msci.com/indexes/documents/methodology/3_MSCI_USA_Momentum_SR_Variant_Index_20240820.pdf",
+          "version": "August 2024",
+          "supports": "Selection, weighting, quarterly/conditional reviews, turnover constraint and February/August 2024 changes."
+        },
+        {
+          "url": "https://www.msci.com/indexes/documents/methodology/2_MSCI_Momentum_Indexes_Methodology_20250417.pdf",
+          "version": "April 2025",
+          "supports": "Signal formula, weekly three-year risk denominator and score transformation."
+        }
+      ]
+    },
+    {
+      "ticker": "SPLV",
+      "name": "Invesco S&P 500 Low Volatility ETF",
+      "inception": "2011-05-05",
+      "index": "S&P 500 Low Volatility Index",
+      "universe": "Contemporaneous S&P 500 constituents",
+      "selection": "100 stocks with the lowest realized volatility over the prior 12 months.",
+      "weighting": "Inverse individual-stock volatility. No sector-neutrality constraint. This is not covariance-based minimum portfolio variance.",
+      "rebalance": "Quarterly in February, May, August and November.",
+      "material_changes": [
+        {
+          "effective": "2015-09-30",
+          "change": "Changed spinoff event treatment to temporary inclusion followed by removal after at least one regular trading day."
+        },
+        {
+          "effective": "2017-06-19",
+          "change": "Dual-listed companies represented once by their primary listing, generally the most liquid."
+        },
+        {
+          "effective": "2020-04-29",
+          "change": "Index-share reference prices moved from the second Friday to the preceding Wednesday."
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://www.invesco.com/us/en/financial-products/etfs/invesco-sp-500-low-volatility-etf.html",
+          "supports": "Fund/index identity, inception, selection and review months."
+        },
+        {
+          "url": "https://www.spglobal.com/spdji/en/indices/dividends-factors/sp-500-low-volatility-index/",
+          "supports": "100 stocks and inverse-volatility weights."
+        },
+        {
+          "url": "https://www.spglobal.com/spdji/en/documents/methodologies/methodology-sp-low-volatility-indices.pdf",
+          "supports": "Construction and Appendix C dated methodology changes."
+        }
+      ]
+    },
+    {
+      "ticker": "USMV",
+      "name": "iShares MSCI USA Min Vol Factor ETF",
+      "inception": "2011-10-18",
+      "index": "MSCI USA Minimum Volatility (USD) Index",
+      "universe": "MSCI USA large- and mid-cap stocks",
+      "selection_and_weighting": "Optimizes predicted absolute portfolio volatility using the MSCI risk model, subject to turnover, stock-weight, sector, country and factor-exposure constraints. It does not simply select the lowest-volatility stocks.",
+      "rebalance": "February, May, August and November reviews. Normal one-way turnover limit is 5% per review, subject to documented feasibility relaxations.",
+      "material_changes": [
+        {
+          "effective": "November 2017 review",
+          "change": "Optimization switched to the Barra Global Equity Model for Long-Term Investors (GEMLTL), without changing the turnover limit."
+        },
+        {
+          "effective": "August 2025 review",
+          "change": "Semiannual reviews changed to quarterly while preserving the annual turnover budget. Uses the latest available risk-model data; turnover and minimum-weight constraint relaxations alternate."
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://www.ishares.com/us/products/239695/ishares-msci-usa-min-vol-etf",
+          "supports": "Fund/index identity and inception."
+        },
+        {
+          "url": "https://www.ishares.com/us/literature/summary-prospectus/sp-ishares-edge-msci-min-vol-usa-etf-7-31.pdf",
+          "supports": "Principal investment strategy and current quarterly 5% turnover rules."
+        },
+        {
+          "url": "https://app2.msci.com/webapp/index_ann/DocGet?format=html&lang=en&pub_key=fQDR1WqRva0%3D",
+          "supports": "Official August 2025 method-change confirmation."
+        },
+        {
+          "url": "https://www.msci.com/index/methodology/latest/MinVol",
+          "version": "July 2025 retrieved 2026-10-18",
+          "supports": "Risk model, portfolio constraints and Appendix I 2017/2025 changes."
+        }
+      ],
+      "constraints": "Normal bounds include 0.05% minimum stock weight; maximum is the lower of 1.5% and 20 times parent weight. Sector deviations stay within 5 percentage points. Most other risk-factor deviations stay within 0.25 standard deviations. Feasibility relaxations can apply.",
+      "reproduction_limit": "MSCI supplies a proprietary risk model. The summary does not specify a reproducible sample-covariance estimator."
+    },
+    {
+      "ticker": "RSP",
+      "name": "Invesco S&P 500 Equal Weight ETF",
+      "inception": "2003-04-24",
+      "index": "S&P 500 Equal Weight Index",
+      "universe": "Contemporaneous S&P 500 companies",
+      "selection_and_weighting": "All S&P 500 companies with target 1/N company weights. Multiple listed share classes divide the company weight in proportion to float-adjusted capitalization; equal company weights do not mean equal ticker weights.",
+      "rebalance": "After the third Friday close of March, June, September and December. Current reference prices come from the Wednesday before the second Friday; price moves before implementation can produce departures from exact equal weights.",
+      "material_changes": [
+        {
+          "effective": "2018-04-06",
+          "change": "Fund reorganization from its Guggenheim predecessor. Issuer retains predecessor history; this alone is not an index-rule change."
+        },
+        {
+          "effective": "December 2024; method table lists 2024-12-21",
+          "change": "Reference prices moved from second Friday to preceding Wednesday."
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://www.invesco.com/us/en/financial-products/etfs/invesco-sp-500-equal-weight-etf.html",
+          "supports": "Identity, inception, predecessor reorganization."
+        },
+        {
+          "url": "https://www.spglobal.com/spdji/en/indices/equity/sp-500-equal-weight-index/",
+          "supports": "Same companies as S&P 500 and quarterly equal company weights."
+        },
+        {
+          "url": "https://www.spglobal.com/spdji/en/documents/methodologies/methodology-sp-us-indices.pdf",
+          "supports": "S&P Equal Weight U.S. Indices construction and December 2024 reference-date change."
+        }
+      ]
+    },
+    {
+      "ticker": "QUAL",
+      "name": "iShares MSCI USA Quality Factor ETF",
+      "inception": "2013-07-16",
+      "index": "MSCI USA Sector Neutral Quality Index",
+      "universe": "MSCI USA large- and mid-cap stocks",
+      "selection_and_weighting": "Ranks quality within sectors using high return on equity, low earnings variability and low leverage. Weights selected securities by quality score times parent-index weight, then matches parent sector weights. Issuer cap is 5%.",
+      "rebalance": "May and November, normally using fundamentals available at April/October month-end.",
+      "material_changes": [
+        {
+          "effective": "2015-09-01",
+          "change": "Fund switched from MSCI USA Quality Index to MSCI USA Sector Neutral Quality Index. Prospectus splice ends the prior index on 2015-08-31."
+        },
+        {
+          "effective": "May 2025 review",
+          "change": "Return on equity and debt/equity both became mandatory for a quality score. Missing earnings variability still allows a score from the other two descriptors. Announcement left other methodology aspects unchanged."
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://www.ishares.com/us/products/256101/",
+          "supports": "Fund/index identity and inception."
+        },
+        {
+          "url": "https://www.ishares.com/us/literature/summary-prospectus/sp-ishares-edge-msci-usa-quality-factor-etf-7-31.pdf",
+          "supports": "Quality variables, sector-neutral weighting, issuer cap, review frequency and 2015 index change."
+        },
+        {
+          "url": "https://www.msci.com/indexes/documents/methodology/2_MSCI_Quality_Indexes_Methodology_20250520.pdf",
+          "version": "May 2025",
+          "supports": "Current quality-score definitions, sector-neutral framework and data requirements."
+        },
+        {
+          "url": "https://app2.msci.com/webapp/index_ann/DocGet?format=html&lang=en&pub_key=Rsk%2FI1RPQbI%3D",
+          "supports": "September 2024 announcement of mandatory ROE and debt/equity from May 2025."
+        }
+      ],
+      "fund_policy_note": "2026-03-31 prospectus supplement permits non-diversified status after index concentration changes. This is a fund-policy amendment, not a change to the quality-score formula."
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "selection_lock_sha256": "fa0dbcaa6a1723bd24637eb6a673236e979bc828bbb965f419531a9cd99c5803",
+  "selection": {
+    "stocks": {
+      "name": "momentum_50",
+      "development_score": 0.021956054396964603,
+      "beat_both_in_development": true,
+      "first_return": "2022-11-01",
+      "observations": 616
+    },
+    "funds": {
+      "name": "qqq_trend10month",
+      "development_score": 0.009228460056723758,
+      "beat_both_in_development": true,
+      "first_return": "2016-11-01",
+      "observations": 1552
+    }
+  },
+  "groups": {
+    "stocks": {
+      "winner": "momentum_50",
+      "first_return": "2025-04-17",
+      "last_return": "2026-10-16",
+      "observations": 377,
+      "metrics": {
+        "raw_mean": 0.18209729888729126,
+        "raw_cagr": 0.1933239329621828,
+        "raw_volatility": 0.10295314320555947,
+        "raw_max_drawdown": -0.0637533509597737,
+        "normalized_mean": 0.1544508859813872,
+        "normalized_cagr": 0.16253051550315645,
+        "normalized_volatility": 0.0873225702952865,
+        "normalized_max_drawdown": -0.05422766887837927,
+        "scale": 0.8481777979418805,
+        "common_volatility": 0.0873225702952865,
+        "mean_gap_SPY": 0.014898094371431136,
+        "cagr_gap_SPY": 0.017175967171588813,
+        "mean_gap_QQQ": 0.0313487359017276,
+        "cagr_gap_QQQ": 0.035856404509331224,
+        "worst_mean_gap": 0.014898094371431136
+      },
+      "benchmark_metrics": {
+        "SPY": {
+          "raw_mean": 0.14533028869298695,
+          "raw_cagr": 0.1516174426292837,
+          "raw_volatility": 0.0909377319079173,
+          "raw_max_drawdown": -0.07771139762223318,
+          "normalized_mean": 0.13955279160995607,
+          "normalized_cagr": 0.14535454833156763,
+          "normalized_volatility": 0.08732257029528649,
+          "normalized_max_drawdown": -0.07469624837520317,
+          "scale": 0.9602457468777484,
+          "common_volatility": 0.0873225702952865,
+          "mean_gap_SPY": 0.0,
+          "cagr_gap_SPY": 0.0,
+          "mean_gap_QQQ": 0.01645064153029646,
+          "cagr_gap_QQQ": 0.01868043733774241,
+          "worst_mean_gap": 0.0
+        },
+        "QQQ": {
+          "raw_mean": 0.13867639375159352,
+          "raw_cagr": 0.14317938742371256,
+          "raw_volatility": 0.09837016765210217,
+          "raw_max_drawdown": -0.07610662951292853,
+          "normalized_mean": 0.1231021500796596,
+          "normalized_cagr": 0.12667411099382522,
+          "normalized_volatility": 0.0873225702952865,
+          "normalized_max_drawdown": -0.06761548508350336,
+          "scale": 0.8876936207338102,
+          "common_volatility": 0.0873225702952865,
+          "mean_gap_SPY": -0.01645064153029646,
+          "cagr_gap_SPY": -0.01868043733774241,
+          "mean_gap_QQQ": 0.0,
+          "cagr_gap_QQQ": 0.0,
+          "worst_mean_gap": -0.01645064153029646
+        }
+      },
+      "both_mean_gaps_positive": true,
+      "both_simultaneous_lower_bounds_positive": false,
+      "lower_bounds": {
+        "SPY": -0.17217764545640446,
+        "QQQ": -0.155727003926108
+      }
+    },
+    "funds": {
+      "winner": "qqq_trend10month",
+      "first_return": "2023-01-03",
+      "last_return": "2026-10-16",
+      "observations": 951,
+      "metrics": {
+        "raw_mean": 0.08153853872696659,
+        "raw_cagr": 0.08010809253602048,
+        "raw_volatility": 0.09450077523083433,
+        "raw_max_drawdown": -0.08745991892397621,
+        "normalized_mean": 0.08059428736246906,
+        "normalized_cagr": 0.07919999041390623,
+        "normalized_volatility": 0.09340641558997065,
+        "normalized_max_drawdown": -0.08647804505818987,
+        "scale": 0.9884195696999256,
+        "common_volatility": 0.09340641558997066,
+        "mean_gap_SPY": -0.03294790648486752,
+        "cagr_gap_SPY": -0.03615179235176996,
+        "mean_gap_QQQ": -0.03130752592594342,
+        "cagr_gap_QQQ": -0.03431857034859988,
+        "worst_mean_gap": -0.03294790648486752
+      },
+      "benchmark_metrics": {
+        "SPY": {
+          "raw_mean": 0.12986379219625577,
+          "raw_cagr": 0.13218100800245886,
+          "raw_volatility": 0.10683351213279026,
+          "raw_max_drawdown": -0.13617292347502263,
+          "normalized_mean": 0.11354219384733658,
+          "normalized_cagr": 0.11535178276567619,
+          "normalized_volatility": 0.09340641558997065,
+          "normalized_max_drawdown": -0.11986290859756156,
+          "scale": 0.8743175593990564,
+          "common_volatility": 0.09340641558997066,
+          "mean_gap_SPY": 0.0,
+          "cagr_gap_SPY": 0.0,
+          "mean_gap_QQQ": 0.0016403805589240983,
+          "cagr_gap_QQQ": 0.0018332220031700847,
+          "worst_mean_gap": 0.0
+        },
+        "QQQ": {
+          "raw_mean": 0.12629152646648154,
+          "raw_cagr": 0.1283059350381826,
+          "raw_volatility": 0.10541776276865286,
+          "raw_max_drawdown": -0.12233125925489674,
+          "normalized_mean": 0.11190181328841248,
+          "normalized_cagr": 0.1135185607625061,
+          "normalized_volatility": 0.09340641558997066,
+          "normalized_max_drawdown": -0.1090006480902355,
+          "scale": 0.8860595514150496,
+          "common_volatility": 0.09340641558997066,
+          "mean_gap_SPY": -0.0016403805589240983,
+          "cagr_gap_SPY": -0.0018332220031700847,
+          "mean_gap_QQQ": 0.0,
+          "cagr_gap_QQQ": 0.0,
+          "worst_mean_gap": -0.0016403805589240983
+        }
+      },
+      "both_mean_gaps_positive": false,
+      "both_simultaneous_lower_bounds_positive": false,
+      "lower_bounds": {
+        "SPY": -0.14303120826905175,
+        "QQQ": -0.14139082771012765
+      }
+    }
+  }
+}

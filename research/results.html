@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Index portfolio: historical comparison</title>
+<style>
+:root{color-scheme:light dark;--ink:var(--foreground,#182331);--muted-ink:var(--muted-foreground,#5d6876);--line:var(--border,#dfe4eb);--surface:var(--secondary,var(--card,#f2f5f8));--blue:#2870c8;--spy:#758394;--qqq:#a5b0bc}
+@media(prefers-color-scheme:dark){:root{--ink:var(--foreground,#edf2f8);--muted-ink:var(--muted-foreground,#b2bdcb);--line:var(--border,#38414e);--surface:var(--secondary,var(--card,#202a36));--blue:#75aff5;--spy:#9caabd;--qqq:#65768b}}
+*{box-sizing:border-box}body{margin:0;padding:0;background:transparent;color:var(--ink);font:14px/1.5 var(--font-sans,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+main{width:100%;max-width:840px}.takeaway{margin:0 0 7px;font-size:clamp(19px,3vw,24px);font-weight:650;line-height:1.3;letter-spacing:-.025em}
+p{margin:8px 0}.muted{color:var(--muted-ink)}.controls{display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin:20px 0 15px}
+.controls label{display:flex;flex-direction:column;gap:5px;color:var(--muted-ink);font-size:12px;font-weight:600}select{max-width:100%;padding:9px 32px 9px 10px;border:1px solid var(--line);border-radius:var(--radius,7px);background:var(--surface);color:var(--ink);font:14px var(--font-sans,system-ui)}
+select:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:3px}.controls .check{flex-direction:row;align-items:center;gap:7px;padding-bottom:10px;font-size:13px;font-weight:400;color:var(--ink)}input{accent-color:var(--blue);width:16px;height:16px;margin:0}
+.study-title{margin:0;font-size:17px;font-weight:650}.period{margin:3px 0 12px;color:var(--muted-ink);font-size:13px}.risk{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 8px;border-top:1px solid var(--line);padding-top:13px}.risk strong{font-size:22px;letter-spacing:-.025em;font-variant-numeric:tabular-nums}.risk span{color:var(--muted-ink);font-size:13px}
+figure{margin:15px 0 12px}figcaption{font-size:13px;font-weight:650;margin-bottom:12px}.chart{height:151px}.bar-row{display:grid;grid-template-columns:minmax(95px,170px) minmax(0,1fr) 61px;gap:10px;align-items:center;height:39px}.bar-label{font-size:13px}.track{height:21px;background:var(--surface);border-radius:var(--radius,3px);overflow:hidden}.bar{height:100%;border-radius:var(--radius,3px);background:var(--blue)}.bar-row:nth-child(2) .bar{background:var(--spy)}.bar-row:nth-child(3) .bar{background:var(--qqq)}.bar-value{font-size:14px;font-weight:650;text-align:right;font-variant-numeric:tabular-nums}.axis{display:grid;grid-template-columns:minmax(95px,170px) minmax(0,1fr) 61px;gap:10px;margin-top:5px}.ticks{display:flex;justify-content:space-between;color:var(--muted-ink);font-size:11px;border-top:1px solid var(--line);padding-top:4px}
+.result{margin:0 0 10px;font-weight:600}.limit{color:var(--muted-ink);font-size:13px;max-width:76ch}.table-wrap{width:100%;overflow-x:auto;margin:14px 0 8px}table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}th,td{text-align:right;padding:10px 8px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-weight:500;color:var(--muted-ink)}th:first-child,td:first-child{text-align:left;padding-left:0;white-space:normal}td:first-child{font-weight:550}th:last-child,td:last-child{padding-right:0}tr:first-child td{color:var(--ink)}.small{font-size:12px;color:var(--muted-ink)}details{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}summary{cursor:pointer;font-weight:600;list-style-position:outside;margin-left:16px}details p,details ol{font-size:13px;color:var(--muted-ink)}ol{padding-left:20px;margin:10px 0}li{margin:5px 0}.hidden{display:none}.study-note{margin:9px 0;font-size:13px}.nowrap{white-space:nowrap}
+@media(max-width:480px){.controls{gap:10px}.controls label:first-child{width:100%}.bar-row,.axis{grid-template-columns:98px minmax(0,1fr) 57px;gap:7px}.bar-label{font-size:12px}.bar-value{font-size:13px}th,td{padding:9px 5px}table{font-size:12px}.controls .check{padding-bottom:10px}}
+@media(prefers-reduced-motion:no-preference){.bar{transition:width .2s ease}}@media print{.controls{display:none}details{break-inside:avoid}.bar,.track{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<main>
+<p class="takeaway">Small historical win; no reliable edge established.</p>
+<p class="muted">A simple 75% SPY / 25% momentum mix. The longer fund proxy does not beat both benchmarks.</p>
+<div class="controls">
+<label for="study">Study<select id="study"><option value="stocks">Recent custom stock rule</option><option value="funds">Longer fund proxy</option></select></label>
+<label for="fee">Trade fee<select id="fee"><option value="10">10 bp · 0.10%</option><option value="25">25 bp · 0.25%</option></select></label>
+<label class="check" for="cagr"><input type="checkbox" id="cagr">Show compound growth (CAGR)</label>
+</div>
+<section aria-live="polite" aria-atomic="true">
+<h1 class="study-title" id="study-title"></h1>
+<p class="period" id="period"></p>
+<div class="risk"><strong id="risk"></strong><span>annual volatility for all three rescaled paths</span></div>
+<figure>
+<figcaption>Average annual return after modeled trade fees</figcaption>
+<div id="chart" class="chart" role="img"></div>
+</figure>
+<p id="result" class="result"></p>
+<p id="study-note" class="study-note"></p>
+<div class="table-wrap"><table><caption class="hidden">Historical returns at equal measured volatility</caption><thead><tr><th scope="col">Portfolio</th><th scope="col">Annual mean</th><th scope="col">Unscaled volatility</th><th scope="col" id="cagr-head" class="hidden">Rescaled CAGR</th></tr></thead><tbody id="table"></tbody></table></div>
+<p class="small">Annual mean averages daily returns and scales them to one year. CAGR measures compound growth.</p>
+</section>
+<p class="limit"><strong>After-the-fact comparison:</strong> each net return path is scaled using volatility measured across the full displayed period. This uses future observations and cannot guarantee equal risk in live use.</p>
+<p class="limit">We chose this mix after earlier results. The recent stock test uses today’s constituents with complete prices, which favors surviving stocks. The uncertainty checks do not establish an advantage.</p>
+<details>
+<summary>The simple rule</summary>
+<div id="stock-method">
+<ol><li>Hold 75% in SPY.</li><li>Rank stocks by their adjusted-price return over months 2–12, with the latest month excluded.</li><li>Hold the top 50 at 0.5% each. Together, they form the other 25% of the portfolio.</li><li>Use month-end signals. Reset the weights at the next trading close.</li></ol>
+<p>The available stocks come from current S&amp;P 500 and Nasdaq-100 constituents with complete history. A past-price screen excludes long unchanged-price runs.</p>
+</div>
+<div id="fund-method" class="hidden"><p>Hold 75% SPY and 25% SPMO. Reset that mix monthly at the next trading close. SPMO follows its own fund methodology. It does not reproduce the custom top-50 stock rule.</p><p>This longer history is a separate fund proxy. It is not independent confirmation of the recent stock result.</p></div>
+<p>SPY and QQQ benchmark paths buy once and hold. Prices include adjusted distributions. Positions drift between trades. The selected fee applies to each amount bought or sold. No final sale is assumed.</p>
+</details>
+<details>
+<summary>What the comparison can tell us</summary>
+<p>Each displayed group uses the lowest unscaled volatility among its three paths. Every net daily return is multiplied by common volatility ÷ that path’s volatility. These scale factors use the complete evaluation period.</p>
+<p>This statistical rescaling is separate from an executable cash allocation. The portfolio’s actual volatility before rescaling appears in the table.</p>
+<p id="uncertainty"></p>
+<p>Other rules and risk controls were inspected before this follow-up. No fresh evaluation period remained. More data, including a period after the rule was fixed, are needed before a reliable-edge claim.</p>
+<p>These are historical, pre-tax comparisons. They exclude personal taxes and currency conversion. Fund-adjusted returns include fund expenses. The stock universe and surviving funds introduce selection limits.</p>
+<p class="small">Source: saved core-study summary and raw-path comparison tables, 18 October 2026. Only derived metrics are embedded in this page.</p>
+</details>
+<noscript><p>This comparison needs JavaScript for the study and fee controls. At 10 bp, the recent stock mix returned a 27.35% annual mean, versus 26.85% for SPY and 23.07% for QQQ, after scaling all three paths to 12.7457% volatility.</p></noscript>
+</main>
+<script id="dataset" type="application/json">{"stocks":{"start":"2025-04-17","end":"2026-10-16","observations":377,"primary":"spy75_momentum50_25","compared_candidate_implementations":12,"costs":{"10":[{"strategy":"spy75_momentum50_25","normalized_mean":0.27351661582072184,"normalized_cagr":0.3037937391508365,"raw_volatility":0.15868273854037143,"common_volatility":0.12745730593191515,"scale":0.803220987388543},{"strategy":"SPY","normalized_mean":0.26850362257906013,"normalized_cagr":0.2972892079558762,"raw_volatility":0.12745730593191515,"common_volatility":0.12745730593191515,"scale":1.0},{"strategy":"QQQ","normalized_mean":0.23074719340756492,"normalized_cagr":0.2492601755369846,"raw_volatility":0.18519992454283613,"common_volatility":0.12745730593191515,"scale":0.6882146752842477}],"25":[{"strategy":"spy75_momentum50_25","normalized_mean":0.2713571798197016,"normalized_cagr":0.30098422307025235,"raw_volatility":0.15868946504730672,"common_volatility":0.12745730593191512,"scale":0.8031869405692368},{"strategy":"SPY","normalized_mean":0.26850362257906146,"normalized_cagr":0.29728920795587804,"raw_volatility":0.12745730593191512,"common_volatility":0.12745730593191512,"scale":1.0},{"strategy":"QQQ","normalized_mean":0.2307471934075643,"normalized_cagr":0.24926017553698387,"raw_volatility":0.18519992454283618,"common_volatility":0.12745730593191512,"scale":0.6882146752842474}]},"uncertainty_has_positive_lower_bound":false},"funds":{"start":"2023-01-03","end":"2026-10-16","observations":951,"primary":"spy75_spmo25","compared_candidate_implementations":16,"costs":{"10":[{"strategy":"spy75_spmo25","normalized_mean":0.21125984115843877,"normalized_cagr":0.22161868159043624,"raw_volatility":0.1570337316192544,"common_volatility":0.14874420480233666,"scale":0.9472118077342987},{"strategy":"SPY","normalized_mean":0.20671726409605887,"normalized_cagr":0.21609450959333554,"raw_volatility":0.14874420480233666,"common_volatility":0.14874420480233666,"scale":1.0},{"strategy":"QQQ","normalized_mean":0.21154280087691169,"normalized_cagr":0.22195091561004285,"raw_volatility":0.20084369781372655,"common_volatility":0.14874420480233666,"scale":0.7405968244036722}],"25":[{"strategy":"spy75_spmo25","normalized_mean":0.2111119397089728,"normalized_cagr":0.2214381579259588,"raw_volatility":0.15703130345820868,"common_volatility":0.1487442048023367,"scale":0.947226454386036},{"strategy":"SPY","normalized_mean":0.20671726409605837,"normalized_cagr":0.21609450959333498,"raw_volatility":0.1487442048023367,"common_volatility":0.1487442048023367,"scale":1.0},{"strategy":"QQQ","normalized_mean":0.21154280087691163,"normalized_cagr":0.22195091561004282,"raw_volatility":0.20084369781372657,"common_volatility":0.1487442048023367,"scale":0.7405968244036724}]},"uncertainty_has_positive_lower_bound":false}}</script>
+<script>
+const DATA=JSON.parse(document.getElementById('dataset').textContent);
+const get=id=>document.getElementById(id);
+const pct=(value,digits=2)=>(value*100).toFixed(digits)+'%';
+const gap=value=>(value>=0?'+':'−')+Math.abs(value*100).toFixed(2)+' percentage points';
+const date=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-IE',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+function render(){
+ const key=get('study').value,fee=get('fee').value,group=DATA[key],rows=group.costs[fee],stocks=key==='stocks',showCagr=get('cagr').checked;
+ const labels=[stocks?'75% SPY + 50 stocks':'75% SPY + 25% SPMO','SPY','QQQ'];
+ const shortLabels=[stocks?'75/25 stock mix':'75/25 fund mix','SPY','QQQ'];
+ get('study-title').textContent=stocks?'75% SPY + 25% in 50 momentum stocks':'75% SPY + 25% SPMO — separate fund proxy';
+ get('period').textContent=date(group.start)+' – '+date(group.end)+' · '+group.observations+' daily returns · '+fee+' bp per amount traded';
+ get('risk').textContent=pct(rows[0].common_volatility,4);
+ get('chart').innerHTML=rows.map((row,i)=>'<div class="bar-row"><span class="bar-label">'+shortLabels[i]+'</span><div class="track"><div class="bar" style="width:'+(row.normalized_mean/.35*100).toFixed(6)+'%"></div></div><span class="bar-value">'+pct(row.normalized_mean)+'</span></div>').join('')+'<div class="axis"><span></span><div class="ticks"><span>0%</span><span>17.5%</span><span>35%</span></div><span></span></div>';
+ get('chart').setAttribute('aria-label','Annual mean at '+pct(rows[0].common_volatility,4)+' common annual volatility. '+rows.map((row,i)=>shortLabels[i]+': '+pct(row.normalized_mean)).join('. '));
+ get('result').textContent=gap(rows[0].normalized_mean-rows[1].normalized_mean)+' versus SPY; '+gap(rows[0].normalized_mean-rows[2].normalized_mean)+' versus QQQ.';
+ get('study-note').textContent=stocks?'The stock mix edged ahead of both benchmarks in this short, already-reviewed period.':'The fund proxy is slightly behind QQQ. It does not beat both benchmarks, and it uses a different momentum rule.';
+ get('table').innerHTML=rows.map((row,i)=>'<tr><td>'+labels[i]+'</td><td>'+pct(row.normalized_mean)+'</td><td>'+pct(row.raw_volatility)+'</td>'+(showCagr?'<td>'+pct(row.normalized_cagr)+'</td>':'')+'</tr>').join('');
+ get('cagr-head').classList.toggle('hidden',!showCagr);
+ get('stock-method').classList.toggle('hidden',!stocks);
+ get('fund-method').classList.toggle('hidden',stocks);
+ get('uncertainty').textContent='Historical block-bootstrap checks covered '+group.compared_candidate_implementations+' inspected candidate implementations against both benchmarks. The simultaneous lower bounds include negative advantages. These checks do not establish superiority or predict the chance of future outperformance.';
+}
+['study','fee','cagr'].forEach(id=>get(id).addEventListener('change',render));
+render();
+</script>
+</body>
+</html>
