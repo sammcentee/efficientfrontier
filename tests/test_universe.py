@@ -46,7 +46,7 @@ def test_fetch_uses_official_complete_list_and_preserves_share_classes(monkeypat
 
 @pytest.mark.parametrize("failure", [
     "truncated", "too_short", "status", "duplicate", "alias_duplicate", "missing_name",
-    "invalid_symbol", "missing_date", "null_data", "wrong_rows", "missing_total",
+    "invalid_symbol", "missing_date", "future_date", "null_data", "wrong_rows", "missing_total",
 ])
 def test_fetch_rejects_incomplete_or_invalid_membership(monkeypatch, payload, failure):
     malformed = copy.deepcopy(payload)
@@ -69,6 +69,8 @@ def test_fetch_rejects_incomplete_or_invalid_membership(monkeypatch, payload, fa
         rows[1]["symbol"] = "BAD SYMBOL"
     elif failure == "missing_date":
         data["date"] = None
+    elif failure == "future_date":
+        data["date"] = (pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=2)).date().isoformat()
     elif failure == "null_data":
         malformed["data"] = None
     elif failure == "wrong_rows":

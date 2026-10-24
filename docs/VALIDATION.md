@@ -1,5 +1,70 @@
 # Validation record
 
+## In-sample and out-of-sample walk-forward tests: 18 October 2026
+
+**955 tests passed** with Python 3.14 and the existing pandas invalid-date warning. Dependency and whitespace checks passed. Both offline CLI modes completed. A second CLI run into the same folder replaced the walk-forward files.
+
+Overview no longer shows the replay dominance proof. It now shows five walk-forward tests. Fits end after 50%, 60%, 70%, 80%, and 90% of returns. Each allocation is held through the next tenth of the history, which its fit did not use. The same allocation is also held over its own fit dates as the in-sample result. Both sides are measured from the purchase close. The single cash interval and entry fee would otherwise lower the short test windows more than the long fit windows. Equal-weight stocks on both sides give an approximate market control. `selection.py` and the replay are unchanged.
+
+An independent fixed-unit calculation matched every walk-forward path within `1e-12`. Changes to prices after a window did not change its fit or results. Changes inside a test window changed only the out-of-sample side. With identical drift on both sides and a 5% fee, the in-sample and out-of-sample means agreed. Tests also cover infeasible windows, histories too short for five windows, missing benchmarks, the QQQ budget note, and the export.
+
+A live check used the 12 default tickers from Yahoo Finance through 16 October 2026. The stock portfolio averaged 21.85% a year in sample and 23.81% out of sample. Its average margin over equal-weight stocks fell from +2.60 to +1.06 percentage points. Five short windows give noisy results. These figures do not establish future performance.
+
+Two independent multi-agent reviews checked the change. Their confirmed findings led to the purchase-close measure, the equal-weight control, fit-date hover text, a dated QQQ budget note, per-window eligibility records, CLI cleanup, and an export fix when no window has a feasible fit. Headless Chromium checked the demo and the live study at 1440 and 390 pixels wide. It found no page errors, document overflow, clipped numbers, or KaTeX errors. Checks used a separate server on port 8519. Physical devices, Windows, and macOS were not tested.
+
+## Mathematical opening page and Nasdaq risk default: 18 October 2026
+
+**876 tests passed** with Python 3.14 and the existing pandas invalid-date warning. The opening page displays three typeset model equations before any interaction. Settings, compact risk inputs, and the rainbow Build action replace the previous welcome controls.
+
+The default budget uses QQQ adjusted daily returns over its latest complete trailing year. A live calculation returned **19.835042%** from 251 returns, ending 16 October 2026. Tests verify the sample standard deviation, annualization, date boundaries, incomplete-day exclusion, failed downloads, and preservation of saved or edited budgets. The interface and report retain two decimal places.
+
+Headless Chromium verified the whole opening workflow at 1366 × 768 and 1440 × 900 without scrolling; Build ended at 700 pixels or less. At 390 pixels wide, the page stacks and scrolls without horizontal overflow. The native T3 browser sandbox was unavailable. The app server on port 8518 was restarted to load the changed modules and styles. Physical devices were not tested.
+
+The live app check preserved an edited 21.25% budget through Settings, the demo calculation, all 14 result equations, and the exported report. Exported replay paths each retained one trade and zero rebalances. No browser errors occurred.
+
+## Buy-and-hold replay and rendered mathematics: 18 October 2026
+
+**859 tests passed** with Python 3.14 and one existing pandas invalid-date warning. After the browser check found joined LaTeX commands, the formatting correction passed all 40 app tests. All 14 displayed equations also passed the bundled KaTeX parser with strict errors enabled. Dependency and whitespace checks passed, and the stock-model CLI produced its offline report.
+
+The stock model and equal-weight reference now make one initial purchase and hold. Their weights drift with prices. Every replay path records one trade, zero rebalances, one entry fee, and no terminal sale. The initial fit and latest full-history fit remain separate. The model revision hides old rebalanced results until the user rebuilds. The CLI rejects a rebalance interval for the stock model and retains it for legacy backtests.
+
+An independent calculation checked 24 paths across fee rates of 0, 10, and 9,999 basis points and annualization factors of 12 and 252. Values matched the fixed-unit buy-and-hold formula within `4.44e-16` initial-capital units. Independently calculated arithmetic mean, sample volatility, CAGR, and drawdown matched within `1e-12`. Regression tests also cover initial target constraints, drift beyond the holding cap, prior-price information, benchmark parity, and exact export reproduction.
+
+Headless Chromium verified both collapsed mathematical explanations, all 14 rendered equations, data navigation, and the exported report at 1440- and 390-pixel widths. No raw LaTeX commands, parser errors, clipped formulas, document overflow, or page errors remained. Exported demo paths each contained one trade. The offline report retained both charts. T3's native browser sandbox was unavailable, so checks used a separate background browser. The user's server remained running. The screenshot's market study was not rebuilt, and physical devices were not tested.
+
+## Latest fit and historical replay distinction: 18 October 2026
+
+**857 tests passed** with Python 3.14. The existing pandas invalid-date warning remains. The app and report now compare the latest full-history allocation with the replay of earlier allocations before showing the frontier. Labels state that the latest fit includes the replay dates. A replay callout identifies mean/volatility dominance independently of the existing CAGR-based performance checks.
+
+Regression checks cover the comparison dates and metrics, dominance and return/risk tradeoffs, unchanged numeric exports, and passive app navigation. No optimization, allocation, or return-accounting code changed.
+
+Headless Chromium checks covered the offline demo, exported report, and a synthetic CSV with a dominating QQQ reference at 1440- and 390-pixel widths. Both charts rendered, comparison columns stacked on mobile, and the verdict appeared above the replay table. There were no app exceptions, page errors, or document overflow. The T3 preview sandbox was unavailable; checks ran in a separate background browser. The user's running study was not restarted. The screenshot's market study was not rebuilt, and physical-device behavior was not tested.
+
+## R comparison and full project review: 18 October 2026
+
+**850 tests passed** with Python 3.14 and the installed pinned dependencies. The existing pandas warning from the invalid-date rejection test remains. Dependency and whitespace checks passed. Both the stock-model and legacy offline CLI reports completed.
+
+The review covered the original R script, optimization, price and membership inputs, trade accounting, benchmarks, app state, CLI, reports, documentation, launchers, dependencies, and CI. The main model now uses sample covariance and separates SPY/QQQ reference columns from stock candidates. Its latest frontier and stock weights appear before the later test.
+
+Confirmed defects corrected in this review:
+
+- Equal-mean choices could select unnecessarily high risk. The stock model now minimizes variance when several portfolios attain the capped maximum mean, within its stated numerical tolerance.
+- Singular covariance could give a dominated minimum-risk endpoint. Frontier and profile calculations now prefer higher return at the same minimum risk.
+- Very small return or variance scales could cause solver failure or collapse frontier targets. Equivalent scaled constraints and removal of a redundant risk bound correct these cases.
+- Saved-setting migration could replace a CSV/demo source with a live universe. It now preserves the source, files, and holding limit.
+- Malformed membership CSV quoting could alter symbols silently. The parser now rejects malformed and incomplete rows. Future-dated Nasdaq source snapshots are also rejected.
+- Report construction could mutate a source index name. Export cleanup could leave files from an earlier model. Both are corrected, along with benchmark risk labels and escaped chart text.
+
+An independent reproduction used the original 60 stocks and 2020–2023 fit dates. Corrected arithmetic means still produce stock-only portfolios above SPY and QQQ at their respective sample volatilities. Four comparisons, including a 10% holding cap, pass feasibility and numerical global-bound checks. The app matches their annual means within 0.0001 percentage points. See the [R comparison](R_METHOD.md) for inputs, weights, the original formula error, and interpretation.
+
+Independent analytic checks covered 42 two-stock frontier points at different holding caps and covariance scales. Maximum weight error was `1.54e-9`. Two further fixtures verify the equal-mean correction. An independent reconstruction checked 19 strategy paths for portfolio values, fees, prior-close signals, and benchmark parity. Changing future prices left earlier selections unchanged.
+
+The original R file remains unchanged. The reproduction uses Python because `Rscript` was unavailable. Downloaded prices can differ from the 2024 vendor snapshot. These checks establish calculation agreement, not unseen index outperformance.
+
+Headless Chromium checks covered the demo, data view, original 60-stock CSV, ETF exclusion, frontier references, and ZIP exports. Exported fit statistics reconciled with an independent calculation. Desktop and mobile widths of 1440 and 390 pixels had no horizontal overflow or JavaScript/app errors. The final chart-label and table-spacing corrections passed 55 focused app/report tests and a fresh-process browser check. The T3 preview sandbox was unavailable, so the browser ran separately in the background.
+
+The Linux launcher passed a loopback health check, startup from a path with spaces, and clean interruption. Shell syntax and the three launcher regression tests passed. All 64 installed distributions returned no listed vulnerability or yanked-release warning from their release-specific PyPI records at review time. This was a feed check, not a complete dependency security audit. Native Windows/macOS execution, physical devices, a fresh installation, and a new Git-history secret scan were not performed.
+
 ## Fitted frontier and benchmark clarity: 18 October 2026
 
 **741 tests passed**. Dependency and whitespace checks passed. The suite retains the existing pandas warning from the invalid-date rejection test.

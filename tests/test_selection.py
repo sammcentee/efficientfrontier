@@ -92,9 +92,9 @@ def test_infeasible_minimum_risk_and_too_few_stocks_fail_explicitly():
         run_selection(prices.iloc[:, :9])
 
 
-def test_default_cap_and_allocation_risk_hold_at_every_prior_fit():
+def test_initial_target_obeys_cap_and_risk_budget():
     prices = stock_prices()
-    result = run_selection(prices, target_volatility=.2, rebalance_every=7)
+    result = run_selection(prices, target_volatility=.2)
     weights = result.test.allocations[SELECTED]
     np.testing.assert_allclose(weights.sum(axis=1), 1, atol=1e-12)
     np.testing.assert_allclose(weights.CASH, 0, atol=1e-12)
@@ -103,7 +103,6 @@ def test_default_cap_and_allocation_risk_hold_at_every_prior_fit():
     for execution, row in weights.iterrows():
         returns = prices.loc[prices.index < execution].pct_change(fill_method=None).iloc[1:]
         covariance = returns.cov().to_numpy() * 252
-        covariance = .9 * covariance + .1 * np.diag(np.diag(covariance))
         w = row.drop("CASH").to_numpy()
         assert np.sqrt(w @ covariance @ w) <= .2 + 1e-7
     equal = result.test.allocations[BASELINE]
@@ -112,9 +111,16 @@ def test_default_cap_and_allocation_risk_hold_at_every_prior_fit():
     assert result.latest[SELECTED].volatility <= .2 + 1e-7
 
 
-def test_one_split_uses_all_initial_training_returns_and_records_fit_dates():
+def test_one_split_uses_all_initial_training_returns_and_records_only_two_fits(monkeypatch):
     prices = stock_prices()
-    result = run_selection(prices, rebalance_every=7)
+    fit_ends = []
+
+    def record_fit(history, *args):
+        fit_ends.append(history.index[-1])
+        return _fit_targets(history, *args)
+
+    monkeypatch.setattr("efficient_frontier.selection._fit_targets", record_fit)
+    result = run_selection(prices)
     split = int(np.floor((len(prices) - 1) * .7))
     assert result.settings["train_fraction"] == .7
     assert result.settings["initial_training_returns"] == split
@@ -124,9 +130,11 @@ def test_one_split_uses_all_initial_training_returns_and_records_fit_dates():
     assert result.settings["test_start"] == str(prices.index[split + 1].date())
     assert result.settings["test_end"] == str(prices.index[-1].date())
     pd.testing.assert_index_equal(result.test.equity.index, prices.index[split:])
-    executions = list(range(split + 1, len(prices) - 1, 7))
+    executions = [split + 1]
     pd.testing.assert_index_equal(result.test.allocations[SELECTED].index, prices.index[executions])
-    assert result.settings["fit_dates"] == [str(prices.index[i].date()) for i in [*[j - 1 for j in executions], len(prices) - 1]]
+    assert result.settings["fit_dates"] == [str(prices.index[i].date()) for i in (split, len(prices) - 1)]
+    assert fit_ends == [prices.index[split], prices.index[-1]]
+    assert result.eligibility.fit_date.unique().tolist() == result.settings["fit_dates"]
     assert result.settings["latest_as_of"] == str(prices.index[-1].date())
     assert result.test.settings["split"] == split
     assert result.test.settings["initial_execution"] == str(prices.index[split + 1].date())
@@ -135,7 +143,7 @@ def test_one_split_uses_all_initial_training_returns_and_records_fit_dates():
 @pytest.mark.parametrize("shrinkage", [0., .1, 1.])
 def test_fit_estimates_match_covariance_quadratic_forms_and_saved_latest(shrinkage):
     prices = stock_prices()
-    result = run_selection(prices, target_volatility=.2, rebalance_every=7, shrinkage=shrinkage)
+    result = run_selection(prices, target_volatility=.2, shrinkage=shrinkage)
     estimates = selection_fit_estimates(result, prices)
     assert list(estimates.columns) == [
         "phase", "execution_date", "observations", "fitted_mean", "model_volatility",
@@ -144,7 +152,7 @@ def test_fit_estimates_match_covariance_quadratic_forms_and_saved_latest(shrinka
     assert estimates.index.name == "fit_date" and estimates.index.is_unique
     assert list(estimates.index) == list(pd.to_datetime(result.settings["fit_dates"]))
     assert estimates.iloc[0].phase == "First historical fit"
-    assert estimates.iloc[1:-1].phase.eq("Historical refit").all()
+    assert len(estimates) == 2
     assert estimates.iloc[-1].phase == "Latest fit"
     assert pd.isna(estimates.iloc[-1].execution_date)
     assert estimates.iloc[0].observations == result.settings["initial_training_returns"]
@@ -172,10 +180,10 @@ def test_fit_estimates_match_covariance_quadratic_forms_and_saved_latest(shrinka
 
 def test_fit_estimates_use_prior_prices_without_future_contamination():
     prices = stock_prices()
-    result = run_selection(prices, target_volatility=.2, rebalance_every=7)
+    result = run_selection(prices, target_volatility=.2)
     original = selection_fit_estimates(result, prices)
     altered = prices.copy()
-    cutoff = original.index[1]
+    cutoff = original.index[0]
     future = altered.index > cutoff
     held_stock = result.latest[SELECTED].weights.idxmax()
     altered.loc[future, held_stock] *= np.linspace(1.1, 1.8, future.sum())
@@ -186,7 +194,7 @@ def test_fit_estimates_use_prior_prices_without_future_contamination():
 
 def test_fit_estimates_never_solve_or_mutate_inputs(monkeypatch):
     prices = stock_prices()
-    result = run_selection(prices, rebalance_every=7)
+    result = run_selection(prices)
     original_prices, original_result = prices.copy(deep=True), copy.deepcopy(result)
 
     def unexpected_solve(*args, **kwargs):
@@ -207,9 +215,9 @@ def test_fit_estimates_never_solve_or_mutate_inputs(monkeypatch):
     pd.testing.assert_series_equal(result.latest[SELECTED].weights, original_result.latest[SELECTED].weights)
 
 
-def test_future_prices_do_not_change_earlier_allocations_or_replay():
+def test_future_prices_do_not_change_initial_allocations_or_earlier_replay_values():
     prices = stock_prices()
-    options = dict(target_volatility=.5, rebalance_every=7)
+    options = dict(target_volatility=.5)
     result = run_selection(prices, **options)
     altered = prices.copy()
     altered.iloc[80:, 0] *= np.linspace(1.1, 1.8, len(prices) - 80)
@@ -236,8 +244,10 @@ def test_one_stock_method_has_no_policy_validation_or_alias_duplicates():
     assert list(result.latest) == [SELECTED]
     assert result.selected == SELECTED == "Historical-mean portfolio"
     assert BASELINE == "Equal-weight stocks"
-    assert result.settings["model_revision"] == MODEL_REVISION == "single_mean_v1"
+    assert result.settings["model_revision"] == MODEL_REVISION == "stock_mean_buy_hold_v3"
     assert result.test.settings["model_revision"] == MODEL_REVISION
+    assert result.settings["holding_policy"] == result.test.settings["holding_policy"] == "buy_and_hold"
+    assert "rebalance_every" not in result.settings
     assert not any("blend" in key or "validation" in key for key in result.settings)
     assert "arithmetic mean" in result.settings["model_objective"]
     assert "realized volatility can exceed" in result.settings["risk_constraint"]
@@ -257,16 +267,20 @@ def test_equal_mean_ties_remain_feasible_and_missing_markets_do_not_pass_check()
     assert result.latest[SELECTED].weights.sum() == pytest.approx(1)
 
 
-def test_raw_benchmarks_buy_once_after_cash_interval_and_pay_security_costs():
+def test_all_rows_buy_once_after_same_cash_interval_and_pay_entry_costs():
     prices = stock_prices(80)
     market_returns = np.tile([-.04, .05], 40)
     benchmarks = prices_from_returns(np.column_stack([market_returns, market_returns / 2]), ["SPY", "QQQ"])
-    result = run_selection(prices, benchmarks, target_volatility=.12, rebalance_every=7, cost_bps=25)
+    result = run_selection(prices, benchmarks, target_volatility=.12, cost_bps=25)
     study = result.test
     for name in study.equity:
         assert study.equity[name].iloc[0] == 1
         assert study.equity[name].iloc[1] == pytest.approx(1 / (1 + .0025))
         assert study.trades[name].cost.iloc[0] == pytest.approx(.0025 / (1 + .0025))
+        assert len(study.trades[name]) == len(study.allocations[name]) == 1
+        assert study.metrics.loc[name, "trade_count"] == 1
+        assert study.metrics.loc[name, "rebalance_count"] == 0
+        assert study.metrics.loc[name, "total_cost"] == pytest.approx(.0025 / (1 + .0025))
     for symbol in benchmarks:
         key = BENCHMARK_NAMES[symbol]
         assert len(study.trades[key]) == 1
@@ -277,10 +291,39 @@ def test_raw_benchmarks_buy_once_after_cash_interval_and_pay_security_costs():
     pd.testing.assert_frame_equal(result.benchmark_prices, benchmarks)
 
 
+@pytest.mark.parametrize("cost_bps", [0, 35])
+def test_buy_and_hold_matches_fixed_units_formula_with_drift_beyond_initial_cap(cost_bps):
+    alternating = np.tile([-.001, .001], 30)
+    a = np.r_[np.full(30, .01), np.full(30, .06)] + alternating
+    b = np.r_[np.full(30, .002), np.full(30, -.004)] - alternating
+    prices = prices_from_returns(np.column_stack([a, b]), ["A", "B"])
+    result = run_selection(prices, max_weight=.6, target_volatility=.6,
+                           train_fraction=.5, periods_per_year=12, cost_bps=cost_bps)
+    study = result.test
+    cost_rate = cost_bps / 10_000
+    entry = prices.index[31]
+    expected_targets = {SELECTED: [.6, .4], BASELINE: [.5, .5]}
+    for name, target in expected_targets.items():
+        np.testing.assert_allclose(study.allocations[name].loc[entry, ["A", "B"]], target, atol=1e-7)
+        relative_prices = prices.loc[entry:] / prices.loc[entry]
+        gross_value = relative_prices @ target
+        expected_values = np.r_[1., gross_value / (1 + cost_rate)]
+        np.testing.assert_allclose(study.equity[name], expected_values, atol=2e-7)
+        expected_end_weights = relative_prices.iloc[-1] * target / gross_value.iloc[-1]
+        np.testing.assert_allclose(study.holdings[name].loc[["A", "B"], "end_weight"], expected_end_weights, atol=1e-7)
+        assert study.holdings[name].loc["A", "end_weight"] > .6
+        assert study.holdings[name].loc["A", "max_realized_weight"] > .6
+        assert study.holdings[name].loc["CASH", "end_weight"] == pytest.approx(0, abs=1e-12)
+        assert study.metrics.loc[name, "total_cost"] == pytest.approx(cost_rate / (1 + cost_rate))
+        assert study.metrics.loc[name, "total_turnover"] == pytest.approx(1 / (1 + cost_rate))
+        assert study.metrics.loc[name, "rebalance_count"] == 0
+        assert list(study.trades[name].index) == [entry]
+
+
 def test_all_equity_paths_replay_from_targets_and_reconcile_security_profit_less_cost():
     prices, benchmarks = changing_prices()
     result = run_selection(prices, benchmarks, target_volatility=.5, max_weight=1,
-                           periods_per_year=12, train_fraction=.75, rebalance_every=3, cost_bps=35)
+                           periods_per_year=12, train_fraction=.75, cost_bps=35)
     study = result.test
     for name, weights in study.allocations.items():
         assets = [column for column in weights if column != "CASH"]
@@ -334,11 +377,20 @@ def test_long_unchanged_price_screen_is_past_only_and_preserves_raw_labels():
     assert not later[-2].loc[1, "eligible"]
 
 
-def test_newly_stale_held_stock_does_not_assume_a_verified_sale():
+def test_newly_stale_stock_stays_held_without_a_sale_and_latest_fit_warns():
     prices = stock_prices(120, 12)
     prices.iloc[90:, 0] = prices.iloc[89, 0]
-    with pytest.raises(ValueError, match="sale at the repeated quote is not verified"):
-        run_selection(prices, target_volatility=.3, rebalance_every=3)
+    result = run_selection(prices, target_volatility=.3)
+    initial_date, latest_date = result.settings["fit_dates"]
+    coverage = result.eligibility[result.eligibility.symbol == prices.columns[0]].set_index("fit_date")
+    assert coverage.loc[initial_date, "eligible"]
+    assert not coverage.loc[latest_date, "eligible"]
+    assert any("long unchanged-price screen excluded" in warning for warning in result.warnings)
+    assert not result.test.warnings
+    assert result.test.allocations[BASELINE].iloc[0, 0] > 0
+    assert result.test.holdings[BASELINE].end_weight.iloc[0] > 0
+    assert len(result.test.trades[BASELINE]) == 1
+    assert result.latest[SELECTED].weights.iloc[0] == 0
 
 
 @pytest.mark.parametrize("options, match", [
@@ -354,8 +406,6 @@ def test_newly_stale_held_stock_does_not_assume_a_verified_sale():
     ({"risk_free_rate": np.nan}, "risk_free_rate"),
     ({"cost_bps": -1}, "cost_bps"),
     ({"cost_bps": 10000}, "cost_bps"),
-    ({"rebalance_every": True}, "rebalance_every"),
-    ({"rebalance_every": 1.5}, "rebalance_every"),
     ({"periods_per_year": 0}, "periods_per_year"),
 ])
 def test_invalid_settings_fail_before_selection(options, match):
@@ -409,7 +459,7 @@ def test_realized_risk_above_the_budget_fails_the_historical_check():
     stocks = prices_from_returns(np.column_stack([a, b]))
     markets = prices_from_returns(np.column_stack([b / 2, b]), ["SPY", "QQQ"])
     result = run_selection(stocks, markets, target_volatility=.25, max_weight=1,
-                           train_fraction=.5, periods_per_year=12, rebalance_every=1000)
+                           train_fraction=.5, periods_per_year=12)
     assert result.test.metrics.loc[SELECTED, "volatility"] > .25
     assert not result.supported
     assert "Realized annual volatility in the later test exceeded the requested target." in result.reasons
@@ -418,7 +468,7 @@ def test_realized_risk_above_the_budget_fails_the_historical_check():
 def test_equal_weight_dominance_fails_the_historical_check():
     prices, benchmarks = changing_prices()
     result = run_selection(prices, benchmarks, target_volatility=.5, max_weight=1,
-                           periods_per_year=6, train_fraction=.75, rebalance_every=1000)
+                           periods_per_year=6, train_fraction=.75)
     candidate = result.test.metrics.loc[SELECTED]
     equal = result.test.metrics.loc[BASELINE]
     assert equal.cagr > candidate.cagr
@@ -436,7 +486,7 @@ def test_raw_etf_dominance_fails_check_but_a_higher_risk_return_tradeoff_does_no
     market = .03 + sign * market_noise
     markets = prices_from_returns(np.column_stack([market, market]), ["SPY", "QQQ"])
     result = run_selection(stocks, markets, target_volatility=.25, max_weight=1,
-                           train_fraction=.75, periods_per_year=12, rebalance_every=1000)
+                           train_fraction=.75, periods_per_year=12)
     candidate = result.test.metrics.loc[SELECTED]
     assert candidate.volatility < .25
     assert candidate.cagr > result.test.metrics.loc[BASELINE, "cagr"]
