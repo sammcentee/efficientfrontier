@@ -38,53 +38,62 @@ The synthetic demo and CSV analysis work offline after setup. Yahoo prices and t
 
 ## Settings and workflow
 
-Choose the universe and **Annual volatility budget (%)** before **Build portfolio**. The default combines SPY stock holdings and Nasdaq-100 stocks. **Change → Model assumptions** contains the holding limit, development-period share, covariance settings, and trading costs.
+Choose the stocks, price history, and **Annual volatility budget (%)** before **Build portfolio**. The default universe combines SPY stock holdings and Nasdaq-100 stocks. **Change** contains the holding limit. **Data options** contains the price frequency for CSV data.
 
 | Setting | Effect |
 | --- | --- |
-| Annual volatility budget (%) | Sets a ceiling on fitted annual volatility. Future realized volatility and losses can exceed it. |
-| Largest holding allowed (%) | Caps each stock target. A 10% limit needs at least ten eligible stocks. Price movements can take actual weights above the limit between trades. |
-| Development history (%) | Reserves the first part of the history for initial fitting and blend selection. The remaining dates form the later test. |
-| Covariance shrinkage (%) | Reduces cross-asset covariances and preserves each asset's variance. |
-| Trade interval (CLI) | Counts observed price intervals between refits and trades. The default is 21 trading sessions. |
-| Trading cost (basis points, CLI) | Charges each amount bought or sold. Ten basis points equal 0.10%. |
-| Risk-free rate (%) | Sets the assumed comparison rate for Sharpe and Sortino. Cash in the ETF comparisons earns zero interest. |
+| Annual volatility budget (%) | Limits fitted annual volatility. Future volatility and losses can exceed it. |
+| Largest holding allowed (%) | Caps each stock target. A 10% limit needs at least ten eligible stocks. Prices can move actual weights above this limit. |
 | Price frequency | Sets annualization for a CSV. It does not resample prices. |
 | Price currency | Declares the common currency. The app does not check or convert currencies. ETF comparisons require USD prices. |
 
-The default stock holding limit is 10%. The six-asset synthetic demo explicitly uses 20%. Small custom universes can require a larger limit. Change it before the calculation; the app does not relax it automatically.
+The default stock holding limit is 10%. The six-asset synthetic demo explicitly uses 20%. Small custom universes can require a larger limit. Change it before the calculation. The app does not relax it automatically.
 
-Covariance describes how asset returns move together. At 0% shrinkage, the model uses sample covariance. At 100%, it sets cross-asset covariance to zero. The adjustment is `(1 - shrinkage) × covariance + shrinkage × diag(covariance)`. The app does not estimate this setting automatically.
+The model maximizes historical arithmetic mean return within the volatility budget and holding limit. Stock weights are long-only and sum to one. There is one model rule throughout the study.
 
-The stock rule uses historical arithmetic means. It fits a capped mean-return portfolio and a portfolio closest to equal weight under the same volatility budget. Earlier validation compares three fixed blends of those endpoints. It chooses the blend with the highest net validation CAGR, with ties favoring the diversified baseline. Each blend follows the same expanding-window refits and trade costs.
+## Fitted estimates and later results
 
-The selected blend stays fixed during the later test. Stock weights can change at scheduled refits, using only prices through the prior close. The app does not select a different blend after it sees the later result. The historical period can still contain research hindsight because developers or users already examined those prices.
+The efficient frontier depends on the return estimates, covariance estimates, and allowed holdings. The optimizer finds the highest fitted mean within your limits. It does not maximize CAGR or the return-to-volatility ratio. It cannot ensure that the chosen stocks will have the highest later return.
 
-The result status is a descriptive screen, not statistical proof of skill. Full support requires at least one year of return observations in both validation and the later test, both ETF references, and the stated comparison checks. Shorter studies remain available for research. A failed screen keeps the latest candidate collapsed with an explicit explanation.
+| Number | What it measures |
+| --- | --- |
+| Fitted annual mean | Average return in the fitting sample, using that fit's target weights, before fees. |
+| Model volatility | Risk calculated from the same fitting sample with the model's covariance adjustment. This is the number your budget limits. |
+| Historical volatility | Ordinary sample volatility of those same weighted returns, without the covariance adjustment. |
+| Later test mean and volatility | Actual results in the historical replay, after fees, with holdings that change at each scheduled trade. |
 
-The screen also compares the selected stock rule with raw SPY and QQQ in validation and the later test. Support fails if a raw ETF has strictly higher net CAGR with no more realized volatility in either period. This check does not change the selected blend or its weights.
+The app shows the first and latest fitted estimates separately from the later test. The latest holdings use all supplied history. They did not produce the earlier test path. **Data & method → Estimates at every fit** shows every intermediate fit.
 
-**Latest candidate holdings** use all observed prices and the frozen blend. They can differ from the holdings used during the test. Holding contributions add up to total return before fees. Subtracting fees gives net total return.
+If QQQ earns more with less volatility in the later test, it beat the portfolio rule on those dates. That is a real weakness in the test result. It does not show that the optimizer failed to maximize the earlier estimates. A mathematically optimal fit can still be a poor investment rule when those estimates do not persist.
 
-**Annual mean** measures the arithmetic average of net test returns, scaled to a year. **CAGR** compounds the same returns. A gain of 50% followed by a loss of 50% has a zero arithmetic mean but loses 25% of the starting value. The fitted mean uses a different period and different weights.
+## Fixed assumptions
 
-At each fit, the long unchanged-price screen excludes stocks with at least 20 consecutive unchanged price intervals in the available past data. This can indicate stale or illiquid quotes; it does not prove false data. The export retains the original prices and dated eligibility decisions. If a held stock later triggers that screen, the study stops rather than assume a verified sale at the repeated quote.
+The app fixes the other assumptions:
 
-## Classic frontier diagnostics
+- Use the first 70% of return observations for the initial fit and the final 30% for the later test.
+- Refit with all available earlier returns every 21 observations, approximately monthly for daily market data.
+- Charge 10 basis points, or 0.10%, on each amount bought or sold.
+- Apply 10% covariance shrinkage. This reduces estimated cross-asset covariances and preserves each asset's variance.
 
-The app's risk choice is the continuous volatility budget. **Research** can explicitly run the legacy analysis from retained prices. It does not restore the old three-level risk selector or change the primary blend.
+Each fit uses prices through the close before execution. The first test interval stays in cash. Later trades refit the same rule with the new history. The test cannot select a different model.
 
-Legacy frontiers describe fitted arithmetic means and covariance. Their diagnostic targets and original holdouts are separate from the primary validation and later test. The legacy holdout buys the initial weights once and excludes trading costs. A strong fitted point can perform poorly later. See the [CVXPY portfolio model](https://www.cvxgrp.org/cvx_short_course/docs/applications/notebooks/portfolio_optimization.html) for the mean and variance definitions.
+The result status checks the model's later performance. A pass needs both ETF references, at least one year of later returns, and realized volatility within the budget. A pass also requires that no reference has higher net CAGR with no more volatility. These are descriptive checks, not statistical proof. A failed check keeps the latest holdings collapsed with an explanation.
+
+**Latest fitted holdings** use all supplied prices. They can differ from the holdings during the test. Asset profit contributions sum to return before fees. Subtract fees to obtain net total return.
+
+**Annual mean** averages the net test returns and scales that average to a year. **CAGR** compounds the same returns. A 50% gain followed by a 50% loss has a zero arithmetic mean but loses 25% of the initial value. The fitted mean uses different dates and weights.
+
+At each fit, the engine excludes stocks with at least 20 consecutive unchanged price intervals in the available past data. This can indicate stale or illiquid quotes. It does not prove false data. The export retains the original prices and dated eligibility decisions. If a held stock later triggers that screen, the study stops. It does not assume a verified sale at the repeated quote.
 
 ## Price data
 
-Upload a CSV with `Date` first and one asset per column. Use adjusted prices in a common currency. The file needs at least five complete price rows and one asset. Latest profiles need at least seven rows.
+Upload a CSV with `Date` first and one asset per column. Use adjusted prices in a common currency. The file needs at least five complete price rows and one asset. The holding limit must be feasible for the eligible asset count.
 
-Both classic analysis and backtests need at least two returns in each of the training and evaluation periods. Five price rows meet this minimum only with a suitable split, such as 50/50. Profile backtests need six training returns for their three windows. The app warns about fewer than 30 training returns, or an asset count at least as large as the training return count. These warnings identify weak samples. A larger sample does not establish a reliable forecast.
+The model needs at least two returns in both the initial training period and the later test. With the app's 70/30 split, supply at least six price rows. Five rows work only with a suitable CLI split, such as 50/50. Short histories and large asset counts make estimates less reliable. A larger sample does not establish a reliable forecast.
 
 The app rejects duplicate dates or columns, nonnumeric values, missing observations, and nonpositive prices. It sorts dates but does not remove assets or fill gaps in a CSV. It cannot confirm price adjustments, currency, or the interval between observations.
 
-Set **Change → Model assumptions → Price frequency** to match the CSV:
+Set **Change → Data options → Price frequency** to match the CSV:
 
 | Interval | Observations per year |
 | --- | ---: |
@@ -106,7 +115,9 @@ Yahoo/yfinance is unofficial. The [yfinance project](https://github.com/ranarous
 
 ## SPY and QQQ comparisons
 
-The app runs validation and the later test as part of **Build portfolio**. The blend comes from earlier validation; the later test cannot choose it.
+The app runs one later test as part of **Build portfolio**. It compares the model with equal-weight eligible stocks, SPY, and QQQ. Equal weights use the same refit schedule. SPY and QQQ buy once and hold. These three references have no volatility budget.
+
+Equal-weight stocks answers: what happened without choosing larger weights for stocks with higher past returns? SPY tracks the S&P 500; QQQ tracks the Nasdaq-100. They are investment alternatives. None of these paths is scaled to match the model's volatility. Compare each row's return and realized volatility together.
 
 Yahoo input obtains benchmark prices automatically. For a CSV, use SPY/QQQ columns already in the file, or a separate benchmark file with exactly the same dates. Downloads require an explicit choice. Both stock-universe loaders still need SPY/QQQ dates for the eligibility calendar when benchmark comparisons are disabled.
 
@@ -117,38 +128,29 @@ Synthetic demo results do not use actual market benchmarks. Comparisons need a U
 Run the CLI from the repository root. On Windows, replace `.venv/bin/python` with `.venv\Scripts\python.exe`.
 
 ```bash
-# Risk-budget study across current SPY and Nasdaq-100 stocks
+# The app's model across current SPY and Nasdaq-100 stocks
 .venv/bin/python -m efficient_frontier --sp500-nasdaq100 --target-volatility .20
 
-# Offline six-asset synthetic example with an explicit feasible holding limit
+# Offline six-asset example with a feasible holding limit
 .venv/bin/python -m efficient_frontier --target-volatility .20 --max-weight .20
 
-# All available options
-.venv/bin/python -m efficient_frontier --help
-
-# Offline asset and SPY/QQQ files with identical dates
+# Offline stock and benchmark files with identical dates
 .venv/bin/python -m efficient_frontier --csv data/prices.csv \
-  --benchmark-csv data/benchmarks.csv --currency USD --backtests
+  --target-volatility .20 --benchmark-csv data/benchmarks.csv --currency USD
 
-# Weekly prices: four observed weeks between trades, 52 returns per rolling fit
-.venv/bin/python -m efficient_frontier --csv data/weekly-prices.csv \
-  --periods-per-year 52 --backtests --rebalance-every 4 --rolling-window 52
-
-# Explicit original spreadsheet universe
-.venv/bin/python -m efficient_frontier --original-holdings --backtests
-
-# Custom Yahoo symbols, with a 40% target-weight cap
-.venv/bin/python -m efficient_frontier --tickers SPY,QQQ,IWM,EFA,TLT,GLD \
-  --start 2020-01-01 --max-weight .40 --risk-free-rate .02 --output results/market
+# All options, including separate legacy research tools
+.venv/bin/python -m efficient_frontier --help
 ```
+
+Use `--target-volatility` to run the app's single model from the CLI. The CLI also accepts explicit test assumptions for reproduction. `--train-fraction .7`, `--rebalance-every 21`, and `--cost-bps 10` match the app. `--shrinkage .1` matches its covariance adjustment. Price frequency uses `--periods-per-year`, which defaults to 252.
 
 No source flag selects the offline demo. `--nasdaq100` selects current members under the same eligibility rules as the app. Yahoo inputs default to a start date of `2020-01-01`. Set `--start` and `--end` for a different period.
 
 Yahoo inputs include SPY/QQQ comparisons by default. CSV analysis stays offline unless you request `--download-benchmarks`. Use `--no-benchmarks` to skip the comparison. `--currency` defaults to `USD`. This records a declaration without currency conversion.
 
-The CLI and app use long-only, fully invested weights with no extra position cap by default. Pass `--max-weight .01` for a 1% starting-weight cap. This cap needs at least 100 eligible assets. The cap applies to targets. Prices can move actual weights above it between trades.
+The single model uses long-only, fully invested weights and a 10% holding limit by default. Pass `--max-weight` to set a different limit. A 1% limit needs at least 100 eligible assets. The cap applies to target weights. Prices can move actual weights above it between trades.
 
-The default destination is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and CSV inputs/results. Risk exports include `risk_summary.csv` and `risk_contributions.csv`. The [profile and backtest export list](BACKTESTING.md#reproduce-and-inspect) and [benchmark export list](BENCHMARKS.md#exports) explain the remaining files.
+The default destination is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and exact CSV inputs and results. The single-model export contains the later test, latest weights, fitted estimates, and dated eligibility decisions. See the [export list](BACKTESTING.md#single-model-exports).
 
 Generated files in the destination are replaced on rerun. Use a separate `--output` folder to preserve an experiment. A shorter rerun removes obsolete generated files and preserves unrelated files. The HTML includes Plotly JavaScript and works offline. Its **Print / save PDF** button uses the browser's print engine.
 
@@ -156,9 +158,23 @@ Keep inputs in ignored `data/` or `private/` folders. The default `results/` fol
 
 CSV exports prefix formula-like asset labels with an apostrophe so spreadsheet software treats them as text. Ordinary symbols and numeric values stay unchanged. An escaped label retains that apostrophe if a program reloads the CSV.
 
-## Classic model and original project
+## Legacy research tools
 
-**Research** retains the classic mean-return frontier, minimum-volatility portfolio, maximum-Sharpe portfolio, and equal-weight reference. It estimates the model from the initial training returns. Its original holdout enters at the final training close without trade fees. Separate backtests delay execution and deduct selected costs, so their buy-and-hold result differs.
+The CLI without `--target-volatility` retains the classic frontier tools. `--backtests` adds the earlier multi-method comparison. These tools remain separate from the single-model app. The [legacy method reference](BACKTESTING.md#legacy-strategy-comparison) defines their objectives and exports.
+
+```bash
+# Legacy four-method comparison using supplied prices
+.venv/bin/python -m efficient_frontier --csv data/prices.csv --backtests
+
+# Legacy rolling-window study with weekly data
+.venv/bin/python -m efficient_frontier --csv data/weekly-prices.csv \
+  --periods-per-year 52 --backtests --rebalance-every 4 --rolling-window 52
+
+# Legacy original spreadsheet universe
+.venv/bin/python -m efficient_frontier --original-holdings --backtests
+```
+
+The classic analysis contains a mean-return frontier, minimum-volatility portfolio, maximum-Sharpe portfolio, and equal-weight reference. It estimates the model from the initial training returns. Its original holdout enters at the final training close without trade fees. Separate backtests delay execution and deduct selected costs, so their buy-and-hold result differs.
 
 Maximum Sharpe needs a feasible positive estimated excess return. If none exists, the classic fit omits that portfolio and explains why. Backtests instead use a minimum-volatility fallback for that execution. Their warnings and fallback counts remain in the results.
 
@@ -167,6 +183,49 @@ Simple returns equal `price[t] / price[t-1] - 1`. The split uses `floor(training
 The original R script sampled 5–40 holdings from a fixed 60-ticker list. The Python optimizer uses the whole supplied universe, with no fixed input or selected-holdings cap. Forty frontier points means forty return targets, not forty assets. Large universes still face memory, solver, history, and provider limits. See [optimizer capacity](PERFORMANCE.md).
 
 The historical R script replaced the daily mean with a terminal price-ratio expression, omitted the risk-free rate from Sharpe, and allocated ten million weight vectors. Its 12-worker cluster did not serve the serial loop. The Python app corrects those issues. The historical source and spreadsheet remain unchanged.
+
+## Historical membership
+
+The separate historical-membership CLI and Python API accept dated member lists. The offline example contains member additions, removals, re-entry, and missing price history.
+
+For real data, supply an adjusted-price CSV and the bundled Nasdaq-100 membership or your own membership CSV. This tool stays offline. The bundled community reconstruction covers **2010-01-01 through 2026-09-30**. Its provenance and known gaps appear in the report. It is not a certified complete index history.
+
+You do not need a paid service. Supply suitable historical prices.
+
+Historical prices use the same `Date,ASSET_A,ASSET_B,…` layout, but unavailable prices can be blank. Each identifier must refer to one security throughout its history. Use separate labels for reused tickers. The bundled data blocks known unsafe identities. It does not verify all other price histories. It does not automatically join old membership labels to today's Yahoo symbols.
+
+A custom membership CSV has exactly two columns. Each row is the **full roster** effective on that date, not a list of changes:
+
+```csv
+date,tickers
+2020-01-01,"ASSET_A,ASSET_B"
+2020-06-01,"ASSET_B,ASSET_C"
+```
+
+Declare the final date covered by your source. The last roster remains effective through that date. Coverage must include the portfolio baseline date through the final valuation date. Training prices can predate membership coverage. Evaluation outside the declared coverage stops the test.
+
+The study compares minimum volatility, maximum Sharpe, and equal weight. Each scheduled trade selects from membership effective on the trade date, using a full rolling window of returns through the prior close. New targets trade at the next close. The model assumes that effective membership is known before execution. It does not model announcement timestamps.
+
+Removed members leave at the next scheduled rebalance, so the study is not an exact index tracker. A company can become eligible later when it has enough history. Missing prices for a held asset stop the test. The engine does not fill gaps or silently drop that holding. If no eligible portfolio meets the weight cap, it holds cash until the next allocation. Cash earns zero interest.
+
+The historical report includes membership snapshots, sparse input prices, eligibility reasons at every trade, cash weights, allocations, trades, holdings, and fees. These records help inspect selection bias. They do not prove a complete survivorship-free result. This mode does not run the fixed-universe risk profiles or market benchmark comparisons.
+
+```bash
+# Fully offline example; rolling window defaults to 126 returns
+.venv/bin/python -m efficient_frontier --historical-demo --output results/historical-demo
+
+# Bundled historical membership with your supplied price history
+.venv/bin/python -m efficient_frontier --historical-membership \
+  --csv private/historical-prices.csv --output results/historical
+
+# Your own full membership snapshots and explicit final covered date
+.venv/bin/python -m efficient_frontier --membership-csv private/membership.csv \
+  --membership-end 2024-12-31 --csv private/prices.csv \
+  --rolling-window 126 --rebalance-every 21 --cost-bps 10 \
+  --output results/custom-historical
+```
+
+Use enough initial training history for the selected rolling window. To reproduce the demo, use its `prices.csv`, `membership.csv`, coverage end from `metadata.json`, and the same settings. For the bundled source, keep `--historical-membership` when reproducing a run so its security-identity exclusions still apply.
 
 ## Sector labels and exposure
 

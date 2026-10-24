@@ -1,6 +1,5 @@
 from io import BytesIO
 import json
-from pathlib import Path
 import sys
 from zipfile import ZipFile
 
@@ -12,9 +11,6 @@ from streamlit.testing.v1 import AppTest
 
 from efficient_frontier import __main__ as cli
 from efficient_frontier.historical import historical_demo
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
@@ -122,13 +118,14 @@ def test_bundled_history_records_missing_prices_and_preserves_provenance(tmp_pat
 
 
 def start():
-    return AppTest.from_file(str(ROOT / "app.py"), default_timeout=30).run()
+    return AppTest.from_string(
+        "from efficient_frontier.historical_app import render_historical\nrender_historical()",
+        default_timeout=30,
+    ).run()
 
 
-def test_historical_view_waits_for_submit_and_preserves_current_study():
-    app = start().button(key="try_demo").click().run()
-    original_equity = app.session_state.selection.test.equity.copy()
-    app.segmented_control(key="view").set_value("Historical membership").run()
+def test_historical_component_waits_for_submit_and_keeps_applied_settings():
+    app = start()
     assert not app.exception and "historical_result" not in app.session_state
     assert not app.get("download_button")
     app.button(key="historical_run").click().run()
@@ -141,21 +138,18 @@ def test_historical_view_waits_for_submit_and_preserves_current_study():
     assert any("last completed settings" in item.value for item in app.info)
     app.button(key="historical_run").click().run()
     assert app.session_state.historical_result[3].metrics.total_cost.eq(0).all()
-    app.segmented_control(key="view").set_value("Portfolio").run()
-    pd.testing.assert_frame_equal(app.session_state.selection.test.equity, original_equity)
     assert not app.exception
 
 
-def test_welcome_route_and_missing_historical_input_are_clear():
-    app = start().button(key="open_historical").click().run()
+def test_missing_historical_input_is_clear():
+    app = start()
     assert not app.exception
     app.radio(key="historical_source").set_value("Nasdaq-100 membership + price CSV").run()
     app.button(key="historical_run").click().run()
     assert not app.exception
     assert any("Choose an adjusted-price CSV" in item.value for item in app.error)
     assert "historical_result" not in app.session_state
-    app.button(key="close_historical").click().run()
-    assert app.button(key="build").label == "Build portfolio"
+    assert not app.get("download_button")
 
 
 def test_custom_upload_uses_declared_coverage_and_keeps_sparse_input(monkeypatch):
@@ -168,7 +162,7 @@ def test_custom_upload_uses_declared_coverage_and_keeps_sparse_input(monkeypatch
     members_upload.name = "members.csv"
     uploads = {"historical_prices_file": price_upload, "historical_members_file": members_upload}
     monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: uploads[kwargs["key"]])
-    app = start().button(key="open_historical").click().run()
+    app = start()
     app.radio(key="historical_source").set_value("Custom membership + price CSV").run()
     app.date_input(key="historical_coverage_end").set_value(membership.coverage_end.date()).run()
     app.button(key="historical_run").click().run()

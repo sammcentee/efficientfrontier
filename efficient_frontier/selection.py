@@ -1,4 +1,4 @@
-"""Volatility-constrained stock selection with an earlier validation period."""
+"""One historical-mean stock portfolio with a later chronological replay."""
 
 from dataclasses import dataclass
 
@@ -11,30 +11,15 @@ from .core import Portfolio, TRADING_DAYS, _solve, _validate_price_frame
 from .metrics import performance_metrics, validate_periods_per_year
 
 
-SELECTED = "Selected stock rule"
-BASELINE = "Diversified baseline"
-MODEL_REVISION = "risk_budget_v2"
-CANDIDATE_NAMES = {
-    0.0: BASELINE,
-    0.5: "50% historical-mean blend",
-    1.0: "Historical-mean portfolio",
-}
+SELECTED = "Historical-mean portfolio"
+BASELINE = "Equal-weight stocks"
+MODEL_REVISION = "single_mean_v1"
 BENCHMARK_NAMES = {"SPY": "S&P 500 (SPY)", "QQQ": "Nasdaq-100 (QQQ)"}
-RISK_MATCHED_NAMES = {symbol: f"Risk-matched {name}" for symbol, name in BENCHMARK_NAMES.items()}
 STALE_INTERVALS = 20
-
-
-@dataclass(frozen=True)
-class SelectionPolicy:
-    blend: float
-    validation_passed: bool
-    reasons: tuple[str, ...]
 
 
 @dataclass
 class SelectionStudy:
-    policy: SelectionPolicy
-    validation: BacktestStudy
     test: BacktestStudy
     latest: dict[str, Portfolio]
     selected: str
@@ -44,6 +29,40 @@ class SelectionStudy:
     warnings: list[str]
     benchmark_prices: pd.DataFrame | None
     eligibility: pd.DataFrame
+
+
+def selection_fit_estimates(study: SelectionStudy, prices: pd.DataFrame) -> pd.DataFrame:
+    """Recover each saved fit's estimates from its weights and past prices only.
+
+    Historical volatility uses the sample covariance before shrinkage. Neither
+    volatility describes the later replay. No portfolio is solved again.
+    """
+    allocations = study.test.allocations[SELECTED]
+    trades = study.test.trades[SELECTED]
+    targets = [
+        (pd.Timestamp(trades.loc[execution, "train_end"]), execution,
+         "First historical fit" if number == 0 else "Historical refit", weights)
+        for number, (execution, weights) in enumerate(allocations.iterrows())
+    ]
+    targets.append((prices.index[-1], pd.NaT, "Latest fit", study.latest[study.selected].weights))
+    periods = study.settings["periods_per_year"]
+    shrinkage = study.settings["shrinkage"]
+    rows = []
+    for fit_date, execution, phase, target in targets:
+        returns = prices.loc[:fit_date].pct_change(fill_method=None).iloc[1:]
+        weights = target.reindex(prices.columns, fill_value=0.0)
+        portfolio_returns = returns @ weights
+        raw_variance = float(portfolio_returns.var(ddof=1) * periods)
+        diagonal_variance = float((returns.var(ddof=1) * periods) @ weights.pow(2))
+        model_variance = (1 - shrinkage) * raw_variance + shrinkage * diagonal_variance
+        rows.append({
+            "fit_date": returns.index[-1], "phase": phase, "execution_date": execution,
+            "observations": len(returns), "fitted_mean": float(portfolio_returns.mean() * periods),
+            "model_volatility": float(np.sqrt(max(model_variance, 0))),
+            "historical_volatility": float(np.sqrt(max(raw_variance, 0))),
+            "max_weight": float(weights.max()),
+        })
+    return pd.DataFrame(rows).set_index("fit_date")
 
 
 def _longest_unchanged(prices):
@@ -57,7 +76,7 @@ def _longest_unchanged(prices):
 
 
 def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_year):
-    """Fit two endpoints from past prices only. Their convex blends stay feasible."""
+    """Maximize historical mean within the cap and risk limit, using past prices."""
     longest = _longest_unchanged(prices)
     eligible = longest < STALE_INTERVALS
     labels = prices.columns[eligible]
@@ -76,7 +95,6 @@ def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_y
     budget = [weights >= 0, weights <= max_weight, cp.sum(weights) == 1]
     variance = cp.quad_form(weights, cp.psd_wrap(covariance / scale))
     constraints = budget + [variance <= target_volatility ** 2 / scale]
-    baseline_problem = cp.Problem(cp.Minimize(len(labels) * cp.sum_squares(weights - 1 / len(labels)) / 2), constraints)
     warnings = []
 
     def solve(problem):
@@ -107,14 +125,10 @@ def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_y
             raise RuntimeError("Selection solver exceeded the requested estimated volatility.")
         return pd.Series(value, index=labels).reindex(prices.columns, fill_value=0.0)
 
-    solve(baseline_problem)
-    baseline = checked()
-    if np.ptp(mean) <= 1e-12:
-        maximum = baseline.copy()
-    else:
-        objective = cp.Maximize((mean / (float(np.max(np.abs(mean))) or 1.0)) @ weights)
-        solve(cp.Problem(objective, constraints))
-        maximum = checked()
+    objective = cp.Maximize((mean / (float(np.max(np.abs(mean))) or 1.0)) @ weights)
+    solve(cp.Problem(objective, constraints))
+    selected = checked()
+    equal = pd.Series(1 / len(labels), index=labels).reindex(prices.columns, fill_value=0.0)
     full_mean = pd.Series(mean, index=labels).reindex(prices.columns, fill_value=0.0)
     full_covariance = pd.DataFrame(covariance, index=labels, columns=labels).reindex(
         index=prices.columns, columns=prices.columns, fill_value=0.0,
@@ -129,21 +143,20 @@ def _fit_targets(prices, target_volatility, max_weight, shrinkage, periods_per_y
             f"{prices.index[-1].date()}: the long unchanged-price screen excluded "
             + ", ".join(prices.columns[~eligible]) + ". Repeated prices do not prove an invalid quote."
         )
-    return baseline, maximum, full_mean, full_covariance, coverage, warnings
+    return selected, equal, full_mean, full_covariance, coverage, warnings
 
 
 def _simulate(prices, benchmark_prices, start, end, fit, settings):
-    """Use one delayed-execution and cost engine for validation and later testing."""
+    """Replay the stock rule and comparators with the same execution and cost rules."""
     dates = prices.index
     executions = list(range(start + 1, end, settings["rebalance_every"]))
     schedules = {i: fit(i - 1) for i in executions}
-    specifications = [(name, prices, alpha, False) for alpha, name in CANDIDATE_NAMES.items()]
+    specifications = [(SELECTED, prices, 0), (BASELINE, prices, 1)]
     if benchmark_prices is not None:
         for symbol in benchmark_prices:
-            specifications.append((BENCHMARK_NAMES[symbol], benchmark_prices[[symbol]], None, False))
-            specifications.append((RISK_MATCHED_NAMES[symbol], benchmark_prices[[symbol]], None, True))
+            specifications.append((BENCHMARK_NAMES[symbol], benchmark_prices[[symbol]], None))
     equity, allocations, trades, holdings, metrics = {}, {}, {}, {}, []
-    for name, asset_prices, alpha, risk_matched in specifications:
+    for name, asset_prices, target_index in specifications:
         labels = asset_prices.columns
         returns = asset_prices.pct_change(fill_method=None).iloc[1:]
         daily = returns.to_numpy()
@@ -153,7 +166,7 @@ def _simulate(prices, benchmark_prices, start, end, fit, settings):
         exposure = np.zeros(len(labels) + 1)
         maximum_weight = np.zeros(len(labels) + 1)
         path, target_rows, trade_rows, trade_dates = [nav], [], [], []
-        trade_at = executions if alpha is not None or risk_matched else executions[:1]
+        trade_at = executions if target_index is not None else executions[:1]
         for i in range(start + 1, end + 1):
             exposure += np.r_[positions, cash] / nav
             profit = positions * daily[i - 1]
@@ -162,8 +175,8 @@ def _simulate(prices, benchmark_prices, start, end, fit, settings):
             nav = float(positions.sum() + cash)
             maximum_weight = np.maximum(maximum_weight, np.r_[positions, cash] / nav)
             if i in trade_at:
-                if alpha is not None:
-                    baseline, maximum, _, _, coverage, _ = schedules[i]
+                if target_index is not None:
+                    coverage = schedules[i][-2]
                     excluded = ~coverage.eligible.to_numpy()
                     if np.any((positions > 1e-8 * nav) & excluded):
                         affected = ", ".join(labels[(positions > 1e-8 * nav) & excluded])
@@ -171,11 +184,7 @@ def _simulate(prices, benchmark_prices, start, end, fit, settings):
                             f"{dates[i].date()}: held stocks {affected} triggered the long unchanged-price screen. "
                             "A sale at the repeated quote is not verified. Supply verified prices before continuing."
                         )
-                    target = ((1 - alpha) * baseline + alpha * maximum).to_numpy()
-                elif risk_matched:
-                    volatility = float(returns.iloc[:i - 1, 0].std(ddof=1) * np.sqrt(settings["periods_per_year"]))
-                    fraction = min(1.0, settings["target_volatility"] / volatility) if volatility > 0 else 1.0
-                    target = np.array([fraction])
+                    target = schedules[i][target_index].to_numpy()
                 else:
                     target = np.ones(1)
                 before = nav
@@ -219,15 +228,6 @@ def _simulate(prices, benchmark_prices, start, end, fit, settings):
     )
 
 
-def _selected_alias(study, chosen):
-    study.equity.insert(0, SELECTED, study.equity[chosen])
-    row = study.metrics.loc[[chosen]].rename(index={chosen: SELECTED})
-    study.metrics = pd.concat([row, study.metrics])
-    for attribute in ("allocations", "trades", "holdings"):
-        tables = getattr(study, attribute)
-        setattr(study, attribute, {SELECTED: tables[chosen].copy(), **tables})
-
-
 def run_selection(
     prices: pd.DataFrame,
     benchmark_prices: pd.DataFrame | None = None,
@@ -240,15 +240,14 @@ def run_selection(
     periods_per_year: float = TRADING_DAYS,
     risk_free_rate: float = 0.02,
 ) -> SelectionStudy:
-    """Select a fixed blend on earlier validation data, then test it on later data.
+    """Fit one historical-mean rule and replay it on later dates.
 
     Every fit uses prior closes. The first interval is zero-interest cash and
-    execution occurs at the next close. Three fixed blends share two constrained
-    endpoint fits. Validation chooses the largest net CAGR, with ties favoring
-    the diversified baseline. The later test never changes that choice.
+    execution occurs at the next close. Each scheduled fit expands the history.
+    Equal-weight stocks and raw SPY/QQQ funds provide comparison paths.
 
     The volatility target constrains estimated risk, not realized losses or risk.
-    This historical selection holdout is not a claim of prospective validation.
+    This historical replay is not a claim of prospective validation.
     """
     prices = _validate_price_frame(prices)
     if "CASH" in prices.columns:
@@ -275,10 +274,9 @@ def run_selection(
             raise ValueError("Benchmark prices must contain SPY and/or QQQ with exactly the stock price dates.")
         benchmark_prices = benchmark_prices.loc[:, [s for s in BENCHMARK_NAMES if s in benchmark_prices]].copy()
     count = len(prices) - 1
-    development_end = int(np.floor(count * train_fraction))
-    initial_end = int(np.floor(development_end * 2 / 3))
-    if min(initial_end, development_end - initial_end, count - development_end) < 2:
-        raise ValueError("Selection needs at least two returns in each initial training, validation, and later test period.")
+    initial_end = int(np.floor(count * train_fraction))
+    if min(initial_end, count - initial_end) < 2:
+        raise ValueError("Selection needs at least two returns in each initial training and later test period.")
     settings = {
         "model_revision": MODEL_REVISION,
         "target_volatility": float(target_volatility), "risk_target": float(target_volatility),
@@ -286,23 +284,21 @@ def run_selection(
         "rebalance_every": int(rebalance_every), "cost_bps": float(cost_bps),
         "shrinkage": float(shrinkage), "periods_per_year": periods_per_year,
         "risk_free_rate": float(risk_free_rate), "cash_interest_rate": 0.0,
-        "candidate_blends": list(CANDIDATE_NAMES), "selection_metric": "Net validation CAGR",
+        "model_objective": "Maximum historical arithmetic mean return within the position cap and estimated volatility ceiling.",
         "evidence_floor_returns": int(np.ceil(periods_per_year)),
-        "evidence_floor_policy": "At least one declared year of return intervals in validation and later testing; a descriptive floor, not statistical significance.",
+        "evidence_floor_policy": "At least one declared year of later test returns. This descriptive minimum does not measure statistical significance.",
         "price_start": str(prices.index[0].date()), "price_end": str(prices.index[-1].date()),
         "initial_training_start": str(prices.index[1].date()),
         "initial_training_end": str(prices.index[initial_end].date()),
-        "validation_start": str(prices.index[initial_end + 1].date()),
-        "validation_end": str(prices.index[development_end].date()),
-        "test_start": str(prices.index[development_end + 1].date()), "test_end": str(prices.index[-1].date()),
-        "development_end": development_end, "initial_training_returns": initial_end,
-        "validation_returns": development_end - initial_end, "test_returns": count - development_end,
+        "test_start": str(prices.index[initial_end + 1].date()), "test_end": str(prices.index[-1].date()),
+        "initial_training_returns": initial_end, "test_returns": count - initial_end,
         "execution": "Prior-close information; execute at the following close; first interval in zero-interest cash.",
         "cost_convention": "Basis points per absolute dollar bought or sold; cash transfers excluded; no final liquidation.",
         "risk_constraint": "Annual estimated stock volatility ceiling; realized volatility can exceed the target.",
-        "baseline": "Closest to equal stock weights under the same position cap and estimated volatility ceiling.",
+        "baseline": "Equal weights across eligible stocks, reset on the same schedule without a volatility constraint.",
+        "comparisons": "Equal-weight stocks and raw SPY/QQQ buy-and-hold funds. Each uses the same initial delay and trading costs.",
         "screen": f"Exclude stocks with at least {STALE_INTERVALS} consecutive unchanged price intervals in past fit data only.",
-        "test_role": "Later historical data held out from blend selection; not necessarily unseen by the researcher.",
+        "test_role": "Later historical replay with expanding past-data fits. The researcher can already know these dates.",
     }
     fits = {}
 
@@ -311,69 +307,34 @@ def run_selection(
             fits[end] = _fit_targets(prices.iloc[:end + 1], target_volatility, max_weight, shrinkage, periods_per_year)
         return fits[end]
 
-    validation = _simulate(prices, benchmark_prices, initial_end, development_end, fit, settings)
-    blend = 0.0
-    for alpha, name in CANDIDATE_NAMES.items():
-        if validation.metrics.loc[name, "cagr"] > validation.metrics.loc[CANDIDATE_NAMES[blend], "cagr"] + 1e-10:
-            blend = alpha
-    chosen = CANDIDATE_NAMES[blend]
-    risk_references = [RISK_MATCHED_NAMES[s] for s in benchmark_prices] if benchmark_prices is not None else []
-    comparisons = [BASELINE, *risk_references]
-    policy_reasons = []
-    if blend == 0:
-        policy_reasons.append("The diversified baseline matched or beat both historical-mean blends in earlier validation.")
+    test = _simulate(prices, benchmark_prices, initial_end, count, fit, settings)
+    reasons = []
     missing_markets = [symbol for symbol in BENCHMARK_NAMES if benchmark_prices is None or symbol not in benchmark_prices]
     if missing_markets:
-        policy_reasons.append(
+        reasons.append(
             "Market benchmark prices are unavailable for " + ", ".join(missing_markets)
-            + "; both SPY and QQQ are required for the full comparison gate."
+            + ". The historical check needs both SPY and QQQ."
         )
-    if development_end - initial_end < settings["evidence_floor_returns"]:
-        policy_reasons.append("Earlier validation has less than one declared year of return intervals; the evidence floor is not met.")
-    if validation.metrics.loc[chosen, "volatility"] > target_volatility + 1e-10:
-        policy_reasons.append("Realized annual volatility in earlier validation exceeded the requested target.")
-    for name in comparisons:
-        if name != chosen and validation.metrics.loc[chosen, "cagr"] <= validation.metrics.loc[name, "cagr"] + 1e-10:
-            policy_reasons.append(f"The selected stock rule did not beat {name} on net validation CAGR.")
-    raw_symbols = list(benchmark_prices) if benchmark_prices is not None else []
-    for symbol in raw_symbols:
-        raw = validation.metrics.loc[BENCHMARK_NAMES[symbol]]
-        candidate = validation.metrics.loc[chosen]
-        if raw.cagr > candidate.cagr + 1e-10 and raw.volatility <= candidate.volatility + 1e-10:
-            policy_reasons.append(
-                f"Raw {symbol} had higher compound growth and no more realized volatility in earlier validation."
-            )
-    policy = SelectionPolicy(blend, not policy_reasons, tuple(policy_reasons))
-    test = _simulate(prices, benchmark_prices, development_end, count, fit, settings)
-    reasons = list(policy_reasons)
-    if count - development_end < settings["evidence_floor_returns"]:
-        reasons.append("The later test has less than one declared year of return intervals; the evidence floor is not met.")
-    for name in comparisons:
-        if test.metrics.loc[chosen, "cagr"] <= test.metrics.loc[name, "cagr"] + 1e-10:
-            reasons.append(f"The selected stock rule did not beat {name} on net CAGR in the later test.")
-    if test.metrics.loc[chosen, "volatility"] > target_volatility + 1e-10:
+    if count - initial_end < settings["evidence_floor_returns"]:
+        reasons.append("The later test has less than one declared year of return intervals. The evidence floor is not met.")
+    candidate = test.metrics.loc[SELECTED]
+    if candidate.volatility > target_volatility + 1e-10:
         reasons.append("Realized annual volatility in the later test exceeded the requested target.")
-    for symbol in raw_symbols:
-        raw = test.metrics.loc[BENCHMARK_NAMES[symbol]]
-        candidate = test.metrics.loc[chosen]
-        if raw.cagr > candidate.cagr + 1e-10 and raw.volatility <= candidate.volatility + 1e-10:
-            reasons.append(f"Raw {symbol} had higher compound growth and no more realized volatility in the later test.")
-    _selected_alias(validation, chosen)
-    _selected_alias(test, chosen)
-    baseline, maximum, mean, covariance, _, _ = fit(count)
-    latest = {}
-    for name, weights in ((SELECTED, (1 - blend) * baseline + blend * maximum), (BASELINE, baseline)):
-        expected = float(mean @ weights)
-        volatility = float(np.sqrt(max(weights @ covariance @ weights, 0)))
-        latest[name] = Portfolio(name, weights.rename(name), expected, volatility,
-                                 (expected - risk_free_rate) / volatility if volatility > 1e-12 else float("nan"))
+    for name in test.metrics.index.drop(SELECTED):
+        comparator = test.metrics.loc[name]
+        if comparator.cagr > candidate.cagr + 1e-10 and comparator.volatility <= candidate.volatility + 1e-10:
+            reasons.append(f"{name} had higher compound growth and no more realized volatility in the later test.")
+    weights, _, mean, covariance, _, _ = fit(count)
+    expected = float(mean @ weights)
+    volatility = float(np.sqrt(max(weights @ covariance @ weights, 0)))
+    latest = {SELECTED: Portfolio(
+        SELECTED, weights.rename(SELECTED), expected, volatility,
+        (expected - risk_free_rate) / volatility if volatility > 1e-12 else float("nan"),
+    )}
     warnings = list(dict.fromkeys(message for result in fits.values() for message in result[-1]))
     warnings.append("Historical means and estimated volatility can change. A passed historical check does not guarantee future outperformance.")
     eligibility = pd.concat([result[-2] for _, result in sorted(fits.items())], ignore_index=True)
-    settings.update({"selected_blend": blend, "selected_candidate": chosen,
-                     "fit_dates": [str(prices.index[end].date()) for end in sorted(fits)],
+    settings.update({"fit_dates": [str(prices.index[end].date()) for end in sorted(fits)],
                      "latest_as_of": str(prices.index[-1].date())})
-    for study in (validation, test):
-        study.settings.update({"selected_blend": blend, "selected_candidate": chosen})
-    return SelectionStudy(policy, validation, test, latest, SELECTED, not reasons, reasons,
-                          settings, warnings, benchmark_prices, eligibility)
+    test.settings.update(settings)
+    return SelectionStudy(test, latest, SELECTED, not reasons, reasons, settings, warnings, benchmark_prices, eligibility)

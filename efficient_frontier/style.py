@@ -143,6 +143,11 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
 .st-key-build button p,.st-key-fix_setup button p{font-size:17px;font-weight:500}
 [data-testid="stAlertContainer"]{border-radius:16px}
 [data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
+.st-key-tile_fitted_estimates .scroll{overflow-x:auto}
+.st-key-tile_fitted_estimates table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.st-key-tile_fitted_estimates th,.st-key-tile_fitted_estimates td{padding:10px 12px;border-bottom:1px solid var(--pl-hair-soft);text-align:right}
+.st-key-tile_fitted_estimates thead th{background:var(--pl-canvas);font-weight:500;color:var(--pl-ink-3)}
+.st-key-tile_fitted_estimates tbody th{text-align:left;font-weight:500}
 [data-testid="stCaptionContainer"]{color:var(--pl-ink-3);opacity:1}
 .st-key-mustread [data-testid="stCaptionContainer"]{font-size:17px;line-height:1.47;color:var(--pl-ink)}
 /* Rule labels are long. The default chip limit cut "Refit on all past prices · Medium" by a few pixels on a phone. */
