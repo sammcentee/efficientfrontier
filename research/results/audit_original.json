@@ -1,0 +1,90 @@
+[
+  {
+    "file": "studies.pkl",
+    "group": "stocks",
+    "pipeline": "raw",
+    "status": "passed",
+    "paths": 7,
+    "trades": 242,
+    "valuations": 6958,
+    "cost_bps": 10.0,
+    "study_file_sha256": "8a58f11bf0802717cedbbf7cd9bfefc21192fdf7f23cd17e9a4641c4fbd97d2c"
+  },
+  {
+    "file": "studies.pkl",
+    "group": "stocks",
+    "pipeline": "risk_controlled",
+    "status": "passed",
+    "paths": 7,
+    "trades": 336,
+    "valuations": 6958,
+    "cost_bps": 10.0,
+    "study_file_sha256": "8a58f11bf0802717cedbbf7cd9bfefc21192fdf7f23cd17e9a4641c4fbd97d2c"
+  },
+  {
+    "file": "studies.pkl",
+    "group": "funds",
+    "pipeline": "raw",
+    "status": "passed",
+    "paths": 9,
+    "trades": 128,
+    "valuations": 22536,
+    "cost_bps": 10.0,
+    "study_file_sha256": "8a58f11bf0802717cedbbf7cd9bfefc21192fdf7f23cd17e9a4641c4fbd97d2c"
+  },
+  {
+    "file": "studies.pkl",
+    "group": "funds",
+    "pipeline": "risk_controlled",
+    "status": "passed",
+    "paths": 9,
+    "trades": 1080,
+    "valuations": 22536,
+    "cost_bps": 10.0,
+    "study_file_sha256": "8a58f11bf0802717cedbbf7cd9bfefc21192fdf7f23cd17e9a4641c4fbd97d2c"
+  },
+  {
+    "file": "stress_studies.pkl",
+    "group": "stocks",
+    "pipeline": "raw",
+    "status": "passed",
+    "paths": 7,
+    "trades": 242,
+    "valuations": 6958,
+    "cost_bps": 25.0,
+    "study_file_sha256": "feae1a6c5ceb253510e751fbe469ec53c985401f4cfb9222d3fe4284994a9ea3"
+  },
+  {
+    "file": "stress_studies.pkl",
+    "group": "stocks",
+    "pipeline": "risk_controlled",
+    "status": "passed",
+    "paths": 7,
+    "trades": 336,
+    "valuations": 6958,
+    "cost_bps": 25.0,
+    "study_file_sha256": "feae1a6c5ceb253510e751fbe469ec53c985401f4cfb9222d3fe4284994a9ea3"
+  },
+  {
+    "file": "stress_studies.pkl",
+    "group": "funds",
+    "pipeline": "raw",
+    "status": "passed",
+    "paths": 9,
+    "trades": 128,
+    "valuations": 22536,
+    "cost_bps": 25.0,
+    "study_file_sha256": "feae1a6c5ceb253510e751fbe469ec53c985401f4cfb9222d3fe4284994a9ea3"
+  },
+  {
+    "file": "stress_studies.pkl",
+    "group": "funds",
+    "pipeline": "risk_controlled",
+    "status": "passed",
+    "paths": 9,
+    "trades": 1080,
+    "valuations": 22536,
+    "cost_bps": 25.0,
+    "study_file_sha256": "feae1a6c5ceb253510e751fbe469ec53c985401f4cfb9222d3fe4284994a9ea3"
+  }
+]

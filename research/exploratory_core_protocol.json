@@ -1,0 +1,25 @@
+{
+  "version": "core_momentum_exploration_v1",
+  "timing": "Registered after inspecting the original twelve hypotheses. All results are exploratory, not independent confirmation.",
+  "reason": "Original momentum held attractive returns with high risk. A broad core may diversify the concentrated momentum sleeve. Original benchmark volatility wrappers underperformed buy-and-hold, so passive benchmarks are now the primary comparison.",
+  "core_weight": 0.75,
+  "momentum_weight": 0.25,
+  "stock_sleeve": "Frozen original momentum_50 rule; no parameter change or reranking from future data.",
+  "separate_fund_implementation": "75%SPY+25%SPMO; fundindex differs from the custom stockmomentum rule.",
+  "weight_search": "None. Test75/25only; retain failures.",
+  "rebalance": "Completedcalendar monthendsignals;nexttradingcloseexecution;holdingsdriftbetween.",
+  "pipelines": [
+    "fullyinvested",
+    "samecausal10pctvolatilitywrapperon candidateonly"
+  ],
+  "benchmarks": "Actual buy-and-holdSPY andQQQ; no dynamicvolatilitywrapper. Exactrealized-vol normalization remains descriptive.",
+  "fees_bps": [
+    10,
+    25
+  ],
+  "cash_return": 0,
+  "dates": "Same development andevaluationdates as originalprotocol; allnowviewed.",
+  "uncertainty_family": "Alloriginalrawandwrappedcandidates, plusnewcorevariants, versus bothactualpassivebenchmarks. Expectedstock12candidatesandfund16candidates. 97.5%simultaneousperstudy, primaryblock21, sensitivities10and63;10kpairedbootstrapreplicates.",
+  "claim_limit": "Any win is an in-history exploratory finding. No prospective claim. Currentstockuniverse survivor bias remains. Fundproxycannotvalidate customstockmethod.",
+  "primary_pipeline": "Fully invested75/25; fixedbeforethe newcoreportfolioresults. The10%candidatewrapper is a secondary implementation check, not a replacement winner."
+}

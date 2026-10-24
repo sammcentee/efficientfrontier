@@ -1,0 +1,193 @@
+{
+  "classification": "Exploratory follow-up after original results; no fresh evaluation data.",
+  "primary_pipeline": "raw",
+  "core_weight": 0.75,
+  "momentum_weight": 0.25,
+  "groups": {
+    "stocks": {
+      "primary": "spy75_momentum50_25",
+      "start": "2025-04-17",
+      "end": "2026-10-16",
+      "observations": 377,
+      "metrics": {
+        "spy75_momentum50_25": {
+          "raw_mean": 0.34052473742000633,
+          "raw_cagr": 0.38785463444927876,
+          "raw_volatility": 0.15868273854037143,
+          "raw_max_drawdown": -0.09880311112291049,
+          "normalized_mean": 0.27351661582072184,
+          "normalized_cagr": 0.3037937391508365,
+          "normalized_volatility": 0.12745730593191518,
+          "normalized_max_drawdown": -0.07991663536700547,
+          "scale": 0.803220987388543,
+          "common_volatility": 0.12745730593191515,
+          "mean_gap_SPY": 0.005012993241661712,
+          "cagr_gap_SPY": 0.006504531194960306,
+          "mean_gap_QQQ": 0.04276942241315693,
+          "cagr_gap_QQQ": 0.05453356361385192,
+          "worst_mean_gap": 0.005012993241661712
+        },
+        "SPY": {
+          "raw_mean": 0.26850362257906013,
+          "raw_cagr": 0.2972892079558762,
+          "raw_volatility": 0.12745730593191515,
+          "raw_max_drawdown": -0.08884964925337831,
+          "normalized_mean": 0.26850362257906013,
+          "normalized_cagr": 0.2972892079558762,
+          "normalized_volatility": 0.12745730593191515,
+          "normalized_max_drawdown": -0.08884964925337831,
+          "scale": 1.0,
+          "common_volatility": 0.12745730593191515,
+          "mean_gap_SPY": 0.0,
+          "cagr_gap_SPY": 0.0,
+          "mean_gap_QQQ": 0.037756429171495215,
+          "cagr_gap_QQQ": 0.048029032418891615,
+          "worst_mean_gap": 0.0
+        },
+        "QQQ": {
+          "raw_mean": 0.33528374458487276,
+          "raw_cagr": 0.37436139288589954,
+          "raw_volatility": 0.18519992454283613,
+          "raw_max_drawdown": -0.1196435907024301,
+          "normalized_mean": 0.23074719340756492,
+          "normalized_cagr": 0.2492601755369846,
+          "normalized_volatility": 0.12745730593191515,
+          "normalized_max_drawdown": -0.08276919965903175,
+          "scale": 0.6882146752842477,
+          "common_volatility": 0.12745730593191515,
+          "mean_gap_SPY": -0.037756429171495215,
+          "cagr_gap_SPY": -0.048029032418891615,
+          "mean_gap_QQQ": 0.0,
+          "cagr_gap_QQQ": 0.0,
+          "worst_mean_gap": -0.037756429171495215
+        }
+      },
+      "compared_candidate_implementations": 12,
+      "primary_bounds_at_all_trial_common_risk": [
+        {
+          "candidate": "spy75_momentum50_25 \u00b7 raw",
+          "benchmark": "SPY",
+          "block_length": 21,
+          "estimate": 0.003434463419214606,
+          "lower_bound": -0.18997648333772496,
+          "simultaneous_critical": 0.19341094675693957,
+          "confidence": 0.975,
+          "family_size": 24,
+          "repetitions": 10000,
+          "seed": 20261018,
+          "confidence_kind": "Simultaneous one-sided historical lower bound; not a future probability."
+        },
+        {
+          "candidate": "spy75_momentum50_25 \u00b7 raw",
+          "benchmark": "QQQ",
+          "block_length": 21,
+          "estimate": 0.029301858123038566,
+          "lower_bound": -0.164109088633901,
+          "simultaneous_critical": 0.19341094675693957,
+          "confidence": 0.975,
+          "family_size": 24,
+          "repetitions": 10000,
+          "seed": 20261018,
+          "confidence_kind": "Simultaneous one-sided historical lower bound; not a future probability."
+        }
+      ],
+      "last_signal": "2026-09-30",
+      "last_execution": "2026-10-01"
+    },
+    "funds": {
+      "primary": "spy75_spmo25",
+      "start": "2023-01-03",
+      "end": "2026-10-16",
+      "observations": 951,
+      "metrics": {
+        "spy75_spmo25": {
+          "raw_mean": 0.2230333695520179,
+          "raw_cagr": 0.23452154775874026,
+          "raw_volatility": 0.1570337316192544,
+          "raw_max_drawdown": -0.18983566949164263,
+          "normalized_mean": 0.21125984115843877,
+          "normalized_cagr": 0.22161868159043624,
+          "normalized_volatility": 0.14874420480233666,
+          "normalized_max_drawdown": -0.18053294765245334,
+          "scale": 0.9472118077342987,
+          "common_volatility": 0.14874420480233666,
+          "mean_gap_SPY": 0.004542577062379899,
+          "cagr_gap_SPY": 0.005524171997100702,
+          "mean_gap_QQQ": -0.00028295971847291934,
+          "cagr_gap_QQQ": -0.0003322340196066087,
+          "worst_mean_gap": -0.00028295971847291934
+        },
+        "SPY": {
+          "raw_mean": 0.20671726409605887,
+          "raw_cagr": 0.21609450959333554,
+          "raw_volatility": 0.14874420480233666,
+          "raw_max_drawdown": -0.18755234161457898,
+          "normalized_mean": 0.20671726409605887,
+          "normalized_cagr": 0.21609450959333554,
+          "normalized_volatility": 0.14874420480233666,
+          "normalized_max_drawdown": -0.18755234161457898,
+          "scale": 1.0,
+          "common_volatility": 0.14874420480233666,
+          "mean_gap_SPY": 0.0,
+          "cagr_gap_SPY": 0.0,
+          "mean_gap_QQQ": -0.004825536780852818,
+          "cagr_gap_QQQ": -0.005856406016707311,
+          "worst_mean_gap": -0.004825536780852818
+        },
+        "QQQ": {
+          "raw_mean": 0.28563827700347716,
+          "raw_cagr": 0.30399909997835045,
+          "raw_volatility": 0.20084369781372655,
+          "raw_max_drawdown": -0.2276830764396883,
+          "normalized_mean": 0.21154280087691169,
+          "normalized_cagr": 0.22195091561004285,
+          "normalized_volatility": 0.14874420480233663,
+          "normalized_max_drawdown": -0.17290183944338147,
+          "scale": 0.7405968244036722,
+          "common_volatility": 0.14874420480233666,
+          "mean_gap_SPY": 0.004825536780852818,
+          "cagr_gap_SPY": 0.005856406016707311,
+          "mean_gap_QQQ": 0.0,
+          "cagr_gap_QQQ": 0.0,
+          "worst_mean_gap": 0.0
+        }
+      },
+      "compared_candidate_implementations": 16,
+      "primary_bounds_at_all_trial_common_risk": [
+        {
+          "candidate": "spy75_spmo25 \u00b7 raw",
+          "benchmark": "SPY",
+          "block_length": 21,
+          "estimate": 0.002852587376442506,
+          "lower_bound": -0.1121334060397955,
+          "simultaneous_critical": 0.11498599341623801,
+          "confidence": 0.975,
+          "family_size": 32,
+          "repetitions": 10000,
+          "seed": 20261018,
+          "confidence_kind": "Simultaneous one-sided historical lower bound; not a future probability."
+        },
+        {
+          "candidate": "spy75_spmo25 \u00b7 raw",
+          "benchmark": "QQQ",
+          "block_length": 21,
+          "estimate": -0.0001776892961579124,
+          "lower_bound": -0.11516368271239592,
+          "simultaneous_critical": 0.11498599341623801,
+          "confidence": 0.975,
+          "family_size": 32,
+          "repetitions": 10000,
+          "seed": 20261018,
+          "confidence_kind": "Simultaneous one-sided historical lower bound; not a future probability."
+        }
+      ],
+      "last_signal": "2026-09-30",
+      "last_execution": "2026-10-01"
+    }
+  },
+  "code_hashes": {
+    "research/exploratory_core_momentum.py": "c9fafcef008940c143e8c4b474eb74b6c7884b2e1f9b0c98ca468300bac12c0f",
+    "research/exploratory_core_protocol.json": "ed0f28fad034a222db6e3b548ede816ccf405571658afe842286896c5faa6e26",
+    "research/evaluate_core_momentum.py": "de48698307d8b2df5b6d5da0d5dcce835f78198e0acc0e56fc8ac682b8a65882"
+  }
+}

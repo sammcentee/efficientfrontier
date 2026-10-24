@@ -1,0 +1,82 @@
+[
+  {
+    "group": "stocks",
+    "pipeline": "raw",
+    "cost_bps": 10,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 50,
+    "valuations": 2982
+  },
+  {
+    "group": "stocks",
+    "pipeline": "raw",
+    "cost_bps": 25,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 50,
+    "valuations": 2982
+  },
+  {
+    "group": "stocks",
+    "pipeline": "risk_controlled",
+    "cost_bps": 10,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 50,
+    "valuations": 2982
+  },
+  {
+    "group": "stocks",
+    "pipeline": "risk_controlled",
+    "cost_bps": 25,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 50,
+    "valuations": 2982
+  },
+  {
+    "group": "funds",
+    "pipeline": "raw",
+    "cost_bps": 10,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 122,
+    "valuations": 7512
+  },
+  {
+    "group": "funds",
+    "pipeline": "raw",
+    "cost_bps": 25,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 122,
+    "valuations": 7512
+  },
+  {
+    "group": "funds",
+    "pipeline": "risk_controlled",
+    "cost_bps": 10,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 122,
+    "valuations": 7512
+  },
+  {
+    "group": "funds",
+    "pipeline": "risk_controlled",
+    "cost_bps": 25,
+    "study_file_sha256": "f29130358a07f19acfab9f11676919093f77e82e2c12617a57f889bbd93bd2fe",
+    "status": "passed",
+    "paths": 3,
+    "trades": 122,
+    "valuations": 7512
+  }
+]
