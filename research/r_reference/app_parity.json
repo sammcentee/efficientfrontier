@@ -1,0 +1,34 @@
+[
+  {
+    "comparison": "SPY_risk_cap_100pct",
+    "selection_mean": 0.3774643388053049,
+    "independent_mean": 0.3774643388784393,
+    "mean_difference": -7.313438743494771e-11,
+    "volatility": 0.22627051439951218,
+    "eligible": 60
+  },
+  {
+    "comparison": "QQQ_risk_cap_100pct",
+    "selection_mean": 0.48081436326360677,
+    "independent_mean": 0.4808143633009316,
+    "mean_difference": -3.732480990947806e-11,
+    "volatility": 0.27236887157029077,
+    "eligible": 60
+  },
+  {
+    "comparison": "SPY_risk_cap_10pct",
+    "selection_mean": 0.34148604046905834,
+    "independent_mean": 0.3414860404821254,
+    "mean_difference": -1.3067047444081936e-11,
+    "volatility": 0.22627051440941612,
+    "eligible": 60
+  },
+  {
+    "comparison": "QQQ_risk_cap_10pct",
+    "selection_mean": 0.4038752111362048,
+    "independent_mean": 0.4038752111369637,
+    "mean_difference": -7.588929484825258e-13,
+    "volatility": 0.27236887157077005,
+    "eligible": 60
+  }
+]

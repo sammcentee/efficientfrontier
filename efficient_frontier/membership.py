@@ -117,10 +117,11 @@ def load_membership_csv(path_or_buffer, coverage_end, source=None) -> Membership
     covered by the source. A last observed change alone does not establish it.
     """
     try:
-        table = pd.read_csv(path_or_buffer, dtype=str, keep_default_na=False)
+        table = pd.read_csv(path_or_buffer, dtype=str, keep_default_na=False, engine="python")
     except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeError) as exc:
         raise ValueError("Membership CSV must contain date,tickers columns and full rosters.") from exc
-    if list(table.columns) != ["date", "tickers"] or table.empty or not isinstance(table.index, pd.RangeIndex):
+    if (list(table.columns) != ["date", "tickers"] or table.empty
+            or not isinstance(table.index, pd.RangeIndex) or table.isna().any().any()):
         raise ValueError("Membership CSV must contain date,tickers columns and at least one full roster.")
     snapshots = pd.Series(
         [tuple(s.strip() for s in roster.split(",")) for roster in table["tickers"]],

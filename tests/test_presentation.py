@@ -106,6 +106,22 @@ def test_charts_preserve_training_estimates_and_holdout_baseline(report_analysis
         assert chart.layout.legend.maxheight <= chart.layout.margin.b
 
 
+def test_holdout_chart_displays_strategy_names_as_plain_text(report_analysis):
+    label = '<b>Portfolio</b> & "reference"'
+    report_analysis.equity.columns = [label]
+    chart = holdout_chart(report_analysis)
+    assert chart.data[0].name == html.escape(label)
+    np.testing.assert_allclose(chart.data[0].y, report_analysis.equity[label] * 10_000)
+
+
+def test_weights_export_does_not_rename_the_input_portfolio_index(report_analysis):
+    weights = report_analysis.portfolios["Minimum volatility"].weights
+    before = weights.copy()
+    exported = weights_frame(report_analysis)
+    assert exported.index.name == "ticker"
+    pd.testing.assert_series_equal(weights, before)
+
+
 @pytest.fixture
 def classic_prices():
     from efficient_frontier.data import demo_prices
@@ -370,7 +386,8 @@ def test_latest_frontier_and_benchmarks_share_objective_and_fit_labels(latest_pr
         assert trace.y[0] == pytest.approx(row[column])
         assert trace.marker.symbol == "diamond"
     assert chart.data[2].marker.size > chart.data[1].marker.size
-    assert all("Full-history fit volatility" in trace.hovertemplate for trace in chart.data)
+    assert all("Model volatility, yearly" in trace.hovertemplate for trace in chart.data[:4])
+    assert all("Historical volatility, yearly" in trace.hovertemplate for trace in chart.data[4:])
     if objective == "worst_window":
         assert chart.layout.title.text == "Weakest-window frontier"
         assert "Lowest window mean" in chart.layout.yaxis.title.text

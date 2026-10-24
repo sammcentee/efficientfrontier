@@ -1,28 +1,22 @@
-![Portfolio Lab · Efficient Frontier](docs/images/header.svg)
+# Efficient Frontier Analysis for US Equities
 
-[![CI](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml)
+A local Python app for stock portfolio optimization and historical tests. It estimates returns and covariance from supplied prices, then finds stock weights within a volatility budget and holding limit.
 
-A local research app for portfolio allocations, risk, and historical tests. Start with stocks from SPY and the Nasdaq-100, your own tickers, a price CSV, or the offline synthetic demo.
+The default universe combines the stocks held by SPY with current Nasdaq-100 constituents. You can also use your own stock symbols, a price CSV, or synthetic demo data. SPY and QQQ provide comparisons and do not enter the stock allocation.
 
-Choose the stocks, history, volatility budget, and largest holding. One model finds the portfolio with the highest historical average return within those limits. One later test compares it with equal-weight stocks, SPY, and QQQ. Inspect every weight and export an offline report. This is a research tool.
+## Setup
 
-## Start here: no coding needed
+Install **Python 3.14**, then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
 
-1. Install **Python 3.14** from the official [Windows](https://www.python.org/downloads/windows/) or [macOS](https://www.python.org/downloads/macos/) page. Linux needs Python 3.14 with `venv` support.
-2. [Download the ZIP](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip) and extract the whole folder.
-3. Open the launcher for your computer:
-
-| Computer | Launcher |
+| System | Start the app |
 | --- | --- |
-| Windows | Double-click `Start Portfolio Lab.bat`. |
-| macOS | Double-click `Start Portfolio Lab.command`. |
-| Linux or WSL | Run `bash run.sh` from the extracted folder. |
+| Windows | Open `Start Portfolio Lab.bat`. |
+| macOS | Open `Start Portfolio Lab.command`. |
+| Linux or WSL | Run `bash run.sh` from the project folder. |
 
-The first launch installs the packages and needs internet access. Later launches reuse the local `.venv`. A browser tab opens at **http://localhost:8501**. Keep the launcher window open. Press **Ctrl+C** there to stop the app.
+The first launch installs dependencies and needs internet access. The app opens at **http://localhost:8501**. Keep the launcher open and press **Ctrl+C** there to stop it. Demo and CSV studies work offline after setup.
 
-For setup errors, ports, and remote sessions, see the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting). Python 3.14 is the tested version. Native Windows startup has a smoke check. macOS startup still needs a check on a Mac.
-
-For a terminal setup:
+For a Git checkout:
 
 ```bash
 git clone https://github.com/sammcentee/efficientfrontier.git
@@ -30,126 +24,81 @@ cd efficientfrontier
 bash run.sh
 ```
 
-## Your first study
+See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup errors and platform limits.
 
-1. Choose the stock universe and history. The default combines SPY's stock holdings with the current Nasdaq-100.
-2. Set **Annual volatility budget (%)** before the calculation. The default is 20%, with a 10% limit per stock.
-3. Select **Build portfolio**. The app fits the model on the first 70% of returns and tests it on the remaining 30%.
-4. Read the later test and its comparison with equal-weight stocks, SPY, and QQQ. Inspect the latest holdings and trade record.
-5. Open **Data & method** for data coverage and method details.
-6. Select **Export** for the report and data. The report includes the results on screen.
+## Run a study
 
-The app waits for **Build portfolio** before it requests data. Select **Try the offline demo** for a synthetic example without a data download. CSV analysis also works offline after setup.
+1. Read the model equations on the **Efficient Frontier Analysis for US Equities** opening page. Open **Settings** to choose stocks and history, or select the **Demo** stock source.
+2. Set **Annual volatility budget** and **Holding limit** in the two number fields. The holding limit defaults to 10%.
+3. Select **Build portfolio**.
+4. Inspect the latest stock holdings and their fitted frontier. Then compare in-sample and out-of-sample results, and the later replay with SPY and QQQ.
+5. Select **Export** for the offline report and exact input/result CSVs.
 
-Keyboard shortcuts: **Ctrl+Enter** on Windows/Linux or **Cmd+Enter** on macOS submits the setup. **4** opens Data & method, and **E** exports. See the [user guide](docs/USER_GUIDE.md) for settings and input rules.
+The app starts the volatility budget at QQQ's latest one-year annualized volatility, with its price date shown. This reference is separate from the stock fit window. Your edits take precedence. If the reference is unavailable, the app labels its 20% manual fallback.
 
-![Portfolio Lab in an earlier layout](docs/images/portfolio-lab.png)
+A 10% holding limit needs at least ten eligible stocks. The six-asset synthetic demo uses a 20% limit. An infeasible budget or holding limit stops the calculation.
 
-*Screenshot from an earlier app version. The current layout can differ.*
+## Model
 
-## One model, one test
+The optimizer maximizes the estimated annual arithmetic mean return. Weights are long-only, sum to 100%, and obey the holding limit. The volatility budget limits the covariance-based estimate, not future volatility or losses. The objective is not CAGR or maximum Sharpe. The [R comparison](docs/R_METHOD.md) explains the original method, its return-formula error, and the corrected stock-only results.
 
-The model chooses stock weights with the highest historical arithmetic mean return, subject to two limits: fitted volatility and the largest holding. Weights are long-only and sum to 100%. An infeasible limit stops the calculation with an explanation.
+The app fixes these assumptions:
 
-The **Annual volatility budget** limits the model's estimated annual volatility. Future volatility can exceed it. It is not a maximum loss. The default budget is 20%, with at most 10% in each stock.
+| Assumption | Value |
+| --- | --- |
+| Initial training / later test | First 70% / final 30% of return observations |
+| Walk-forward tests | Fits on the first 50%, 60%, 70%, 80%, and 90% of returns. Each holds through the next tenth only |
+| Holding rule | Fit once on the initial sample, buy once, then let weights drift |
+| Execution | Close after the last price used in the fit |
+| Trading fees | 0.10% of the initial purchase. No later trades or terminal sale |
+| Covariance | Ordinary sample covariance, without shrinkage |
 
-The app uses fixed test assumptions: 70% initial training history, a later 30% test, a refit every 21 observations, and 10-basis-point trading fees. Each refit uses all earlier returns. A 10% covariance shrinkage reduces estimated cross-asset covariances. Each trade uses prices through the preceding close.
+The first test interval stays in cash at zero interest. All replay paths then buy once and hold. The model omits taxes, currency conversion, and market impact. The [method reference](docs/BACKTESTING.md#portfolio-model) gives the equations and accounting.
 
-The later test compares four paths: **Historical-mean portfolio**, **Equal-weight stocks**, **SPY**, and **QQQ**. Equal-weight stocks use the same trade schedule. The ETFs buy once and hold. The reference portfolios have no volatility budget.
+## Read the results
 
-The result checks whether the model stays within the budget in the later test. It also checks whether a reference has higher compound growth with no more volatility. Both ETFs and at least one year of later observations are required for a pass. These checks describe that historical period. They do not prove future outperformance.
+Overview starts with the latest stock holdings, followed by their fitted frontier, then an in-sample and out-of-sample comparison. Company cards show names, weights, and a short business description from current Yahoo Finance profiles when available. CSV and demo studies stay offline. Five walk-forward tests fit the model on earlier stock prices only, then hold that allocation through a later window that the fit did not see. Each window shows the same allocation on its own fit dates (in sample) and on the later dates (out of sample). The growth chart, replay metrics, and exact return reconciliation follow. Open **Settings** from the results navigation, or **Data & method** for coverage and trades.
 
-The latest holdings use all supplied history and the same model rule. They can differ from the holdings in the test. See the [model and test details](docs/BACKTESTING.md#single-model-and-later-test).
+**The latest fit includes the replay dates. The replay did not use the latest holdings.** The fit chooses one allocation using all supplied history. The replay buys one allocation from the initial training sample, then holds it through the later prices without rebalancing. The two panels use different dates, weights, and fee treatment.
 
-## Stocks from SPY and the Nasdaq-100
+| Result | Meaning |
+| --- | --- |
+| Fitted annual mean | Average return from a fit's history, using its target weights, before fees |
+| Fitted volatility | Sample volatility from the fit's dates and target weights; the budget applies to this estimate |
+| Fitted frontier | Best estimated stock returns across risk levels, with SPY/QQQ as separate reference points |
+| In sample | Buy-and-hold result of an allocation on the same dates that chose it, measured from the purchase close |
+| Out of sample | Buy-and-hold result of an allocation on later dates that its fit did not use, measured from the purchase close |
+| Historical replay | Net performance of the initial allocation, bought once and held through later prices |
+| Latest holdings | A new fit using all supplied history; these weights did not produce the earlier test |
 
-The combined universe uses State Street's current SPY stock holdings and Nasdaq's current Nasdaq-100 list. It removes duplicate symbols while preserving separate share classes. SPY holdings are a practical proxy for the S&P 500, not a certified historical index roster. Cash, derivatives, and rights in the fund file do not become stock candidates.
+Equal-weight stocks, SPY, and QQQ also buy once and hold. The equal-weight reference starts with equal weights but lets them drift. Within the replay, all comparisons use the same dates and fee rate, but their risks can differ. A benchmark with higher mean return and lower volatility beat the stock rule in that replay, even if the latest fitted portfolio sits above it on the fitted frontier chart.
 
-The app records both sources, their dates, and exclusions. Prices must cover the same SPY/QQQ market dates. A long unchanged-price screen uses only the prices available at each fit. It flags possible stale or illiquid quotes without claiming that those quotes are false.
+The app displays typeset equations for the optimizer, volatility budget, buy-and-hold accounting, and performance metrics. The introduction appears beside the controls. Fitted moments describe the starting weights. They do not describe a historical buy-and-hold path.
 
-Current membership and complete-history requirements can favor survivors. The model uses only earlier prices at each historical fit. Prior review of the test period still creates research hindsight.
+The test status describes coverage, realized risk, and comparison results. It is not proof of future outperformance. Current member lists and complete-history requirements favor survivors. Prior review of the test dates also limits their value as new evidence.
 
-## The Nasdaq-only universe
+## Command line
 
-The optional Nasdaq-100 source requests the [current official constituent list](https://api.nasdaq.com/api/quote/list-type/nasdaq100), with separate share classes. It admits only securities with complete positive adjusted prices on the fixed SPY/QQQ market dates for the selected history.
-
-It records exclusions. It does not fill gaps or shorten the common history. Open **Data & method** for counts and reasons. Reports retain `universe_coverage.csv` and the source date. An unavailable or incomplete constituent list stops the request.
-
-Every eligible asset enters the optimization. Weights can be zero. There is no fixed ticker-count or holdings-count cap, though large inputs need more time and memory. The full weight table and exports retain every asset.
-
-**This is historical analysis of current members.** It does not reconstruct past index membership. Current membership and complete-history eligibility introduce selection bias. A shorter history can admit more assets and also changes the estimation sample.
-
-## Your own prices
-
-Select **Change → Upload CSV**. Put `Date` first, followed by one column per asset:
-
-```csv
-Date,ASSET_A,ASSET_B
-2023-01-03,100.00,80.00
-2023-01-04,101.00,79.50
-2023-01-05,100.50,80.10
-2023-01-06,102.00,80.40
-2023-01-09,101.80,81.00
-2023-01-10,102.10,80.70
-2023-01-11,101.90,81.20
-```
-
-Use complete positive adjusted prices in one currency. The app does not convert currencies or fill missing prices. Set **Change → Data options → Price frequency** to match the file. Annualization does not resample the data.
-
-The model needs at least two returns in both the initial training period and the later test. A pass also requires at least one year of later test returns. See the [price-data rules](docs/USER_GUIDE.md#price-data) for short histories, exchange suffixes, and benchmarks.
-
-## Reports without the browser
-
-After the launcher creates `.venv`, run these commands from the repository root:
+Run the app's model without a browser:
 
 ```bash
-# Offline risk-budget study, with an explicit feasible limit for six demo assets
+# Offline demo
 .venv/bin/python -m efficient_frontier --target-volatility .20 --max-weight .20
 
-# Combined SPY and Nasdaq-100 stocks, 20% volatility budget and 10% per stock
-.venv/bin/python -m efficient_frontier --sp500-nasdaq100 --target-volatility .20
-
-# Your price file, with no benchmark download (at least ten eligible assets)
+# Supplied stock prices, with at least ten eligible stocks
 .venv/bin/python -m efficient_frontier --csv data/prices.csv --target-volatility .20
 ```
 
-On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`. The default output is `results/latest/`. Open `report.html` for the offline report, or choose **Print / save PDF** in it. The ZIP includes the input prices and full results.
+On Windows, use `.venv\Scripts\python.exe`. Output goes to `results/latest/`. Use `--output` to preserve separate studies. Reports contain the input prices. Keep private data in ignored `data/` or `private/` folders.
 
-A rerun replaces generated files in that destination. Use a separate `--output` folder to preserve a study. Keep private inputs in ignored `data/` or `private/` folders. Review reports before you share them. See [CLI options and exports](docs/USER_GUIDE.md#command-line-options-and-exports).
+## Reference
 
-## Separate research tools
+- [User guide](docs/USER_GUIDE.md): inputs, settings, reports, and separate legacy tools.
+- [Model and accounting](docs/BACKTESTING.md): optimization, trade timing, fees, and metrics.
+- [Benchmarks](docs/BENCHMARKS.md): SPY/QQQ comparisons and their limits.
+- [Contributing](CONTRIBUTING.md): development setup and checks.
+- [Validation record](docs/VALIDATION.md): dated checks and limitations.
 
-The command line and Python API retain the earlier frontier, multi-method backtests, and historical-membership study. They are separate tools. The app uses the single model above. See the [legacy tools](docs/USER_GUIDE.md#legacy-research-tools) and [historical-membership commands](docs/USER_GUIDE.md#historical-membership).
+The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required. Earlier findings remain in the [stock study](docs/HOLDINGS_STUDY.md) and [research archive](research/README.md).
 
-The [recorded 60-stock study](docs/HOLDINGS_STUDY.md) retains earlier findings, dates, fees, and reproduction steps. It used a stock list from after the test began. It does not establish future returns or outperformance against SPY or QQQ.
-
-All studies omit taxes, currency conversion, and real execution limits. See the [benchmark guide](docs/BENCHMARKS.md) for data requirements and the separate legacy statistical tests.
-
-## Documentation and development
-
-| Guide | Contents |
-| --- | --- |
-| [User guide](docs/USER_GUIDE.md) | Setup, settings, input rules, CLI options, and reports. |
-| [Model and backtests](docs/BACKTESTING.md) | The single model, later test, trade timing, fees, and separate legacy methods. |
-| [Market benchmarks](docs/BENCHMARKS.md) | SPY/QQQ data, matched comparisons, and statistical limits. |
-| [Historical stock study](docs/HOLDINGS_STUDY.md) | Recorded findings and reproduction steps. |
-| [Optimizer capacity](docs/PERFORMANCE.md) | Measured time and memory, with reproduction commands. |
-| [Validation record](docs/VALIDATION.md) | Dated checks and their limits. |
-| [Repository review](docs/REVIEW.md) | Findings, fixes, and remaining priorities from 9–10 October 2026. |
-| [Contributing](CONTRIBUTING.md) | Development setup and review process. |
-
-```bash
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m pip check
-.venv/bin/python -m pytest -q
-```
-
-CI runs the automated checks and an offline CLI export. Provider responses are mocked in automated tests. Browser and live-data checks are separate and do not establish physical-phone support.
-
-The app uses Python, CVXPY, and the compiled Rust Clarabel solver. The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required.
-
-## License and data access
-
-Original code and documentation use the [MIT License](LICENSE). Third-party software and data retain their own terms. See [third-party notices](THIRD_PARTY_NOTICES.md), the dated [public-source review](docs/PUBLIC_RELEASE_REVIEW.md), and [security reporting](SECURITY.md).
-
-Yahoo access through yfinance is unofficial. A software license does not grant data-access or redistribution rights. Use the integration only where your access and intended use are authorized. Keep downloaded market prices and reports local unless redistribution is permitted.
+Code and documentation use the [MIT License](LICENSE). [Third-party terms](THIRD_PARTY_NOTICES.md) still apply. The software license does not grant rights to download or redistribute market data.

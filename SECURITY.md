@@ -12,7 +12,7 @@ If the private form is unavailable, open an issue asking for a private reporting
 
 The default server binds to `127.0.0.1`, with Streamlit usage statistics disabled. It is not configured as a public service: do not expose a shared instance or upload other people's private data without adding appropriate access controls and reviewing session/cache behavior.
 
-The default synthetic demo and CSV analysis run without a market-data network request. Choosing Yahoo Finance sends the requested symbols and dates through yfinance to Yahoo and requires the user's authorized access. The repository contains no API credentials or broker/trading integration.
+The synthetic demo runs without a market-data network request. CSV analysis stays offline unless the user enables the benchmark download. Building a study from Yahoo Finance sends the requested symbols and dates through yfinance to Yahoo and requires the user's authorized access. The repository contains no API credentials or broker/trading integration.
 
 Reports contain their input prices, allocations and settings. Keep private reports out of Git and review contents and provider terms before sharing. Formula-like text labels in CSV exports are escaped; numeric return and price values are preserved. HTML output escapes supplied metadata and table text.
 

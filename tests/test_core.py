@@ -512,3 +512,44 @@ def test_sufficient_training_sample_does_not_warn_about_sample_size():
     result = analyze(prices, frontier_points=2)
     assert not any("fewer than 30" in message or "singular before shrinkage" in message
                    for message in result.warnings)
+
+
+@pytest.mark.parametrize("covariance_scale", [1e-8, 1, 1e8])
+def test_singular_minimum_risk_ties_choose_the_highest_return(covariance_scale):
+    labels = ["Lower mean", "Higher mean", "Independent"]
+    means = pd.Series([.1, .2, .3], index=labels)
+    covariance = pd.DataFrame([[.04, .04, 0], [.04, .04, 0], [0, 0, .09]],
+                              index=labels, columns=labels) * covariance_scale
+    portfolios, frontier, weights, _ = optimize(means, covariance, frontier_points=5)
+    expected_minimum = np.array([0, 9 / 13, 4 / 13])
+    np.testing.assert_allclose(portfolios["Minimum volatility"].weights, expected_minimum, atol=2e-7)
+    np.testing.assert_allclose(weights.iloc[0], expected_minimum, atol=2e-7)
+    assert frontier.expected_return.iloc[0] == pytest.approx(means @ expected_minimum, abs=1e-8)
+    # The lower-mean security has identical covariance to the higher-mean one.
+    # Every efficient point must prefer the latter until its cap binds.
+    np.testing.assert_allclose(weights.iloc[:, 0], 0, atol=2e-7)
+    assert (np.diff(frontier.expected_return) > 0).all()
+    assert (np.diff(frontier.volatility) > 0).all()
+
+
+@pytest.mark.parametrize("scale", [1e-9, 1e-12])
+def test_return_unit_scaling_preserves_frontier_and_sharpe_weights(scale):
+    means, covariance = model()
+    reference, frontier, weights, _ = optimize(means, covariance, risk_free_rate=.02, frontier_points=5)
+    portfolios, tiny_frontier, tiny_weights, _ = optimize(
+        means * scale, covariance, risk_free_rate=.02 * scale, frontier_points=5,
+    )
+    np.testing.assert_allclose(tiny_weights, weights, atol=2e-7)
+    np.testing.assert_allclose(tiny_frontier.expected_return / scale, frontier.expected_return, atol=1e-8)
+    for name in reference:
+        np.testing.assert_allclose(portfolios[name].weights, reference[name].weights, atol=2e-7)
+
+
+def test_singular_minimum_risk_tie_respects_the_position_cap():
+    labels = ["A", "B", "C"]
+    means = pd.Series([.1, .2, .3], index=labels)
+    covariance = pd.DataFrame([[.04, .04, 0], [.04, .04, 0], [0, 0, .09]],
+                              index=labels, columns=labels)
+    portfolios, _, weights, _ = optimize(means, covariance, max_weight=.5, frontier_points=5)
+    np.testing.assert_allclose(portfolios["Minimum volatility"].weights, [9 / 13 - .5, .5, 4 / 13], atol=2e-7)
+    assert weights.to_numpy().max() <= .5 + 1e-7

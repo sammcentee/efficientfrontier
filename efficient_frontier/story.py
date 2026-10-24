@@ -232,6 +232,25 @@ def company_names(coverage) -> dict:
     return {row.symbol: short_company_name(row.name) for row in frame[["symbol", "name"]].itertuples(index=False)}
 
 
+def holdings_cards_html(weights: pd.Series, companies: dict) -> str:
+    """Show company identities beside the saved weights, without rounding holdings away."""
+    cards = []
+    for symbol, weight in weights.items():
+        company = companies[symbol]
+        name = html.escape(company["name"])
+        source = company.get("source_url")
+        title = f'<a href="{html.escape(source, quote=True)}" target="_blank" rel="noopener noreferrer">{name}</a>' if source else name
+        amount = html.escape(f"{weight:.2%}" if weight >= 0.0001 else "<0.01%")
+        cards.append(
+            '<article class="pl-holding">'
+            f'<div class="pl-holding-head"><div><h4>{title}</h4>'
+            f'<span class="pl-holding-symbol">{html.escape(str(symbol))}</span></div>'
+            f'<strong class="pl-holding-weight">{amount}</strong></div>'
+            f'<p>{html.escape(company["description"])}</p></article>'
+        )
+    return '<div class="pl-holdings-grid">' + "".join(cards) + '</div>'
+
+
 def months_tested(study: Any) -> int:
     """Length of the held-back test period in months."""
     start, end = pd.Timestamp(study.settings["test_start"]), pd.Timestamp(study.settings["test_end"])
@@ -319,7 +338,7 @@ def stats_html(latest: Any, profile: str, universe: str, names: dict | None = No
     largest = weights.idxmax()
     stats = (
         (_pct(latest.summary.loc[profile, "expected_return"]), "Fitted annual mean", "Full-history estimate before fees"),
-        (_pct(latest.portfolios[profile].volatility), "Volatility", "Yearly, from past prices"),
+        (_pct(latest.portfolios[profile].volatility), "Model volatility", "Yearly, from the fitted covariance"),
         (_pct(weights.max()), "Largest holding", (names or {}).get(largest, largest)),
     )
     return '<div class="pl-stats">' + "".join(
@@ -404,25 +423,26 @@ def levels_ledger_html(latest: Any, selected: str, names: dict | None = None, un
 # ----------------------------------------------------------------------------- market test
 
 def market_answer(study: Any, selected: str, benchmarks: Any) -> str:
-    """Answer "Would this rule have beaten the market?" from CAGR, compared at 0.1 percentage point."""
+    """Compare CAGR at 0.1 percentage point, without implying equal risk."""
     cagr = study.metrics.loc[selected, "cagr"]
     matched = _matched(benchmarks)
     if matched is None:
         return f"It {_growth(cagr)} a year."
+    comparison_note = " This compares compound growth (CAGR), without matching volatility."
     outcomes = {}
     for name, row in matched.backtest_metrics.iterrows():
         mine, theirs = round(cagr * 1000), round(row["cagr"] * 1000)
         outcomes[_market(name)] = "beat" if mine > theirs else "trailed" if mine < theirs else "matched"
     if len(outcomes) == 1:
         name, outcome = next(iter(outcomes.items()))
-        return f"It {outcome} the {name} in this test."
+        return f"It {outcome} the {name} in this test." + comparison_note
     if len(set(outcomes.values())) == 1:
         outcome = next(iter(outcomes.values()))
         return {"trailed": "No. It trailed both markets.", "beat": "Yes. It beat both markets in this test.",
-                "matched": "It matched both markets in this test."}[outcome]
+                "matched": "It matched both markets in this test."}[outcome] + comparison_note
     rank = {"beat": 0, "matched": 1, "trailed": 2}
     (better, first), (worse, second) = sorted(((outcome, name) for name, outcome in outcomes.items()), key=lambda item: rank[item[0]])
-    return f"Partly. It {better} the {first} but {worse} the {second}."
+    return f"Partly. It {better} the {first} but {worse} the {second}." + comparison_note
 
 
 def decision_panel_html(study: Any, selected: str, benchmarks: Any) -> str:
@@ -762,8 +782,9 @@ def stretch_table_html(evidence: Any, strategy: str) -> str:
         cells = []
         for row in windows.loc[windows["benchmark"] == market].itertuples():
             ahead = row.relative_return > 0
+            outcome = "ahead" if ahead else "behind" if row.relative_return < 0 else "level"
             cells.append(f'<td><i class="w-dot{" on" if ahead else ""}" aria-hidden="true"></i>{_pct(row.relative_return, plus=True)}'
-                         f'<small>{"ahead" if ahead else "behind"}</small></td>')
+                         f'<small>{outcome}</small></td>')
         body.append(f"<tr><td>{_e(_market(market))}</td>{''.join(cells)}</tr>")
     return f'<table class="pl-wtable"><thead><tr><th></th>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
 
@@ -850,6 +871,8 @@ def add_end_labels(figure: go.Figure, fmt: str) -> go.Figure:
         previous = position
         figure.add_annotation(text=f'<span style="color:{trace.line.color}">●</span> {fmt.format(value)}', xref="paper", x=1,
                               xanchor="left", xshift=6, yref="y", y=position, font={"size": 12, "color": INK_2}, showarrow=False)
+    if previous > high:
+        figure.update_yaxes(range=[low, previous + pad])
     return figure
 
 

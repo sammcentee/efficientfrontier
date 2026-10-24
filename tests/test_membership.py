@@ -43,6 +43,8 @@ def test_lookup_requires_unambiguous_calendar_dates(date):
     "", "date,tickers\n", "date,symbol\n2020-01-01,A\n", "date,tickers,extra\n2020-01-01,A,x\n",
     'date,tickers\n2020-01-01,"A,A"\n', 'date,tickers\n2020-01-01,"A, A"\n',
     'date,tickers\n2020-01-01,"A,"\n', "date,tickers\n2020-01-01,\n",
+    'date,tickers\n2020-01-01,"A,B"C\n',
+    "date,tickers\n2020-01-01\n", "date,tickers\n2020-01-01,A\n2020-01-02\n",
     "date,tickers\n2020-01-01,A\n2020-01-01,B\n",
     "date,tickers\n2020-01-02,A\n2020-01-01,B\n",
     "date,tickers\n2020-01-01,BAD SYMBOL\n", "date,tickers\n2020-01-01,=A\n",

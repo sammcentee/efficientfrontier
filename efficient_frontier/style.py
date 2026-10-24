@@ -80,6 +80,7 @@ APP_ONLY_CSS = """
 .stApp:has(.st-key-cancel_build) [data-testid="stPopover"],
 .stApp:has(.st-key-study_work) [data-testid="stPopover"]{opacity:.35;pointer-events:none}
 .st-key-tile_skeleton>:not(:first-child){display:none}
+.stApp:has(.st-key-cancel_build) :is(.st-key-edit_setup,.pl-context,.st-key-localnav){display:none!important}
 
 /* 3 Nav bar */
 .st-key-localnav,[data-testid="stLayoutWrapper"]:has(>.st-key-localnav){position:sticky;top:0;z-index:990}
@@ -89,7 +90,7 @@ APP_ONLY_CSS = """
  box-shadow:0 0 0 100vmax rgba(245,245,247,.8);clip-path:inset(0 -100vmax)}
 .st-key-localnav::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;z-index:-1;background:rgba(0,0,0,.08);
  box-shadow:0 0 0 100vmax rgba(0,0,0,.08);clip-path:inset(0 -100vmax)}
-.pl-wordmark{font:600 19px/1 var(--pl-display);letter-spacing:-.02em;white-space:nowrap;color:var(--pl-ink)}
+.pl-wordmark{font:600 19px/1.2 var(--pl-display);letter-spacing:-.02em;color:var(--pl-ink)}
 .st-key-view [data-testid="stButtonGroup"] [role="radiogroup"]{background:none;padding:0;gap:20px}
 .st-key-view [data-testid="stButtonGroup"] button[data-variant="segmented_control"]{background:none!important;border:0!important;box-shadow:none!important;
  min-height:32px;padding:0 2px;color:var(--pl-ink-3)}
@@ -104,6 +105,63 @@ APP_ONLY_CSS = """
 .pl-context{font-size:15px;color:var(--pl-ink-3)}
 .st-key-edit_setup button{border:1px solid var(--pl-hair)!important;background:#fff;min-height:30px;padding:2px 12px}
 .st-key-risk_profile{max-width:396px;margin:0 auto}
+
+/* Compact landing; result and work layouts keep their existing spacing. */
+.st-key-landing{gap:12px;padding:22px 0 20px;text-align:left}
+.st-key-landing .pl-display{margin:0;max-width:none;font-size:40px;line-height:44px;text-align:left}
+.st-key-landing .pl-method-title{display:block;margin-top:3px;font-size:21px;line-height:27px;font-weight:500;color:var(--pl-ink-2)}
+.st-key-landing [data-testid="stHorizontalBlock"]{gap:28px}
+.st-key-landing_math{gap:12px;min-width:0}
+.st-key-landing_estimates,.st-key-landing_optimization,.st-key-landing_growth{gap:8px;min-width:0}
+.st-key-landing_math [data-testid="stLayoutWrapper"]:has(.katex-display),
+.st-key-landing_math [data-testid="stElementContainer"]:has(.katex-display),
+.st-key-landing_math [data-testid="stMarkdown"]>div:has(.katex-display){width:100%!important;min-width:0}
+.st-key-landing_math [data-testid="stMarkdownContainer"]{margin:0}
+.st-key-landing_math [data-testid="stMarkdownContainer"] p{margin:0;font-size:16px;line-height:23px;color:var(--pl-ink-2)}
+.st-key-landing_math [data-testid="stMarkdownContainer"] p .katex{font-size:1em;font-weight:700}
+.st-key-landing_math [data-testid="stMarkdownContainer"]:has(.katex-display){width:100%;box-sizing:border-box;padding:10px 14px;
+ border:1px solid var(--pl-hair-soft);border-radius:12px;background:var(--pl-tile);overflow-x:auto;max-width:100%;color:var(--pl-ink)}
+.st-key-landing_math .katex-display{margin:0;padding:2px 0;overflow:visible}
+.st-key-landing_math .katex{font-size:1.05em;letter-spacing:normal}
+.st-key-landing_controls{gap:14px;padding:18px 20px;border:1px solid var(--pl-hair-soft);border-radius:16px;background:var(--pl-tile)}
+.st-key-landing_controls [data-testid="stWidgetLabel"] p{font-size:15px;font-weight:500;line-height:21px}
+.st-key-landing_controls [data-testid="stCaptionContainer"] p{margin:0;font-size:14px;line-height:20px;color:var(--pl-ink-3)}
+.st-key-preview_target_vol,.st-key-preview_cap{max-width:220px}
+.st-key-preview_target_vol [data-testid="stNumberInputContainer"],.st-key-preview_cap [data-testid="stNumberInputContainer"]{max-width:200px;min-height:44px;
+ position:relative;border:1px solid var(--pl-hair);border-radius:10px;background:var(--pl-fill)}
+:is(.st-key-preview_target_vol,.st-key-preview_cap,.st-key-target_vol,.st-key-cap) [data-testid="stNumberInputContainer"]::after{
+ content:"%";position:absolute;right:68px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:14px;line-height:20px;color:var(--pl-ink-3)}
+.st-key-preview_target_vol input,.st-key-preview_cap input{background:transparent;font-size:20px;font-weight:600;
+ padding-right:32px;font-variant-numeric:tabular-nums;color:var(--pl-ink)}
+.st-key-preview_cap{margin-top:8px}
+.st-key-target_vol [data-testid="stNumberInputContainer"],.st-key-cap [data-testid="stNumberInputContainer"]{position:relative}
+.st-key-target_vol input,.st-key-cap input{padding-right:32px}
+:is(.st-key-preview_target_vol,.st-key-preview_cap,.st-key-target_vol,.st-key-cap) [data-testid="stNumberInput"] button{
+ min-width:28px;width:28px;padding:0;border:0;background:transparent;color:var(--pl-ink-3)}
+.st-key-preview_target_vol [data-testid="stNumberInput"] button:hover,.st-key-preview_cap [data-testid="stNumberInput"] button:hover{
+ background:var(--pl-hair-soft);color:var(--pl-ink)}
+.st-key-landing ol.pl-preview{gap:24px;margin:0;padding:14px 0 0}
+.st-key-landing .pl-preview li{font-size:15px;line-height:21px}
+.st-key-landing .pl-preview li::before{margin-bottom:3px;font-size:12px;line-height:16px}
+.st-key-landing .pl-preview span{margin-top:3px;font-size:14px;line-height:20px}
+.st-key-landing_actions{gap:12px;align-items:center;padding-top:2px}
+.st-key-landing_actions .st-key-edit_setup button{min-height:44px;padding:0 12px;border-color:transparent!important;background:transparent}
+/* T3 ultrathink spectrum, kept inside a rounded outline around the dark action. */
+.st-key-build button{position:relative;isolation:isolate;border:0!important;border-radius:14px;background:var(--pl-ink);color:#fff}
+.st-key-build button::before{content:"";position:absolute;inset:0;padding:2px;border-radius:inherit;pointer-events:none;
+ background:linear-gradient(120deg,#ff6b6b 0%,#f59e0b 18%,#22c55e 36%,#14b8a6 54%,#3b82f6 72%,#ec4899 90%,#ff6b6b 100%);
+ background-size:100% 100%;filter:saturate(.82) brightness(.92);
+ -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.st-key-build button:disabled::before{opacity:.45}
+@media (max-width:640px){
+ .st-key-landing{padding:22px 0 12px;gap:14px}
+ .st-key-landing .pl-display{font-size:34px;line-height:38px}
+ .st-key-landing .pl-method-title{font-size:18px;line-height:24px}
+ .st-key-landing [data-testid="stHorizontalBlock"]{gap:16px}
+ .st-key-landing_math .katex{font-size:.96em}
+ .st-key-landing_controls{padding:16px}
+ .st-key-landing ol.pl-preview{gap:12px}
+}
 
 /* 5 Segmented controls */
 [data-testid="stButtonGroup"] [role="radiogroup"]{background:var(--pl-track);border-radius:9px;padding:2px;gap:0}
@@ -124,6 +182,18 @@ APP_ONLY_CSS = """
  [class*="st-key-tile_"]:not(.st-key-tile_holdings){animation:pl-rise linear both;animation-timeline:view();animation-range:entry 0% entry 160px}}}
 @keyframes pl-rise{from{opacity:0;transform:translateY(28px)}}
 
+/* Lead with the observed result, then its explanation. */
+.st-key-tile_final_test{padding:24px 28px!important;animation:none!important}
+.st-key-tile_final_test .pl-stats{margin:4px 0}
+.st-key-tile_final_test .pl-num{font-size:32px;line-height:36px}
+.pl-replay-findings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px}
+.pl-replay-findings p{margin:0;font-size:15px;line-height:22px;color:var(--pl-ink-2)}
+@media(max-width:640px){
+ .st-key-tile_final_test{padding:20px 16px!important}
+ .st-key-tile_final_test .pl-num{font-size:24px;line-height:28px}
+ .pl-replay-findings{grid-template-columns:1fr}
+}
+
 /* 7 Expanders as disclosure rows (1.65: details > summary > span > [icon span, label div]) */
 [data-testid="stExpander"] details{border:0;border-top:1px solid var(--pl-hair-soft);border-radius:0;background:transparent}
 [data-testid="stExpander"] summary{padding:18px 0}
@@ -134,6 +204,53 @@ APP_ONLY_CSS = """
 [data-testid="stExpander"] summary span:has(>[data-testid="stIconMaterial"]){display:grid;place-items:center;flex:none;width:28px;height:28px;
  border-radius:50%;background:var(--pl-fill)}
 [data-testid="stExpanderDetails"]{padding:0 0 16px;color:var(--pl-ink-2)}
+/* Mathematical definitions use Streamlit's local KaTeX renderer. */
+[class*="st-key-math_"]{gap:18px;padding-top:8px;max-width:780px;margin-inline:auto}
+[class*="st-key-math_"] [data-testid="stMarkdownContainer"] p{font-size:15px;line-height:1.65}
+[class*="st-key-math_"] [data-testid="stMarkdownContainer"] strong{font-size:16px;color:var(--pl-ink)}
+[class*="st-key-math_"] [data-testid="stMarkdownContainer"]:has(.katex-display){background:var(--pl-canvas);border-radius:14px;
+ padding:18px 20px;overflow-x:auto;max-width:100%;color:var(--pl-ink)}
+[class*="st-key-math_"] .katex-display{margin:0;padding:4px 0}
+[class*="st-key-math_"] .katex{font-size:1.15em;letter-spacing:normal}
+[class*="st-key-math_"] [data-testid="stCaptionContainer"] p{font-size:13px;line-height:1.6;color:var(--pl-ink-3)}
+.st-key-tile_out_of_sample .pl-num{font-size:32px;line-height:36px;white-space:nowrap}
+@media(max-width:640px){
+ .st-key-tile_out_of_sample .pl-stats>.pl-stat{padding:0 10px}
+ .st-key-tile_out_of_sample .pl-stats>.pl-stat:first-child{padding-left:0}
+ .st-key-tile_out_of_sample .pl-num{font-size:20px;line-height:26px}
+}
+.st-key-tile_out_of_sample .pl-oos-title{margin:0;font:650 clamp(24px,3vw,32px)/1.15 var(--pl-display);letter-spacing:-.025em}
+.st-key-math_out_of_sample{margin-top:12px;padding-top:24px;border-top:1px solid var(--pl-hair-soft);min-width:0}
+.st-key-math_diagnosis{margin-top:12px;padding-top:24px;border-top:1px solid var(--pl-hair-soft);min-width:0}
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) [data-testid="stLayoutWrapper"]:has(.katex-display),
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) [data-testid="stElementContainer"]:has(.katex-display),
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) [data-testid="stMarkdown"]>div:has(.katex-display){width:100%!important;min-width:0}
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) [data-testid="stMarkdownContainer"]{margin:0}
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) [data-testid="stMarkdownContainer"] p{font-size:16px;line-height:1.6}
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) [data-testid="stMarkdownContainer"] p .katex{font-size:1em}
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) [data-testid="stMarkdownContainer"]:has(.katex-display){width:100%;box-sizing:border-box}
+:is(.st-key-math_diagnosis,.st-key-math_out_of_sample) .katex-display{overflow:visible}
+.pl-date-windows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;
+ padding:18px 0;border-block:1px solid var(--pl-hair-soft)}
+.pl-date-windows article+article{border-left:1px solid var(--pl-hair-soft);padding-left:22px}
+.pl-date-windows h3{margin:0 0 8px;font-size:15px;font-weight:600;line-height:21px}
+.pl-date-windows p{margin:0 0 6px;font-size:15px;line-height:22px;color:var(--pl-ink)}
+.pl-date-windows span{font-size:14px;line-height:20px;color:var(--pl-ink-3)}
+.pl-holdings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pl-holding{padding:18px 20px;border:1px solid var(--pl-hair-soft);border-radius:16px;min-width:0}
+.pl-holding-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.pl-holding h4{margin:0;font:600 18px/24px var(--pl-font);color:var(--pl-ink);overflow-wrap:anywhere}
+.pl-holding h4 a{color:inherit;text-decoration:none}
+.pl-holding h4 a:hover{color:var(--pl-accent);text-decoration:underline}
+.pl-holding-symbol{display:block;margin-top:3px;font-size:13px;line-height:18px;color:var(--pl-ink-3)}
+.pl-holding-weight{font:600 21px/26px var(--pl-font);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pl-holding p{margin:10px 0 0;font-size:15px;line-height:22px;color:var(--pl-ink-2);overflow-wrap:anywhere}
+@media(max-width:640px){
+ .pl-date-windows{grid-template-columns:1fr;gap:14px;padding:14px 0}
+ .pl-date-windows article+article{border-left:0;border-top:1px solid var(--pl-hair-soft);padding:14px 0 0}
+ .pl-holdings-grid{grid-template-columns:1fr}
+ .pl-holding{padding:16px}
+}
 
 /* 8 Buttons, inputs, alerts, tables, captions */
 button[data-testid="stBaseButton-primary"]{background:var(--pl-ink);border-color:var(--pl-ink)}
@@ -143,11 +260,11 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
 .st-key-build button p,.st-key-fix_setup button p{font-size:17px;font-weight:500}
 [data-testid="stAlertContainer"]{border-radius:16px}
 [data-testid="stDataFrame"]{border-radius:12px;overflow:hidden}
-.st-key-tile_fitted_estimates .scroll{overflow-x:auto}
-.st-key-tile_fitted_estimates table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
-.st-key-tile_fitted_estimates th,.st-key-tile_fitted_estimates td{padding:10px 12px;border-bottom:1px solid var(--pl-hair-soft);text-align:right}
-.st-key-tile_fitted_estimates thead th{background:var(--pl-canvas);font-weight:500;color:var(--pl-ink-3)}
-.st-key-tile_fitted_estimates tbody th{text-align:left;font-weight:500}
+.st-key-tile_fitted_frontier .scroll{overflow-x:auto}
+.st-key-tile_fitted_frontier table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.st-key-tile_fitted_frontier th,.st-key-tile_fitted_frontier td{padding:10px 12px;border-bottom:1px solid var(--pl-hair-soft);text-align:right}
+.st-key-tile_fitted_frontier thead th{background:var(--pl-canvas);font-weight:500;color:var(--pl-ink-3)}
+.st-key-tile_fitted_frontier tbody th{text-align:left;font-weight:500}
 [data-testid="stCaptionContainer"]{color:var(--pl-ink-3);opacity:1}
 .st-key-mustread [data-testid="stCaptionContainer"]{font-size:17px;line-height:1.47;color:var(--pl-ink)}
 /* Rule labels are long. The default chip limit cut "Refit on all past prices · Medium" by a few pixels on a phone. */
@@ -192,7 +309,7 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
  [data-testid="stMainBlockContainer"]{padding:0 16px 48px}
  .st-key-hero{padding:36px 0 32px}
  .pl-wordmark{font-size:17px}
- .st-key-localnav{min-height:48px}
+ .st-key-localnav{min-height:48px;gap:8px!important}
  .st-key-view [data-testid="stButtonGroup"] [role="radiogroup"]{gap:14px}
  .st-key-export [data-testid="stMarkdownContainer"]{display:none}
  .st-key-export button{width:36px;min-width:36px;height:36px;min-height:36px;padding:0;justify-content:center}
@@ -203,6 +320,9 @@ button[data-testid="stBaseButton-tertiary"]{color:var(--pl-ink)}
  [data-testid="stDialog"] [role="dialog"]{border-radius:24px 24px 0 0}
  [data-testid="stExpander"] summary .stMarkdownColoredText{display:block;margin:2px 0 0;font-size:13px;line-height:18px}
  .st-key-tile_r_classic .textpoint{display:none}
+ [class*="st-key-math_"]{gap:14px}
+ [class*="st-key-math_"] [data-testid="stMarkdownContainer"]:has(.katex-display){padding:14px 10px;border-radius:10px}
+ [class*="st-key-math_"] .katex{font-size:1em}
 }
 """
 
@@ -274,6 +394,17 @@ ul.pl-list{list-style:none;margin:0;padding:0}
 .pl-ldot{display:inline-block;width:10px;height:10px;margin-right:10px;border-radius:50%}
 
 /* Result tile */
+.pl-fit-replay{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin:24px 0}
+.pl-fit-replay article{min-width:0;padding:0 0 0 24px;border-left:1px solid var(--pl-hair)}
+.pl-fit-replay article:first-child{padding:0;border:0}
+.pl-fit-replay h3{margin:0 0 8px;font-size:19px;line-height:25px}
+.pl-fit-replay p{margin:10px 0 0;font-size:14px;line-height:21px}
+.pl-fit-replay .pl-fit-dates{color:var(--pl-ink-3);font-variant-numeric:tabular-nums}
+.pl-fit-replay dl{margin:20px 0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;align-items:baseline}
+.pl-fit-replay dt{font-size:14px;line-height:20px;color:var(--pl-ink-2)}
+.pl-fit-replay dd{margin:0;font-size:22px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums}
+.pl-replay-verdict{padding:16px 20px;border-left:3px solid var(--pl-ink);background:var(--pl-fill);font-size:16px;line-height:25px}
+@media(max-width:640px){.pl-fit-replay{grid-template-columns:1fr}.pl-fit-replay article{padding:20px 0 0;border-left:0;border-top:1px solid var(--pl-hair)}}
 .pl-kicker{display:block;margin:0 0 18px;font:500 13px/18px var(--pl-font);letter-spacing:.01em;color:var(--pl-ink-3)}
 .pl-bignums{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)}
 .pl-bignum{min-width:0;padding:0 28px;border-left:1px solid var(--pl-hair-soft)}

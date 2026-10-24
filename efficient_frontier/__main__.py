@@ -20,7 +20,7 @@ from .historical_report import build_historical_report, historical_report_zip
 from .membership import bundled_membership, load_membership_csv
 from .presentation import report_zip
 from .profiles import build_profiles
-from .selection import run_selection
+from .selection import run_selection, split_stock_prices, validate_selection_benchmarks
 from .selection_report import selection_metrics_frame, selection_report_zip
 from .universe import download_universe_prices, fetch_nasdaq100, fetch_sp500_nasdaq100
 
@@ -43,7 +43,10 @@ def write_report_bundle(bundle, output):
                                "benchmark_backtest_metrics.csv", "benchmark_backtest_curve.csv",
                                "evidence_summary.csv", "evidence_windows.csv", "evidence_relative_curve.csv",
                                "universe_coverage.csv", "policy.json", "latest_weights.csv", "latest_estimates.csv",
-                               "eligibility.csv")]
+                               "fit_estimates.csv", "eligibility.csv", "latest/frontier.csv",
+                               "latest/frontier_weights.csv", "latest/fitted_comparison.csv",
+                               "out_of_sample/windows.csv", "out_of_sample/metrics.csv", "out_of_sample/weights.csv",
+                               "out_of_sample/eligibility.csv")]
         for kind in ("holdings", "allocations", "trades"):
             previous_backtests.extend((output / "backtests").glob(f"[0-9][0-9]_{kind}.csv"))
             for phase in ("validation", "test"):
@@ -103,7 +106,9 @@ def historical_cli(args, settings):
 def selection_cli(args, settings):
     """Run the separate risk-target selection and retain every reproducible result."""
     if args.rolling_window is not None:
-        raise ValueError("--target-volatility uses expanding past-only fits; omit --rolling-window.")
+        raise ValueError("--target-volatility buys once and holds; omit --rolling-window.")
+    if args.rebalance_every is not None:
+        raise ValueError("--target-volatility buys once and holds; omit --rebalance-every. That option applies to legacy backtests only.")
     synthetic = not (args.csv is not None or args.tickers is not None or args.original_holdings
                      or args.nasdaq100 or args.sp500_nasdaq100)
     if synthetic and (args.benchmark_csv is not None or args.download_benchmarks):
@@ -122,10 +127,14 @@ def selection_cli(args, settings):
         source = "Yahoo Finance"
     else:
         prices, source = demo_prices(), "Demo · synthetic"
+    prices, embedded_benchmarks = split_stock_prices(prices)
     currency = args.currency.strip().upper()
     metadata = dict(universe_prices.metadata) if universe_prices is not None else {}
     metadata.update(source=source, price_currency=currency,
                     currency_assumption=f"All prices are declared in {currency}. No currency conversion occurs.")
+    if embedded_benchmarks is not None:
+        metadata["excluded_candidate_symbols"] = list(embedded_benchmarks.columns)
+        metadata["candidate_note"] = "Comparison ETFs excluded from candidate holdings: " + ", ".join(embedded_benchmarks.columns) + "."
     if universe_prices is not None:
         metadata["universe_coverage"] = universe_prices.coverage.to_dict(orient="records")
     if universe_prices is not None or source == "Yahoo Finance":
@@ -142,39 +151,41 @@ def selection_cli(args, settings):
             if args.benchmark_csv is not None:
                 benchmark_prices = load_csv(args.benchmark_csv)
                 metadata["benchmark_source"] = "CSV: " + args.benchmark_csv.name
+            elif embedded_benchmarks is not None:
+                benchmark_prices = embedded_benchmarks
+                metadata["benchmark_source"] = "Input columns: " + ", ".join(embedded_benchmarks.columns)
             elif args.download_benchmarks:
                 benchmark_prices = download_benchmarks(prices.index)
                 metadata["benchmark_source"] = "Yahoo Finance"
             elif universe_prices is not None:
                 benchmark_prices = universe_prices.benchmarks
                 metadata["benchmark_source"] = "Yahoo Finance · universe download"
-            elif set(BENCHMARK_SYMBOLS).issubset(prices.columns):
-                benchmark_prices = prices.loc[:, list(BENCHMARK_SYMBOLS)]
-                metadata["benchmark_source"] = "Asset columns: SPY, QQQ"
             elif source == "Yahoo Finance":
                 benchmark_prices = download_benchmarks(prices.index)
                 metadata["benchmark_source"] = "Yahoo Finance"
             else:
                 metadata["benchmarks_note"] = "CSV analysis stays offline. Supply --benchmark-csv to establish ETF comparisons."
             if benchmark_prices is not None:
-                benchmark_prices = validate_benchmark_prices(benchmark_prices, prices.index)
+                benchmark_prices = validate_selection_benchmarks(benchmark_prices, prices.index)
         except (ValueError, RuntimeError, OSError) as exc:
             benchmark_prices = None
             metadata["benchmarks_note"] = f"Market benchmarks are unavailable: {exc}"
     study = run_selection(prices, benchmark_prices, target_volatility=args.target_volatility, **settings,
-                          rebalance_every=args.rebalance_every, cost_bps=args.cost_bps)
+                          cost_bps=args.cost_bps)
     export_directory = args.output.resolve()
     reproduce = ["python", "-m", "efficient_frontier", "--csv", str(export_directory / "prices.csv"),
                  "--target-volatility", str(args.target_volatility)]
     for key in ("train_fraction", "risk_free_rate", "max_weight", "shrinkage", "periods_per_year"):
         reproduce.extend(["--" + key.replace("_", "-"), str(settings[key])])
-    reproduce.extend(["--rebalance-every", str(args.rebalance_every), "--cost-bps", str(args.cost_bps), "--currency", currency])
+    reproduce.extend(["--cost-bps", str(args.cost_bps), "--currency", currency])
     reproduce.extend(["--benchmark-csv", str(export_directory / "benchmark_prices.csv")] if benchmark_prices is not None else ["--no-benchmarks"])
     reproduce.extend(["--output", str(export_directory / "reproduced")])
     metadata["reproduce_command"] = shlex.join(reproduce)
     metadata["reproduce_note"] = "Run from the project checkout with the same dependencies. Update file paths if the export folder moves."
     write_report_bundle(selection_report_zip(study, prices, metadata), args.output)
     print(f"Source: {source}")
+    if "candidate_note" in metadata:
+        print(f"Note: {metadata['candidate_note']}")
     print(f"Annual volatility target: {args.target_volatility:.1%}; holding cap: {settings['max_weight']:.1%}")
     print("One rule: maximize historical mean return within the volatility budget and holding limit.")
     print("Historical checks passed." if study.supported else "Historical checks did not pass.")
@@ -182,7 +193,7 @@ def selection_cli(args, settings):
         print(f"Note: {note}")
     if "benchmarks_note" in metadata:
         print(f"Note: {metadata['benchmarks_note']}")
-    print("\nLater historical test (one fixed rule):")
+    print("\nHistorical replay (buy once and hold):")
     print(selection_metrics_frame(study.test).round(4).to_string())
     print("Earlier research on these dates can introduce hindsight. A historical test alone is not unseen prospective evidence.")
     print(f"Report: {(args.output / 'report.html').resolve()}")
@@ -203,7 +214,7 @@ def main():
     membership_sources.add_argument("--historical-demo", action="store_true", help="Offline synthetic study with changing membership and sparse price history")
     parser.add_argument("--membership-end", help="Final covered date for a custom membership CSV, YYYY-MM-DD")
     benchmark_sources = parser.add_mutually_exclusive_group()
-    benchmark_sources.add_argument("--benchmark-csv", type=Path, help="Offline USD benchmark prices: Date,SPY,QQQ; must cover every asset date")
+    benchmark_sources.add_argument("--benchmark-csv", type=Path, help="Offline USD benchmark prices: Date,SPY,QQQ on exactly the asset dates; --target-volatility also accepts one ETF")
     benchmark_sources.add_argument("--download-benchmarks", action="store_true", help="Download SPY and QQQ from Yahoo, including for CSV portfolios; unavailable for synthetic demo data")
     benchmark_sources.add_argument("--no-benchmarks", action="store_true", help="Skip market benchmark comparisons")
     parser.add_argument("--currency", default="USD", help="Declare the common asset-price currency; default USD. Benchmarks require USD. No currency conversion.")
@@ -215,18 +226,22 @@ def main():
                         help="Per-asset cap as a decimal; default .10 with --target-volatility, otherwise 1 (no additional cap)")
     parser.add_argument("--target-volatility", type=float,
                         help="Run single-portfolio selection with an annual volatility target as a decimal, e.g. .20 for 20 percent; omit a source flag to use the offline demo")
-    parser.add_argument("--shrinkage", type=float, default=.1,
-                        help="Covariance shrinkage toward zero correlations: 0 uses sample covariance; 1 keeps only individual variances")
+    parser.add_argument("--shrinkage", type=float,
+                        help="Covariance shrinkage toward zero correlations: 0 uses sample covariance; 1 keeps only individual variances. Default 0 with --target-volatility, otherwise .1")
     parser.add_argument("--periods-per-year", type=float, default=252,
                         help="Observations per year: 252 trading days, 365 calendar days, 52 weeks, or 12 months; no resampling")
     parser.add_argument("--backtests", action="store_true", help="Compare buy-and-hold, fixed rebalancing, expanding and rolling windows")
-    parser.add_argument("--rebalance-every", type=int, default=21, help="Backtest trading interval in observations (not calendar months)")
+    parser.add_argument("--rebalance-every", type=int, help="Legacy backtest trading interval in observations; default 21. Not used by the buy-and-hold stock model")
     parser.add_argument("--rolling-window", type=int, help="Rolling estimation returns; default is 126 for historical membership, otherwise the initial training length")
     parser.add_argument("--cost-bps", type=float, default=10., help="Backtest fee per unit of bought or sold notional, in basis points")
     parser.add_argument("--output", type=Path, default=Path("results/latest"))
     args = parser.parse_args()
+    if args.target_volatility is None and args.rebalance_every is None:
+        args.rebalance_every = 21
     if args.max_weight is None:
         args.max_weight = .1 if args.target_volatility is not None else 1.0
+    if args.shrinkage is None:
+        args.shrinkage = 0.0 if args.target_volatility is not None else .1
     settings = {key: getattr(args, key) for key in ("train_fraction", "risk_free_rate", "max_weight", "shrinkage", "periods_per_year")}
     try:
         currency = args.currency.strip().upper()

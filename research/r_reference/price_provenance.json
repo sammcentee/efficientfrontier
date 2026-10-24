@@ -1,0 +1,26 @@
+{
+  "provider": "Yahoo Finance through yfinance auto_adjust=True",
+  "requested_start": "2020-01-01",
+  "requested_end_exclusive": "2024-01-01",
+  "first_date": "2020-01-02",
+  "last_date": "2023-12-29",
+  "rows": 1006,
+  "original_count": 60,
+  "complete_count": 60,
+  "exclusions": [],
+  "symbol_changes": [
+    {
+      "original_symbol": "MMC",
+      "download_symbol": "MRSH",
+      "complete": true,
+      "missing_prices": 0
+    }
+  ],
+  "purpose": "Reconstruct archived R input dates. Prices downloaded now can differ from 2024 vendor history. Static stock list and complete-history screen retain survivor bias. No independent future test.",
+  "hashes": {
+    "coverage.csv": "1a74a12aa195a012f7345a5b560bdb3a796d62542df97721d304969b5287c5c3",
+    "benchmark_prices.csv": "8aa9152c01ebffb3f0aaa24239fece3fdbfc8f4826ebc7e38a7360799bb698a6",
+    "prices.csv": "5a3a867f403b71cc86f94a2e778a20debb4ef357d1555cf3aae4f4fd1b130d3f",
+    "raw_adjusted_prices.csv": "19abc45f39bb49849c0335e82513e96a979dca17ea4b6cbf8e1322ead699ca08"
+  }
+}

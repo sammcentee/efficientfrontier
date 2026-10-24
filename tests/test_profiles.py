@@ -278,3 +278,17 @@ def test_profiles_reject_missing_prices_without_filling_them():
 def test_profiles_reject_dates_out_of_order():
     with pytest.raises(ValueError, match="increasing"):
         build_profiles(regime_prices().iloc[::-1])
+
+
+@pytest.mark.parametrize("return_scale", [1, 1e-6])
+def test_worst_window_low_uses_best_return_among_identical_risk_allocations(return_scale):
+    noise = np.tile([-.01, .01, -.01, .01], 6)
+    independent = np.tile([-.015, -.015, .015, .015], 6)
+    values = np.column_stack([.001 + noise, .002 + noise, .003 + independent]) * return_scale
+    result = build_profiles(prices_from_returns(values, ["A", "B", "C"]), shrinkage=0,
+                            periods_per_year=12, frontier_points=5, return_objective="worst_window")
+    # A and B have the same covariance. B has a higher mean in all three windows.
+    np.testing.assert_allclose(result.portfolios["Low"].weights, [0, 9 / 13, 4 / 13], atol=3e-7)
+    np.testing.assert_allclose(result.frontier_weights.A, 0, atol=2e-6)
+    assert (np.diff(result.frontier.worst_window_return) > 0).all()
+    assert (np.diff(result.frontier.volatility) > 0).all()

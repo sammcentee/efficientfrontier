@@ -1,6 +1,6 @@
-# Portfolio Lab user guide
+# Efficient Frontier Analysis for US Equities user guide
 
-Start with the [README quick start](../README.md#start-here-no-coding-needed). This guide covers setup details, input rules, and command-line reports. The [backtest guide](BACKTESTING.md) defines the model and accounting.
+Start with the [README quick start](../README.md#setup). This guide covers setup details, input rules, and command-line reports. The [backtest guide](BACKTESTING.md) defines the model and accounting.
 
 ## Setup and troubleshooting
 
@@ -38,31 +38,58 @@ The synthetic demo and CSV analysis work offline after setup. Yahoo prices and t
 
 ## Settings and workflow
 
-Choose the stocks, price history, and **Annual volatility budget (%)** before **Build portfolio**. The default universe combines SPY stock holdings and Nasdaq-100 stocks. **Change** contains the holding limit. **Data options** contains the price frequency for CSV data.
+The **Efficient Frontier Analysis for US Equities** opening page introduces the model with typeset equations. Two compact number fields set **Annual volatility budget** and **Holding limit**. The **Settings** button opens the stock source, price history, and data options. Select **Demo** there for synthetic prices.
+
+The default universe combines SPY stock holdings and Nasdaq-100 stocks. Select **Build portfolio** to download the stock prices and run the model. During calculation, the app shows progress and **Cancel**. **Settings** returns in the results navigation.
 
 | Setting | Effect |
 | --- | --- |
-| Annual volatility budget (%) | Limits fitted annual volatility. Future volatility and losses can exceed it. |
-| Largest holding allowed (%) | Caps each stock target. A 10% limit needs at least ten eligible stocks. Prices can move actual weights above this limit. |
+| Annual volatility budget | Limits fitted annual volatility. Future volatility and losses can exceed it. |
+| Holding limit | Caps each stock target. A 10% limit needs at least ten eligible stocks. Prices can move actual weights above this limit. |
 | Price frequency | Sets annualization for a CSV. It does not resample prices. |
 | Price currency | Declares the common currency. The app does not check or convert currencies. ETF comparisons require USD prices. |
 
+The initial volatility budget uses QQQ's adjusted daily returns over the latest trailing year:
+
+```text
+QQQ reference volatility = sqrt(252) × sample_standard_deviation(daily returns)
+```
+
+The app shows the reference's final price date. This one-year reference does not depend on the stock model's default five-year fit window. Opening the online app fetches the reference through a cache. It does not download the full stock universe until **Build portfolio**. A manual budget edit remains in place. This current reference sets a scenario budget; it does not reproduce a risk target known at the historical entry date.
+
+If QQQ data is unavailable, the app labels a 20% manual fallback. That fallback is not a current QQQ estimate. The CLI continues to use the volatility budget supplied with `--target-volatility`.
+
 The default stock holding limit is 10%. The six-asset synthetic demo explicitly uses 20%. Small custom universes can require a larger limit. Change it before the calculation. The app does not relax it automatically.
 
-The model maximizes historical arithmetic mean return within the volatility budget and holding limit. Stock weights are long-only and sum to one. There is one model rule throughout the study.
+The model maximizes historical arithmetic mean return within the volatility budget and holding limit. Stock weights are long-only and sum to one.
 
-## Fitted estimates and later results
+## Latest fit and historical replay
+
+Overview starts with the latest fitted holdings, then their mean–variance frontier, then an in-sample and out-of-sample comparison. Each holding shows its company name, weight, ticker, and a short business description when available. These descriptions come from current Yahoo Finance profiles; they are not historical records. CSV and demo studies stay offline and clearly label missing or simulated company information. The full weights remain available below the cards.
+
+The comparison uses five walk-forward tests. The first fit uses the first 50% of returns. The remaining returns form five consecutive test windows of nearly equal length. Each window fits the model on all earlier stock prices only. It buys once at the next close and holds through that window, with no later trades. The in-sample result buys the same allocation and holds it over its own fit dates. Both sides use the same holding rule. Both are measured from the purchase close, so the one cash interval and the entry fee do not weigh more on the short test window.
+
+The section shows the average annual mean on each side and one chart row for each window. A table gives the stock portfolio and equal-weight stocks on both sides of each window. An expander gives every path, with annual mean and volatility. SPY, QQQ, and equal-weight stocks use the same dates as the stock portfolio. Equal-weight stocks use no return estimates, so their change between the two sides is a rough market control. Their holdings differ from the stock portfolio, so the control is approximate.
+
+In-sample results tend to look better. The optimizer favors stocks with high past means, within the volatility budget and holding limit, and part of each past mean is chance. The default volatility budget uses QQQ's latest year, which ends after the walk-forward fits. The section says so when that default applies. A window with an infeasible fit keeps its dates and the reason. Histories shorter than 29 returns cannot form five windows, and the section says so. The buy-and-hold growth chart, replay metrics, and exact return reconciliation follow.
+
+The date summary above the chart separates the initial fit (first 70% of returns), replay (final 30%), and latest frontier (all returns). These are observation counts, not fixed calendar periods. Five years of daily prices gives roughly three and a half years for the initial fit and eighteen months for the replay. Annualized metrics describe units, not a one-year test. Each run shows its actual return dates.
 
 The efficient frontier depends on the return estimates, covariance estimates, and allowed holdings. The optimizer finds the highest fitted mean within your limits. It does not maximize CAGR or the return-to-volatility ratio. It cannot ensure that the chosen stocks will have the highest later return.
 
 | Number | What it measures |
 | --- | --- |
 | Fitted annual mean | Average return in the fitting sample, using that fit's target weights, before fees. |
-| Model volatility | Risk calculated from the same fitting sample with the model's covariance adjustment. This is the number your budget limits. |
-| Historical volatility | Ordinary sample volatility of those same weighted returns, without the covariance adjustment. |
-| Later test mean and volatility | Actual results in the historical replay, after fees, with holdings that change at each scheduled trade. |
+| Fitted volatility | Sample volatility from the same fitting dates and target weights. The budget limits this estimate. |
+| Fitted frontier | Feasible stock portfolios with the highest estimated return at each risk level. |
+| Replay mean and volatility | Net results after one initial purchase, with no further trades and weights that drift with prices. |
+| In-sample and out-of-sample means | Annual means of one walk-forward allocation while held, from the purchase close, on its fit dates and on its later test window. |
 
-The app shows the first and latest fitted estimates separately from the later test. The latest holdings use all supplied history. They did not produce the earlier test path. **Data & method → Estimates at every fit** shows every intermediate fit.
+**The latest fit includes the replay dates. The replay did not use the latest holdings.** The comparison below the replay shows the two calculations side by side. **Latest fitted frontier · in-sample** uses one allocation chosen from the full history. **Historical replay · buy and hold** buys one allocation from the initial training sample and holds it through the later prices. Both panels report an annual arithmetic mean, but they use different dates, weights, and fee treatment.
+
+SPY and QQQ use the same dates as the stocks within each panel. Their results also change between panels because the date ranges differ. They do not enter the stock allocations. **Data & method** shows the initial and latest fitted estimates. These are two separate allocations, not a sequence of replay trades.
+
+Inline typeset equations show the optimization constraints, volatility estimate, buy-and-hold value path, and metric definitions. The fitted mean and volatility use the same fixed target weights for every observation in the estimation sample. They describe the starting allocation. A buy-and-hold path instead has weights that drift, even before differences in dates and fees.
 
 If QQQ earns more with less volatility in the later test, it beat the portfolio rule on those dates. That is a real weakness in the test result. It does not show that the optimizer failed to maximize the earlier estimates. A mathematically optimal fit can still be a poor investment rule when those estimates do not persist.
 
@@ -71,29 +98,52 @@ If QQQ earns more with less volatility in the later test, it beat the portfolio 
 The app fixes the other assumptions:
 
 - Use the first 70% of return observations for the initial fit and the final 30% for the later test.
-- Refit with all available earlier returns every 21 observations, approximately monthly for daily market data.
-- Charge 10 basis points, or 0.10%, on each amount bought or sold.
-- Apply 10% covariance shrinkage. This reduces estimated cross-asset covariances and preserves each asset's variance.
+- Fit once on the initial training sample. Buy once, then hold without rebalancing.
+- For the walk-forward tests, fit separately on the first 50%, 60%, 70%, 80%, and 90% of returns. Hold each allocation through the next tenth of the history only.
+- Charge 10 basis points, or 0.10%, on the initial purchase. Do not charge a terminal sale.
+- Use ordinary sample covariance, without shrinkage.
 
-Each fit uses prices through the close before execution. The first test interval stays in cash. Later trades refit the same rule with the new history. The test cannot select a different model.
+The initial fit uses prices through the close before execution. The first test interval stays in cash. The portfolio buys at that interval's close and earns returns from the next interval. It does not reset weights, add stocks, or sell stocks during the replay. The latest full-history fit remains separate.
 
-The result status checks the model's later performance. A pass needs both ETF references, at least one year of later returns, and realized volatility within the budget. A pass also requires that no reference has higher net CAGR with no more volatility. These are descriptive checks, not statistical proof. A failed check keeps the latest holdings collapsed with an explanation.
-
-**Latest fitted holdings** use all supplied prices. They can differ from the holdings during the test. Asset profit contributions sum to return before fees. Subtract fees to obtain net total return.
+The result status checks the model's later performance. A pass needs both ETF references, at least one year of later returns, and realized volatility within the budget. A pass also requires that no reference has higher net CAGR with no more volatility. These are descriptive checks, not statistical proof. The latest holdings remain visible regardless of the replay result.
 
 **Annual mean** averages the net test returns and scales that average to a year. **CAGR** compounds the same returns. A 50% gain followed by a 50% loss has a zero arithmetic mean but loses 25% of the initial value. The fitted mean uses different dates and weights.
 
-At each fit, the engine excludes stocks with at least 20 consecutive unchanged price intervals in the available past data. This can indicate stale or illiquid quotes. It does not prove false data. The export retains the original prices and dated eligibility decisions. If a held stock later triggers that screen, the study stops. It does not assume a verified sale at the repeated quote.
+The initial and latest fits exclude stocks with at least 20 consecutive unchanged price intervals in their respective samples. This can indicate stale or illiquid quotes. It does not prove false data. The export retains the original prices and dated eligibility decisions. The later screen affects the separate latest allocation, not the stocks already held in the replay.
+
+## Stock universe
+
+The default combines State Street's current SPY stock holdings with Nasdaq's current Nasdaq-100 list. Duplicate symbols appear once. Separate share classes remain separate. SPY holdings are a proxy for S&P 500 membership, not a certified historical roster. Cash, derivatives, and rights in the holdings file do not enter the stock universe.
+
+Both stock-universe loaders require complete positive adjusted prices on the SPY/QQQ market calendar. They record exclusions without filling gaps or shortening the history. **Data & method** and `universe_coverage.csv` show the source dates, counts, and reasons. An unavailable or incomplete constituent list stops the request.
+
+Current membership and complete-history requirements favor surviving stocks. The results do not reconstruct past index membership. A shorter history can admit more stocks but also changes the estimation sample.
+
+The app reserves SPY and QQQ for market comparisons. If either appears in a ticker list or CSV, the app separates it from stock allocations and reports that change. The separate general optimizer still accepts fund portfolios.
+
+The optimizer considers every eligible stock and can assign zero weight. There is no fixed stock-count limit. Large inputs still face data, memory, and solver limits. See [optimizer capacity](PERFORMANCE.md).
 
 ## Price data
 
 Upload a CSV with `Date` first and one asset per column. Use adjusted prices in a common currency. The file needs at least five complete price rows and one asset. The holding limit must be feasible for the eligible asset count.
 
+The file layout is:
+
+```csv
+Date,STOCK_A,STOCK_B
+2023-01-03,100.00,80.00
+2023-01-04,101.00,79.50
+2023-01-05,100.50,80.10
+2023-01-06,102.00,80.40
+2023-01-09,101.80,81.00
+2023-01-10,102.10,80.70
+```
+
 The model needs at least two returns in both the initial training period and the later test. With the app's 70/30 split, supply at least six price rows. Five rows work only with a suitable CLI split, such as 50/50. Short histories and large asset counts make estimates less reliable. A larger sample does not establish a reliable forecast.
 
-The app rejects duplicate dates or columns, nonnumeric values, missing observations, and nonpositive prices. It sorts dates but does not remove assets or fill gaps in a CSV. It cannot confirm price adjustments, currency, or the interval between observations.
+The app rejects duplicate dates or columns, nonnumeric values, missing observations, and nonpositive prices. It sorts dates without filling gaps. It cannot confirm price adjustments, currency, or the interval between observations.
 
-Set **Change → Data options → Price frequency** to match the CSV:
+Set **Settings → Data options → Price frequency** to match the CSV:
 
 | Interval | Observations per year |
 | --- | ---: |
@@ -105,7 +155,7 @@ Set **Change → Data options → Price frequency** to match the CSV:
 
 The CLI uses `--periods-per-year`, with a default of 252. It accepts any positive finite value. This factor changes annualization only. It does not convert daily prices to weekly or monthly prices.
 
-Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. The app caches price downloads for one hour. For **My tickers**, incomplete history stops the analysis. Change the symbols or dates and rerun. The combined and Nasdaq-only inputs instead record exclusions under the [coverage rules](../README.md#stocks-from-spy-and-the-nasdaq-100).
+Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. The app caches price downloads for one hour. For **My tickers**, incomplete history stops the analysis. Change the symbols or dates and rerun. The combined and Nasdaq-only inputs instead record exclusions under the [coverage rules](#stock-universe).
 
 Yahoo symbols retain exchange suffixes such as `VOD.L`, `IWDA.AS`, `BMW.DE`, and `7203.T`. Explicit aliases convert `BRK.B` to `BRK-B`, `BRK.A` to `BRK-A`, `BF.B` to `BF-B`, and `BF.A` to `BF-A`. Other periods remain unchanged. International inputs still need a common currency and compatible dates. Different market holidays can create gaps.
 
@@ -115,9 +165,9 @@ Yahoo/yfinance is unofficial. The [yfinance project](https://github.com/ranarous
 
 ## SPY and QQQ comparisons
 
-The app runs one later test as part of **Build portfolio**. It compares the model with equal-weight eligible stocks, SPY, and QQQ. Equal weights use the same refit schedule. SPY and QQQ buy once and hold. These three references have no volatility budget.
+The app runs one later replay and five walk-forward tests as part of **Build portfolio**. This section describes the replay. It compares the model with equal-weight eligible stocks, SPY, and QQQ. All four paths buy once and hold. These three references have no volatility budget.
 
-Equal-weight stocks answers: what happened without choosing larger weights for stocks with higher past returns? SPY tracks the S&P 500; QQQ tracks the Nasdaq-100. They are investment alternatives. None of these paths is scaled to match the model's volatility. Compare each row's return and realized volatility together.
+Equal-weight stocks give each initially eligible stock the same starting weight, then let those weights drift. SPY tracks the S&P 500, and QQQ tracks the Nasdaq-100. These references do not match the model's volatility. Compare each row's return and realized volatility together.
 
 Yahoo input obtains benchmark prices automatically. For a CSV, use SPY/QQQ columns already in the file, or a separate benchmark file with exactly the same dates. Downloads require an explicit choice. Both stock-universe loaders still need SPY/QQQ dates for the eligibility calendar when benchmark comparisons are disabled.
 
@@ -142,15 +192,17 @@ Run the CLI from the repository root. On Windows, replace `.venv/bin/python` wit
 .venv/bin/python -m efficient_frontier --help
 ```
 
-Use `--target-volatility` to run the app's single model from the CLI. The CLI also accepts explicit test assumptions for reproduction. `--train-fraction .7`, `--rebalance-every 21`, and `--cost-bps 10` match the app. `--shrinkage .1` matches its covariance adjustment. Price frequency uses `--periods-per-year`, which defaults to 252.
+Use `--target-volatility` to run the app's stock model from the CLI. The CLI also accepts explicit test assumptions for reproduction. `--train-fraction .7` and `--cost-bps 10` match the app. The stock model always buys once and holds. The CLI rejects `--rebalance-every` with `--target-volatility`. That option belongs to the separate legacy `--backtests` tools.
+
+`--shrinkage 0` matches the app's sample covariance. Price frequency uses `--periods-per-year`, which defaults to 252.
 
 No source flag selects the offline demo. `--nasdaq100` selects current members under the same eligibility rules as the app. Yahoo inputs default to a start date of `2020-01-01`. Set `--start` and `--end` for a different period.
 
 Yahoo inputs include SPY/QQQ comparisons by default. CSV analysis stays offline unless you request `--download-benchmarks`. Use `--no-benchmarks` to skip the comparison. `--currency` defaults to `USD`. This records a declaration without currency conversion.
 
-The single model uses long-only, fully invested weights and a 10% holding limit by default. Pass `--max-weight` to set a different limit. A 1% limit needs at least 100 eligible assets. The cap applies to target weights. Prices can move actual weights above it between trades.
+The stock model uses long-only, fully invested weights and a 10% holding limit by default. Pass `--max-weight` to set a different limit. A 1% limit needs at least 100 eligible assets. The cap applies to the initial target weights. Prices can move actual weights above it during the holding period.
 
-The default destination is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and exact CSV inputs and results. The single-model export contains the later test, latest weights, fitted estimates, and dated eligibility decisions. See the [export list](BACKTESTING.md#single-model-exports).
+The default destination is `results/latest/`. Each run writes `report.html`, `report.zip`, `metadata.json`, and exact CSV inputs and results. The app export contains the later test, the walk-forward windows, latest weights, fitted estimates, and dated eligibility decisions. See the [export list](BACKTESTING.md#app-exports).
 
 Generated files in the destination are replaced on rerun. Use a separate `--output` folder to preserve an experiment. A shorter rerun removes obsolete generated files and preserves unrelated files. The HTML includes Plotly JavaScript and works offline. Its **Print / save PDF** button uses the browser's print engine.
 
@@ -160,7 +212,7 @@ CSV exports prefix formula-like asset labels with an apostrophe so spreadsheet s
 
 ## Legacy research tools
 
-The CLI without `--target-volatility` retains the classic frontier tools. `--backtests` adds the earlier multi-method comparison. These tools remain separate from the single-model app. The [legacy method reference](BACKTESTING.md#legacy-strategy-comparison) defines their objectives and exports.
+The CLI without `--target-volatility` retains the classic frontier tools. `--backtests` adds the earlier multi-method comparison. These tools remain separate from the app. They accept general asset portfolios, including funds. Their CLI covariance shrinkage defaults to 10%. The [legacy method reference](BACKTESTING.md#legacy-strategy-comparison) defines their objectives and exports.
 
 ```bash
 # Legacy four-method comparison using supplied prices
@@ -182,7 +234,7 @@ Simple returns equal `price[t] / price[t-1] - 1`. The split uses `floor(training
 
 The original R script sampled 5–40 holdings from a fixed 60-ticker list. The Python optimizer uses the whole supplied universe, with no fixed input or selected-holdings cap. Forty frontier points means forty return targets, not forty assets. Large universes still face memory, solver, history, and provider limits. See [optimizer capacity](PERFORMANCE.md).
 
-The historical R script replaced the daily mean with a terminal price-ratio expression, omitted the risk-free rate from Sharpe, and allocated ten million weight vectors. Its 12-worker cluster did not serve the serial loop. The Python app corrects those issues. The historical source and spreadsheet remain unchanged.
+The historical R script replaced the daily mean with a terminal price-ratio expression, omitted the risk-free rate from Sharpe, and allocated ten million weight vectors. Its 12-worker cluster did not serve the serial loop. The current Python model uses arithmetic mean returns and an optimizer. It does not reproduce the R script's return calculation or random search. The historical source and spreadsheet remain unchanged.
 
 ## Historical membership
 

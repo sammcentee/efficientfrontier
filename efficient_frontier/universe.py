@@ -83,8 +83,8 @@ def fetch_nasdaq100() -> UniverseSnapshot:
         if not isinstance(data["date"], str):
             raise ValueError("Missing provider date.")
         source_date = pd.Timestamp(data["date"])
-        if pd.isna(source_date):
-            raise ValueError("Missing provider date.")
+        if pd.isna(source_date) or source_date.date() > datetime.now(timezone.utc).date():
+            raise ValueError("Missing or future provider date.")
     except (URLError, OSError, ValueError, TypeError, KeyError, IndexError) as exc:
         raise ValueError(
             "The current Nasdaq-100 list is unavailable or incomplete. "
