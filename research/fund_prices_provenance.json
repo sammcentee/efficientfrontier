@@ -1,0 +1,172 @@
+{
+  "provider": "Yahoo Finance through yfinance",
+  "yfinance_version": "1.7.0",
+  "retrieval_started_utc": "2026-10-18T09:31:11.017639+00:00",
+  "retrieval_completed_utc": "2026-10-18T09:31:12.586654+00:00",
+  "requested_symbols": [
+    "SPY",
+    "QQQ",
+    "SPMO",
+    "MTUM",
+    "SPLV",
+    "USMV",
+    "RSP",
+    "QUAL"
+  ],
+  "requested_start_inclusive": "2015-10-01",
+  "requested_end_exclusive": "2026-10-17",
+  "request_options": {
+    "start": "2015-10-01",
+    "end": "2026-10-17",
+    "auto_adjust": true,
+    "actions": false,
+    "progress": false,
+    "threads": false,
+    "multi_level_index": true,
+    "keepna": true,
+    "interval": "1d",
+    "timeout": 15
+  },
+  "frozen_protocol_sha256": "d5e2d031dd9e06e61f9e4da2d5ec651ce844c25db8eab4bc5254fc8e3f39821f",
+  "price_file": "fund_prices.csv",
+  "price_file_sha256": "330d5ac68021d746208466325dbcc04152e0582f6a2ed060cb24bd7d276d6e12",
+  "raw_response_file": "fund_raw_yahoo_auto_adjust.csv",
+  "raw_response_sha256": "ee8918bba0bbe0284242b5a2e8de3dedbd2047c5f2df44f21651b99536496275",
+  "semantics": "yfinance auto_adjust uses Yahoo Adj Close / Close to scale OHLC, and exposes Yahoo Adj Close as Close. These are vendor distribution- and split-adjusted USD ETF prices, used as a total-return proxy. No separate dividends are added.",
+  "semantics_evidence": "yfinance_auto_adjust_source.txt",
+  "fees_caveat": "Fund expenses are reflected in fund NAV and consequently the observed fund price history. Adjusted market prices are not NAV, may trade at premiums or discounts, and exclude investor commissions, spreads and taxes. Strategy wrapper trading fees are additional.",
+  "quality_limit": "Vendor adjustment and distribution accuracy is not independently certified. Cross-checks against saved Yahoo-derived benchmarks are consistency checks, not independent validation.",
+  "currency": "USD; requested US-listed ETF symbols. Currency was not independently queried in a second provider request.",
+  "common_calendar": {
+    "reference": "Nonmissing SPY observations in the same request. No dates were removed to close gaps.",
+    "row_count": 2770,
+    "start": "2015-10-12",
+    "end": "2026-10-16",
+    "weekend_rows": 0,
+    "dates_removed": [
+      "2015-10-01",
+      "2015-10-02",
+      "2015-10-05",
+      "2015-10-06",
+      "2015-10-07",
+      "2015-10-08",
+      "2015-10-09"
+    ],
+    "removal_rule": "Leading dates before every fund has its first actual observation only.",
+    "saved_benchmark_rows": 1255,
+    "saved_benchmark_range": [
+      "2021-10-18",
+      "2026-10-16"
+    ],
+    "saved_dates_missing_from_new_request": [],
+    "new_dates_within_saved_range_absent_from_saved": []
+  },
+  "per_symbol_quality": {
+    "SPY": {
+      "first_available": "2015-10-01",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    },
+    "QQQ": {
+      "first_available": "2015-10-01",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    },
+    "SPMO": {
+      "first_available": "2015-10-12",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    },
+    "MTUM": {
+      "first_available": "2015-10-01",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    },
+    "SPLV": {
+      "first_available": "2015-10-01",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    },
+    "USMV": {
+      "first_available": "2015-10-01",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    },
+    "RSP": {
+      "first_available": "2015-10-01",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    },
+    "QUAL": {
+      "first_available": "2015-10-01",
+      "last_available": "2026-10-16",
+      "observations_in_common_window": 2770,
+      "missing_in_common_window": 0,
+      "missing_dates_in_common_window": [],
+      "nonpositive_count": 0,
+      "nonfinite_nonmissing_count": 0,
+      "dates_missing_against_SPY": [],
+      "single_day_adjusted_change_above_40pct": []
+    }
+  },
+  "saved_SPY_QQQ_comparison": {
+    "SPY": {
+      "overlap_rows": 1255,
+      "min_new_divided_by_saved": 0.9999995608631007,
+      "max_new_divided_by_saved": 1.0000003479342068,
+      "median_new_divided_by_saved": 1.0,
+      "max_relative_difference": 4.3913689928842814e-07
+    },
+    "QQQ": {
+      "overlap_rows": 1255,
+      "min_new_divided_by_saved": 0.9999994170105818,
+      "max_new_divided_by_saved": 1.0000005090735746,
+      "median_new_divided_by_saved": 1.0,
+      "max_relative_difference": 5.829894181852424e-07
+    }
+  },
+  "performance_boundary": "Only data-quality metadata, cross-source-copy price ratios and requested >40% single-day jump flags were calculated. No fund or strategy performance measures were inspected.",
+  "ready_for_research": true
+}
