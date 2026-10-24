@@ -1,5 +1,43 @@
 # Validation record
 
+## Fitted frontier and benchmark clarity: 18 October 2026
+
+**741 tests passed**. Dependency and whitespace checks passed. The suite retains the existing pandas warning from the invalid-date rejection test.
+
+The app and report now show the first and latest fitted estimates separately from the later historical test. Each fit has two risk measures: the adjusted covariance estimate that the budget limits, and ordinary historical volatility on the same dates and weights. `fit_estimates.csv` records all historical fits and the latest fit. These diagnostics use saved weights without another optimization. Tests verify covariance formulas, past-only samples, exact exports, and unchanged study state during navigation.
+
+The saved 500-stock input reproduced the reported 23% budget and 30% holding-cap result exactly. The later test returned a 31.31% annual arithmetic mean with 24.20% realized volatility. QQQ returned 33.47% with 18.52% volatility. QQQ beat the rule on both measures during this test.
+
+| Fit through | Fitted annual mean | Model volatility | Ordinary historical volatility |
+| --- | ---: | ---: | ---: |
+| 16 April 2025 | 55.1391% | 23.0000% | 23.5189% |
+| 16 October 2026 | 54.8568% | 23.0000% | 23.7018% |
+
+An independent calculation audited all 19 actual saved allocations: 18 historical trades and the latest weights. Every allocation met the holding cap. Model volatility exceeded the ceiling by at most `3.29e-12` from numerical error. A global objective bound placed every saved portfolio within **0.000129602 percentage points** of the maximum possible annual mean. This bound used a supporting hyperplane for the covariance quadratic form and an exact linear maximum over the capped simplex. It did not sample random portfolios. Independent SCS solves for the first and latest fit also agreed within 0.00000020 percentage points of annual mean.
+
+This verifies optimization for the supplied estimates and constraints. It does not verify future returns. The later test uses changing earlier allocations. The latest portfolio did not generate that test path. The 10% covariance adjustment explains the model-versus-historical risk difference in the fitting table; it does not by itself explain the later realized risk.
+
+Headless Chromium checks covered the updated app at 1440 and 390 pixels, plus the actual 23% / 30% report at 390 pixels. The pages had no horizontal overflow or JavaScript errors. Wide tables scroll within their containers. The offline report made no external requests. The T3 preview sandbox was unavailable, so a separate background browser performed these checks. The active app server stayed running. Native operating-system and physical-device behavior remain untested.
+
+## Single model and later test: 18 October 2026
+
+**734 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.
+The suite retains the existing pandas warning from the invalid-date rejection test.
+
+The app now runs one historical-mean objective under a volatility ceiling and holding cap. One later test compares it with equal-weight stocks, SPY, and QQQ. Blend selection, a separate validation period, synthetic ETF/cash comparisons, and alternative app model menus are removed. Earlier CLI/API tools retain their own tests.
+
+Tests cover an analytic constrained optimum, prior-close fits, future-price isolation, costs, stale quotes, infeasible limits, missing benchmarks, and exact exports. App checks cover fixed assumptions, retained inputs, explicit migration from old studies, and passive data views. Independent review reconstructed portfolio values, fees, and profit contributions.
+
+A fresh combined-universe download supplied 500 complete stocks and both ETFs on 1,255 market dates, from 18 October 2021 through 16 October 2026. The source contained 518 unique stocks and recorded 18 incomplete-history exclusions. The model used a fixed 20% budget and 10% holding cap. All 18 historical allocations met both fitted limits within numerical tolerance. Independent calculations reconciled each path's profit contributions and fees, and the latest historical mean estimate.
+
+The later test covered 17 April 2025 through 16 October 2026. The model's net CAGR was 31.25%, with 20.11% realized volatility. QQQ returned 37.36% with 18.52% volatility. The descriptive checks therefore failed. No parameter changed in response to the result.
+
+The past-price screen excluded FER. Current membership, complete-history selection, and prior research on these dates limit interpretation.
+
+The full-data CLI produced four comparison paths and one latest portfolio. The report contains one chart and no blend policy or validation exports. Reproduction tests compare exact numeric files.
+
+Headless Chromium checks covered the synthetic app at 1440 pixels and 390 pixels, plus the full-data report at 390 pixels. Pages had no horizontal overflow or JavaScript errors. The report made no external requests. The T3 preview sandbox was unavailable, so these checks used a separate background browser. Native operating-system and physical-device behavior remain untested.
+
 ## Risk budget and combined stock universe: 16 October 2026
 
 **726 tests passed** with Python 3.14 and the pinned dependencies. `pip check` and `git diff --check` passed.

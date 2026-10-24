@@ -595,17 +595,19 @@ def test_risk_target_cli_exports_complete_offline_inputs_and_reproduces(tmp_path
     metadata = json.loads((output / "metadata.json").read_text())
     assert metadata["settings"]["target_volatility"] == .20
     assert metadata["settings"]["max_weight"] == .5
-    assert metadata["selected"] == "Selected stock rule"
+    assert metadata["selected"] == "Historical-mean portfolio"
     assert not (output / "latest_profile_weights.csv").exists()
     pd.testing.assert_frame_equal(pd.read_csv(output / "prices.csv", index_col=0, parse_dates=True), prices, check_freq=False)
     pd.testing.assert_frame_equal(pd.read_csv(output / "benchmark_prices.csv", index_col=0, parse_dates=True), benchmarks, check_freq=False)
     assert (output / "eligibility.csv").is_file()
-    assert json.loads((output / "policy.json").read_text()) == metadata["policy"]
-    assert {key.split("/")[0] for key in metadata["result_files"]} == {"validation", "test"}
+    assert not (output / "policy.json").exists()
+    assert not (output / "validation").exists()
+    assert {key.split("/")[0] for key in metadata["result_files"]} == {"test"}
+    assert len(metadata["result_files"]) == 4
     command = shlex.split(metadata["reproduce_command"])
     monkeypatch.setattr(sys, "argv", ["efficient_frontier", *command[3:]])
     assert cli.main() == 0
-    for name in ("latest_weights.csv", "validation/metrics.csv", "test/metrics.csv"):
+    for name in ("latest_weights.csv", "test/equity.csv", "test/metrics.csv"):
         pd.testing.assert_frame_equal(pd.read_csv(output / name, index_col=0),
                                       pd.read_csv(output / "reproduced" / name, index_col=0), atol=1e-8, rtol=1e-8)
 
@@ -648,7 +650,7 @@ def test_risk_target_csv_without_markets_is_explicitly_unsupported(tmp_path, mon
     assert any("benchmark" in reason.lower() and "unavailable" in reason.lower()
                for reason in metadata["reasons"])
     assert not (output / "benchmark_prices.csv").exists()
-    assert "No supported stock selection" in capsys.readouterr().out
+    assert "Historical checks did not pass" in capsys.readouterr().out
 
 
 def test_risk_target_default_cap_is_not_silently_relaxed_for_demo(tmp_path, monkeypatch, capsys):

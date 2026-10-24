@@ -4,7 +4,7 @@
 
 A local research app for portfolio allocations, risk, and historical tests. Start with stocks from SPY and the Nasdaq-100, your own tickers, a price CSV, or the offline synthetic demo.
 
-Set an annual volatility budget before the calculation. Compare a diversified historical-mean rule with simpler portfolios and SPY/QQQ. The app can report that stock selection has no supported advantage. Inspect every weight and export an interactive report. This is a research tool, not a trading system.
+Choose the stocks, history, volatility budget, and largest holding. One model finds the portfolio with the highest historical average return within those limits. One later test compares it with equal-weight stocks, SPY, and QQQ. Inspect every weight and export an offline report. This is a research tool.
 
 ## Start here: no coding needed
 
@@ -34,32 +34,32 @@ bash run.sh
 
 1. Choose the stock universe and history. The default combines SPY's stock holdings with the current Nasdaq-100.
 2. Set **Annual volatility budget (%)** before the calculation. The default is 20%, with a 10% limit per stock.
-3. Select **Build portfolio**. The app obtains prices, compares fixed allocation rules on earlier validation dates, and evaluates the selected rule on later dates.
-4. Read the result status and the comparison with diversified and ETF baselines. Inspect the candidate's holdings and trade record.
-5. Open **Research** for data coverage and method details.
+3. Select **Build portfolio**. The app fits the model on the first 70% of returns and tests it on the remaining 30%.
+4. Read the later test and its comparison with equal-weight stocks, SPY, and QQQ. Inspect the latest holdings and trade record.
+5. Open **Data & method** for data coverage and method details.
 6. Select **Export** for the report and data. The report includes the results on screen.
 
 The app waits for **Build portfolio** before it requests data. Select **Try the offline demo** for a synthetic example without a data download. CSV analysis also works offline after setup.
 
-Keyboard shortcuts: **Ctrl+Enter** on Windows/Linux or **Cmd+Enter** on macOS submits the setup. **4** opens Research, and **E** exports. See the [user guide](docs/USER_GUIDE.md) for settings and input rules.
+Keyboard shortcuts: **Ctrl+Enter** on Windows/Linux or **Cmd+Enter** on macOS submits the setup. **4** opens Data & method, and **E** exports. See the [user guide](docs/USER_GUIDE.md) for settings and input rules.
 
 ![Portfolio Lab in an earlier layout](docs/images/portfolio-lab.png)
 
 *Screenshot from an earlier app version. The current layout can differ.*
 
-## How the risk budget works
+## One model, one test
 
-The slider sets a ceiling for estimated annual volatility. It replaces the three risk levels. A 20% setting does not promise 20% future volatility, and it does not mean a maximum loss of 20%.
+The model chooses stock weights with the highest historical arithmetic mean return, subject to two limits: fitted volatility and the largest holding. Weights are long-only and sum to 100%. An infeasible limit stops the calculation with an explanation.
 
-The stock portfolio is long-only and fully invested. Its weights obey the selected holding limit. If that limit or volatility budget is infeasible, the app explains the problem. It does not silently raise the limit or add cash.
+The **Annual volatility budget** limits the model's estimated annual volatility. Future volatility can exceed it. It is not a maximum loss. The default budget is 20%, with at most 10% in each stock.
 
-Historical arithmetic means still drive the return objective. The method fits a capped mean-return portfolio and a feasible portfolio closest to equal weight. It compares three fixed blends: 0%, 50%, and 100% of the mean-return portfolio. Earlier validation dates choose the blend after trading costs. The later test cannot change that choice.
+The app uses fixed test assumptions: 70% initial training history, a later 30% test, a refit every 21 observations, and 10-basis-point trading fees. Each refit uses all earlier returns. A 10% covariance shrinkage reduces estimated cross-asset covariances. Each trade uses prices through the preceding close.
 
-The result status checks the selected rule against the diversified baseline and available ETFs at the selected risk budget. A failed comparison produces **no supported stock-selection advantage**, rather than a forced recommendation. This is a descriptive screen, not statistical proof of investment skill.
+The later test compares four paths: **Historical-mean portfolio**, **Equal-weight stocks**, **SPY**, and **QQQ**. Equal-weight stocks use the same trade schedule. The ETFs buy once and hold. The reference portfolios have no volatility budget.
 
-The screen also compares the selected stock rule with raw SPY and QQQ in validation and the later test. Support fails if a raw ETF has strictly higher net CAGR with no more realized volatility in either period. This check does not change the selected blend or its weights.
+The result checks whether the model stays within the budget in the later test. It also checks whether a reference has higher compound growth with no more volatility. Both ETFs and at least one year of later observations are required for a pass. These checks describe that historical period. They do not prove future outperformance.
 
-The latest candidate uses all observed prices with the frozen blend. Its weights can differ from those held in the historical replay. Fitted arithmetic means, realized arithmetic means, and compound growth (CAGR) have separate labels. See the [risk-budget method](docs/BACKTESTING.md#risk-budget-selection).
+The latest holdings use all supplied history and the same model rule. They can differ from the holdings in the test. See the [model and test details](docs/BACKTESTING.md#single-model-and-later-test).
 
 ## Stocks from SPY and the Nasdaq-100
 
@@ -67,56 +67,17 @@ The combined universe uses State Street's current SPY stock holdings and Nasdaq'
 
 The app records both sources, their dates, and exclusions. Prices must cover the same SPY/QQQ market dates. A long unchanged-price screen uses only the prices available at each fit. It flags possible stale or illiquid quotes without claiming that those quotes are false.
 
-Current membership and complete-history requirements can favor survivors. The later test is excluded from algorithmic blend selection. Historical results already examined during research are not genuinely fresh prospective evidence.
+Current membership and complete-history requirements can favor survivors. The model uses only earlier prices at each historical fit. Prior review of the test period still creates research hindsight.
 
 ## The Nasdaq-only universe
 
 The optional Nasdaq-100 source requests the [current official constituent list](https://api.nasdaq.com/api/quote/list-type/nasdaq100), with separate share classes. It admits only securities with complete positive adjusted prices on the fixed SPY/QQQ market dates for the selected history.
 
-It records exclusions. It does not fill gaps or shorten the common history. Open **Research → Data** for counts and reasons. Reports retain `universe_coverage.csv` and the source date. An unavailable or incomplete constituent list stops the request.
+It records exclusions. It does not fill gaps or shorten the common history. Open **Data & method** for counts and reasons. Reports retain `universe_coverage.csv` and the source date. An unavailable or incomplete constituent list stops the request.
 
 Every eligible asset enters the optimization. Weights can be zero. There is no fixed ticker-count or holdings-count cap, though large inputs need more time and memory. The full weight table and exports retain every asset.
 
 **This is historical analysis of current members.** It does not reconstruct past index membership. Current membership and complete-history eligibility introduce selection bias. A shorter history can admit more assets and also changes the estimation sample.
-
-## Historical membership
-
-Select **Explore historical membership** on the welcome screen, or **Historical membership** in the navigation after a study. Select **Run historical study** to try the offline example. It contains member additions, removals, re-entry, and missing price history.
-
-For real data, upload an adjusted-price CSV and choose the bundled Nasdaq-100 membership or your own membership CSV. This mode stays offline. The bundled community reconstruction covers **2010-01-01 through 2026-09-30**. Its provenance and known gaps appear in the app and report. It is not a certified complete index history. No paid service is required; you must supply suitable historical prices.
-
-Historical prices use the same `Date,ASSET_A,ASSET_B,…` layout, but unavailable prices can be blank. Each identifier must refer to one security throughout its history. Use separate labels for reused tickers. The bundled data blocks known unsafe identities; it does not verify all other price histories. It does not automatically join old membership labels to today's Yahoo symbols.
-
-A custom membership CSV has exactly two columns. Each row is the **full roster** effective on that date, not a list of changes:
-
-```csv
-date,tickers
-2020-01-01,"ASSET_A,ASSET_B"
-2020-06-01,"ASSET_B,ASSET_C"
-```
-
-Declare the final date covered by your source. The last roster remains effective through that date. Coverage must include the portfolio baseline date through the final valuation date. Training prices can predate membership coverage; evaluation outside the declared coverage stops the test.
-
-The study compares minimum volatility, maximum Sharpe, and equal weight. Each scheduled trade selects from membership effective on the trade date, using a full rolling window of returns through the prior close. New targets trade at the next close. The model assumes that effective membership is known before execution; it does not model announcement timestamps. Removed members leave at the next scheduled rebalance, so the study is not an exact index tracker. A company can become eligible later when it has enough history. Missing prices for a held asset stop the test; the engine does not fill gaps or silently drop that holding. If no eligible portfolio meets the weight cap, it holds cash until the next allocation. Cash earns zero interest.
-
-The historical report includes membership snapshots, sparse input prices, eligibility reasons at every trade, cash weights, allocations, trades, holdings, and fees. These records help inspect selection bias; they do not prove a complete survivorship-free result. This mode does not run the fixed-universe risk profiles or market benchmark comparisons.
-
-```bash
-# Fully offline example; rolling window defaults to 126 returns
-.venv/bin/python -m efficient_frontier --historical-demo --output results/historical-demo
-
-# Bundled historical membership with your supplied price history
-.venv/bin/python -m efficient_frontier --historical-membership \
-  --csv private/historical-prices.csv --output results/historical
-
-# Your own full membership snapshots and explicit final covered date
-.venv/bin/python -m efficient_frontier --membership-csv private/membership.csv \
-  --membership-end 2024-12-31 --csv private/prices.csv \
-  --rolling-window 126 --rebalance-every 21 --cost-bps 10 \
-  --output results/custom-historical
-```
-
-Use enough initial training history for the selected rolling window. The demo export can be reproduced with its `prices.csv`, `membership.csv`, coverage end from `metadata.json`, and matching settings. For the bundled source, keep `--historical-membership` when reproducing a run so its security-identity exclusions still apply.
 
 ## Your own prices
 
@@ -133,9 +94,9 @@ Date,ASSET_A,ASSET_B
 2023-01-11,101.90,81.20
 ```
 
-Use complete positive adjusted prices in one currency. The app does not convert currencies or fill missing prices. Set **Change → Model assumptions → Price frequency** to match the file. Annualization does not resample the data.
+Use complete positive adjusted prices in one currency. The app does not convert currencies or fill missing prices. Set **Change → Data options → Price frequency** to match the file. Annualization does not resample the data.
 
-The risk-budget calculation needs two returns in each of its three phases. Full support also needs at least one year of returns in validation and in the later test. The legacy classic calculation needs five price rows. See the [price-data rules](docs/USER_GUIDE.md#price-data) for short histories, exchange suffixes, and benchmarks.
+The model needs at least two returns in both the initial training period and the later test. A pass also requires at least one year of later test returns. See the [price-data rules](docs/USER_GUIDE.md#price-data) for short histories, exchange suffixes, and benchmarks.
 
 ## Reports without the browser
 
@@ -156,20 +117,20 @@ On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`. The de
 
 A rerun replaces generated files in that destination. Use a separate `--output` folder to preserve a study. Keep private inputs in ignored `data/` or `private/` folders. Review reports before you share them. See [CLI options and exports](docs/USER_GUIDE.md#command-line-options-and-exports).
 
-## Historical findings and limits
+## Separate research tools
 
-The [recorded 60-stock study](docs/HOLDINGS_STUDY.md) evaluated 2023-05-17 through 2026-10-02, with 10-basis-point fees on bought and sold amounts. Fixed maximum Sharpe returned **256.75%** with heavy concentration. LLY's weight reached **63.48%**. Rolling maximum Sharpe had a smaller drawdown and more trades. Its advantage over equal weight fell to **0.68 percentage points** in the later-period check.
+The command line and Python API retain the earlier frontier, multi-method backtests, and historical-membership study. They are separate tools. The app uses the single model above. See the [legacy tools](docs/USER_GUIDE.md#legacy-research-tools) and [historical-membership commands](docs/USER_GUIDE.md#historical-membership).
 
-That study used a list recorded after the main evaluation began. It includes selection hindsight and does not establish future returns or statistically supported outperformance against SPY or QQQ. The linked study retains dates, fees, holdings, reproduction steps, and limitations.
+The [recorded 60-stock study](docs/HOLDINGS_STUDY.md) retains earlier findings, dates, fees, and reproduction steps. It used a stock list from after the test began. It does not establish future returns or outperformance against SPY or QQQ.
 
-Current benchmark comparisons use matched dates and entry rules. The primary support screen is descriptive. Legacy research retains separate statistics with adjustment across its strategy/benchmark tests. Neither a headline return nor a p-value gives the probability of future success. Results omit taxes, FX conversion, and real execution limits. See the [benchmark guide](docs/BENCHMARKS.md).
+All studies omit taxes, currency conversion, and real execution limits. See the [benchmark guide](docs/BENCHMARKS.md) for data requirements and the separate legacy statistical tests.
 
 ## Documentation and development
 
 | Guide | Contents |
 | --- | --- |
 | [User guide](docs/USER_GUIDE.md) | Setup, settings, input rules, CLI options, and reports. |
-| [Backtests and methods](docs/BACKTESTING.md) | Profile objectives, trade timing, fees, metrics, and risk. |
+| [Model and backtests](docs/BACKTESTING.md) | The single model, later test, trade timing, fees, and separate legacy methods. |
 | [Market benchmarks](docs/BENCHMARKS.md) | SPY/QQQ data, matched comparisons, and statistical limits. |
 | [Historical stock study](docs/HOLDINGS_STUDY.md) | Recorded findings and reproduction steps. |
 | [Optimizer capacity](docs/PERFORMANCE.md) | Measured time and memory, with reproduction commands. |

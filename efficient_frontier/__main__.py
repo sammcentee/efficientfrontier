@@ -176,13 +176,13 @@ def selection_cli(args, settings):
     write_report_bundle(selection_report_zip(study, prices, metadata), args.output)
     print(f"Source: {source}")
     print(f"Annual volatility target: {args.target_volatility:.1%}; holding cap: {settings['max_weight']:.1%}")
-    print(f"Frozen historical-mean blend: {study.policy.blend:.1%}")
-    print("Passed the descriptive support screen." if study.supported else "No supported stock selection.")
-    for note in dict.fromkeys([*study.policy.reasons, *study.reasons, *study.warnings]):
+    print("One rule: maximize historical mean return within the volatility budget and holding limit.")
+    print("Historical checks passed." if study.supported else "Historical checks did not pass.")
+    for note in dict.fromkeys([*study.reasons, *study.warnings]):
         print(f"Note: {note}")
     if "benchmarks_note" in metadata:
         print(f"Note: {metadata['benchmarks_note']}")
-    print("\nLater test (not used to choose the blend):")
+    print("\nLater historical test (one fixed rule):")
     print(selection_metrics_frame(study.test).round(4).to_string())
     print("Earlier research on these dates can introduce hindsight. A historical test alone is not unseen prospective evidence.")
     print(f"Report: {(args.output / 'report.html').resolve()}")

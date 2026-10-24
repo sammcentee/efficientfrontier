@@ -184,26 +184,28 @@ def test_demo_build_is_offline_with_an_explicit_feasible_cap(offline_app):
     assert study.latest[study.selected].weights.sum() == pytest.approx(1)
 
 
-def test_overview_orders_decision_validation_final_test_and_experimental_holdings():
+def test_overview_shows_one_test_and_separate_latest_weights():
     app = demo_app()
     assert not app.exception
     page = html_text(app)
-    positions = [page.index(text) for text in ("No supported stock selection", "Earlier validation",
-                                              "Later test (not used to choose the blend)", "Fitted annual mean")]
-    assert positions == sorted(positions)
-    holding_section = next(item for item in app.expander if item.label.startswith("Latest experimental holdings"))
+    assert page.index("Fitted annual mean") < page.index("Later historical test")
+    assert "First historical fit" in page and "Latest fit" in page
+    assert "Model volatility" in page and "Historical volatility" in page
+    assert "validation" not in page.lower() and "blend" not in page.lower()
+    holding_section = next(item for item in app.expander if item.label.startswith("Latest fitted holdings"))
     assert holding_section.proto.expanded is False
-    assert any("does not pass the support screen" in item.value for item in app.warning)
+    assert any("does not pass the historical check" in item.value for item in app.warning)
+    assert any("These weights use all supplied prices" in item.value for item in app.caption)
+    assert app.segmented_control(key="view").options == ["Overview", "Data & method"]
     assert "risk_profile" not in {item.key for item in app.segmented_control}
     assert "comparison_method" not in {item.key for item in app.selectbox}
-    assert not {"key_low", "key_medium", "key_highest"} & {item.key for item in app.button}
+    assert not {"key_low", "key_medium", "key_highest", "open_historical", "run_legacy"} & {item.key for item in app.button}
     study = app.session_state.selection
     displayed = [item.value for item in app.dataframe if "annual_mean" in item.value.columns]
-    assert len(displayed) == 2
+    assert len(displayed) == 1
     columns = ["annual_mean", "cagr", "volatility", "max_drawdown"]
-    for frame, phase in zip(displayed, (study.validation, study.test)):
-        pd.testing.assert_frame_equal(frame, phase.metrics[columns])
-    assert study.validation.equity.index[-1] <= study.test.equity.index[0]
+    pd.testing.assert_frame_equal(displayed[0], study.test.metrics[columns])
+    assert list(study.latest) == [study.selected]
 
 
 def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_data):
@@ -218,6 +220,26 @@ def test_combined_coverage_and_latest_holdings_preserve_every_input(universe_dat
     pd.testing.assert_frame_equal(app.session_state.coverage, universe_data.coverage)
     assert app.session_state.result[2]["universe_coverage"][-1]["reason"] == "Incomplete prices"
     assert any("not a historical reconstruction" in item.value for item in app.caption)
+
+
+def test_partial_market_prices_keep_available_comparison_and_name_missing_etf(monkeypatch, universe_data):
+    from efficient_frontier import universe
+
+    original = universe.download_universe_prices
+
+    def partial(*args, **kwargs):
+        loaded = original(*args, **kwargs)
+        return universe.UniversePrices(loaded.prices, loaded.coverage, loaded.benchmarks[["SPY"]], loaded.metadata)
+
+    monkeypatch.setattr(universe, "download_universe_prices", partial)
+    app = app_start().button(key="build").click().run()
+    assert not app.exception and not app.error
+    study = app.session_state.selection
+    assert list(study.benchmark_prices) == ["SPY"] and not study.supported
+    assert list(study.test.equity) == ["Historical-mean portfolio", "Equal-weight stocks", "S&P 500 (SPY)"]
+    assert any("unavailable for QQQ" in reason for reason in study.reasons)
+    assert "unavailable for QQQ" in html_text(app)
+    pd.testing.assert_frame_equal(app.session_state.result[1], universe_data.prices)
 
 
 def test_repeated_identical_build_uses_cached_inputs_and_selection(monkeypatch, universe_data):
@@ -258,22 +280,27 @@ def test_draft_cancel_and_reopen_preserve_applied_risk_and_prices():
     assert not any("differs from this result" in item.value for item in app.info)
 
 
-def test_submit_applies_draft_and_reopens_with_applied_values():
-    app = open_setup(demo_app())
+def test_submit_applies_limits_and_fixed_assumptions_despite_old_custom_values():
+    app = demo_app()
+    app.session_state.setup = {**app.session_state.setup, "risk_free": 3., "train_pct": 60, "shrink": 35}
+    for key, value in (("risk_free", 4.), ("train_pct", 80), ("shrink", 50)):
+        app.session_state[key] = value
+    open_setup(app)
+    assert not {"risk_free", "train_pct", "shrink"} & {item.key for item in [*app.slider, *app.number_input]}
     app.slider(key="target_vol").set_value(25.)
     app.number_input(key="cap").set_value(30.)
-    app.number_input(key="risk_free").set_value(3.)
-    app.slider(key="train_pct").set_value(60)
-    app.slider(key="shrink").set_value(35)
     app.button(key="build").click().run()
     assert not app.exception and not app.error
     metadata = app.session_state.result[2]
     assert {key: metadata[key] for key in ("target_volatility", "max_weight", "risk_free_rate", "train_fraction", "shrinkage")} == {
-        "target_volatility": .25, "max_weight": .3, "risk_free_rate": .03, "train_fraction": .6, "shrinkage": .35}
+        "target_volatility": .25, "max_weight": .3, "risk_free_rate": .02, "train_fraction": .7, "shrinkage": .1}
+    assert app.session_state.selection.settings["rebalance_every"] == 21
+    assert app.session_state.selection.settings["cost_bps"] == 10.
     assert "target_vol" not in app.session_state and "cap" not in app.session_state
     open_setup(app)
     assert app.slider(key="target_vol").value == 25. and app.number_input(key="cap").value == 30.
-    assert app.slider(key="train_pct").value == 60 and app.number_input(key="risk_free").value == 3.
+    assert {key: app.session_state.setup[key] for key in ("train_pct", "shrink", "risk_free")} == {
+        "train_pct": 70, "shrink": 10, "risk_free": 2.}
     assert not any("differs from this result" in item.value for item in app.info)
 
 
@@ -393,7 +420,7 @@ def test_unavailable_benchmarks_clear_previous_comparison_without_changing_asset
 
 
 @pytest.mark.parametrize("frequency,periods", [("Monthly", 12), ("Custom", 48.5)])
-def test_csv_frequency_reaches_both_evaluations_without_resampling(monkeypatch, market_prices, frequency, periods):
+def test_csv_frequency_reaches_later_test_without_resampling(monkeypatch, market_prices, frequency, periods):
     prices = market_prices.set_axis(pd.date_range("2000-01-31", periods=len(market_prices), freq="ME", name="Date"))
     source = upload(prices, "monthly.csv")
     monkeypatch.setattr(st, "file_uploader", lambda label, **kwargs: source if kwargs["key"] == "prices_upload" else None)
@@ -407,7 +434,7 @@ def test_csv_frequency_reaches_both_evaluations_without_resampling(monkeypatch, 
     study = app.session_state.selection
     assert app.session_state.result[2]["periods_per_year"] == periods
     assert study.settings["periods_per_year"] == periods
-    assert study.validation.settings["periods_per_year"] == study.test.settings["periods_per_year"] == periods
+    assert study.test.settings["periods_per_year"] == periods
     pd.testing.assert_frame_equal(app.session_state.result[1], prices, check_freq=False)
 
 
@@ -440,9 +467,10 @@ def test_export_is_deferred_and_captures_completed_selection_not_draft(monkeypat
         metadata = json.loads(archive.read("metadata.json"))
         assert metadata["settings"]["target_volatility"] == .2
         assert metadata["supported"] == study.supported and metadata["selected"] == study.selected
-        for phase in ("validation", "test"):
-            frame = pd.read_csv(archive.open(f"{phase}/equity.csv"), index_col=0, parse_dates=True)
-            pd.testing.assert_frame_equal(frame, getattr(study, phase).equity, check_freq=False, check_names=False)
+        assert not any(name.startswith("validation/") for name in archive.namelist())
+        assert "policy.json" not in archive.namelist()
+        frame = pd.read_csv(archive.open("test/equity.csv"), index_col=0, parse_dates=True)
+        pd.testing.assert_frame_equal(frame, study.test.equity, check_freq=False, check_names=False)
         weights = pd.read_csv(archive.open("latest_weights.csv"), index_col=0)
         expected = pd.DataFrame({name: portfolio.weights for name, portfolio in study.latest.items()})
         pd.testing.assert_frame_equal(weights, expected, check_names=False)
@@ -561,7 +589,7 @@ def test_changed_model_blocks_old_results_and_rebuilds_identical_inputs(monkeypa
     pd.testing.assert_frame_equal(app.session_state.result[1], prices)
 
 
-def test_research_is_lazy_and_passive_views_do_not_refit_selection(monkeypatch):
+def test_data_method_is_passive_and_shows_only_the_completed_model(monkeypatch):
     from efficient_frontier import backtest, core, profiles, selection
 
     calls = []
@@ -572,7 +600,7 @@ def test_research_is_lazy_and_passive_views_do_not_refit_selection(monkeypatch):
         return original(*args, **kwargs)
 
     def unexpected(*args, **kwargs):
-        raise AssertionError("Legacy work requires an explicit Run legacy diagnostics click.")
+        raise AssertionError("The simplified app must not run legacy models.")
 
     monkeypatch.setattr(selection, "run_selection", select)
     for module, name in ((core, "analyze"), (profiles, "build_profiles"), (backtest, "run_backtests")):
@@ -580,56 +608,52 @@ def test_research_is_lazy_and_passive_views_do_not_refit_selection(monkeypatch):
     app = demo_app()
     assert not app.exception and calls == ["selection"]
     study = app.session_state.selection
-    app.segmented_control(key="view").set_value("Research").run()
-    assert not app.exception and app.button(key="run_legacy").label == "Run legacy diagnostics"
+    app.segmented_control(key="view").set_value("Data & method").run()
+    assert not app.exception
+    assert "One stock model" in html_text(app)
+    assert not {"run_legacy", "open_historical"} & {item.key for item in app.button}
+    assert "research_topic" not in {item.key for item in app.segmented_control}
+    assert "compare_worst_window" not in {item.key for item in app.checkbox}
+    tables = [item.value for item in app.dataframe]
+    for expected in (app.session_state.result[1], study.eligibility, study.test.allocations[study.selected],
+                     study.test.holdings[study.selected], study.test.trades[study.selected],
+                     selection.selection_fit_estimates(study, app.session_state.result[1])):
+        assert any(table.equals(expected) for table in tables)
+    captions = "\n".join(item.value for item in app.caption)
+    assert "0.10%" in captions and "2% risk-free rate" in captions
+    assert "buy once and hold" in captions
+    assert "not whether the fitted optimization was solved correctly" in captions
     assert app.session_state.result[0] is None and app.session_state.selection is study
     nonce = app.session_state.get("scroll_nonce", 0)
     app.run()
-    assert app.session_state.view == "Research" and app.session_state.get("scroll_nonce", 0) == nonce
+    assert app.session_state.view == "Data & method" and app.session_state.get("scroll_nonce", 0) == nonce
     app.segmented_control(key="view").set_value("Portfolio").run()
     assert not app.exception and app.session_state.selection is study and calls == ["selection"]
+    assert all(key not in app.session_state for key in ("backtests", "latest_profiles", "benchmarks", "evidence"))
 
 
-def test_explicit_legacy_diagnostics_leave_the_primary_selection_unchanged():
+@pytest.mark.parametrize("old_view", ["Research", "Historical membership"])
+def test_removed_saved_view_returns_to_portfolio_without_rebuild(old_view, monkeypatch):
+    from efficient_frontier import selection
+
     app = demo_app()
-    selection = app.session_state.selection
-    equity = selection.test.equity.copy()
-    app.segmented_control(key="view").set_value("Research").run()
-    app.button(key="run_legacy").click().run()
-    assert not app.exception and not app.error
-    assert app.session_state.result[0] is not None and len(app.session_state.backtests.metrics) == 12
-    assert app.session_state.selection is selection
-    assert not {"risk_profile", "classic_risk_profile"} & {item.key for item in app.segmented_control}
-    app.segmented_control(key="research_topic").set_value("Risk breakdown").run()
-    app.selectbox(key="risk_portfolio").select("Equal weight").run()
-    app.segmented_control(key="view").set_value("Portfolio").run()
-    assert not app.exception and "risk_profile" not in {item.key for item in app.segmented_control}
-    pd.testing.assert_frame_equal(app.session_state.selection.test.equity, equity)
+    study = app.session_state.selection
+    app.session_state.view = old_view
 
+    def unexpected(*args, **kwargs):
+        raise AssertionError("A view migration must not rebuild the model.")
 
-def test_failed_legacy_diagnostics_preserve_the_candidate_and_inputs(monkeypatch):
-    from efficient_frontier import core
-
-    def failed(*args, **kwargs):
-        raise ValueError("Fixture legacy diagnostic failure")
-
-    monkeypatch.setattr(core, "analyze", failed)
-    app = demo_app()
-    selection, prices = app.session_state.selection, app.session_state.result[1].copy()
-    app.segmented_control(key="view").set_value("Research").run()
-    app.button(key="run_legacy").click().run()
-    assert not app.exception and any("Fixture legacy diagnostic failure" in item.value for item in app.error)
-    assert app.session_state.result[0] is None and app.session_state.selection is selection
-    pd.testing.assert_frame_equal(app.session_state.result[1], prices)
-    app.segmented_control(key="view").set_value("Portfolio").run()
-    assert not app.exception and not app.error
+    monkeypatch.setattr(selection, "run_selection", unexpected)
+    app.run()
+    assert not app.exception and app.session_state.view == "Portfolio"
+    assert app.session_state.selection is study
 
 
 def test_navigation_shortcuts_preserve_selection_without_old_risk_shortcuts():
     app = demo_app()
     selection = app.session_state.selection
-    app.button(key="key_research").click().run()
-    assert app.session_state.view == "Research"
+    app.button(key="key_data_method").click().run()
+    assert app.session_state.view == "Data & method"
     app.button(key="key_market").click().run()
     assert app.session_state.view == "Portfolio" and app.session_state.scroll_nonce == 2
     app.button(key="key_holdings").click().run()
