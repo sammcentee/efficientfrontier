@@ -12,3 +12,6 @@ results/
 /prices.csv
 
 /target/
+
+# Tauri writes capability schemas here on each build.
+/desktop/gen/
