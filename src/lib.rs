@@ -20,6 +20,7 @@ pub mod historical_report;
 pub mod html_table;
 pub mod membership;
 pub mod metrics;
+pub mod net;
 pub mod out_of_sample;
 pub mod plot;
 pub mod presentation;
