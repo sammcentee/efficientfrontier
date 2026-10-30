@@ -42,12 +42,12 @@ The default tests do not use the network. Fakes give recorded or synthetic repli
 cargo test --test network_live -- --ignored
 ```
 
-An end-to-end test drives the app's window through WebDriver. It needs a release build, [`tauri-driver`](https://crates.io/crates/tauri-driver), and the system's WebDriver: `WebKitWebDriver` on Linux, or Microsoft Edge Driver for the installed WebView2 version on Windows. On Linux, run it on a virtual screen with `xvfb-run`. On Linux the test also saves files through the Save dialog with `xdotool`.
+An end-to-end test drives the app's window through WebDriver. It needs a release build, [`tauri-driver`](https://crates.io/crates/tauri-driver), and the system's WebDriver: `WebKitWebDriver` on Linux, or Microsoft Edge Driver for the installed WebView2 version on Windows. Debian and Ubuntu supply `WebKitWebDriver` in `webkit2gtk-driver`, and Arch in `webkitgtk-6.0`. On Linux, run the test on a virtual screen with `xvfb-run` and `GDK_BACKEND=x11`, so that no window opens on the desktop, also under WSLg. On Linux the test also saves files through the Save dialog with `xdotool`.
 
 ```bash
 cargo build --release -p portfolio-lab
 cargo install tauri-driver --locked
-env -u WAYLAND_DISPLAY xvfb-run -a cargo test -p portfolio-lab --test window -- --ignored
+env -u WAYLAND_DISPLAY GDK_BACKEND=x11 xvfb-run -a cargo test -p portfolio-lab --test window -- --ignored
 ```
 
 For calculation changes, add a case with a known mathematical answer or a regression that demonstrates the error. Use fakes in place of network calls in the default tests. Verify that later prices cannot change earlier allocations. Document financial assumptions in the [method reference](docs/BACKTESTING.md).

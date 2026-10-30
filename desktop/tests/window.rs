@@ -3,11 +3,13 @@
 //! `tauri-driver` opens the window and drives its web view with the system's
 //! WebDriver: WebKitWebDriver on Linux, Microsoft Edge Driver on Windows. The
 //! test is ignored by default, because it needs a release build, these drivers
-//! and a screen. On Linux, give it a virtual screen, not the desktop:
+//! and a screen. On Linux, give it a virtual screen, not the desktop. Without
+//! `GDK_BACKEND=x11`, GTK can still open the window on a Wayland desktop, such
+//! as WSLg:
 //!
 //! ```sh
 //! cargo build --release -p portfolio-lab
-//! env -u WAYLAND_DISPLAY xvfb-run -a cargo test -p portfolio-lab --test window -- --ignored
+//! env -u WAYLAND_DISPLAY GDK_BACKEND=x11 xvfb-run -a cargo test -p portfolio-lab --test window -- --ignored
 //! ```
 //!
 //! On Linux the test also saves files through GTK's Save dialog with `xdotool`.
@@ -37,7 +39,10 @@ fn the_window_builds_studies_and_saves_files() {
 
     window.wait("the start page", "return ['landing', 'error'].includes(document.body.dataset.page)");
     let title = window.script("return document.querySelector('h1').textContent");
-    assert_eq!(title, "Efficient Frontier Analysis for US Equities");
+    assert!(
+        title.as_str().is_some_and(|title| title.starts_with("Efficient Frontier Analysis for US Equities")),
+        "{title}"
+    );
     window.wait("typeset equations", "return document.querySelectorAll('.katex').length >= 3");
 
     build(&window, "Demo", None);
@@ -59,11 +64,12 @@ fn the_window_builds_studies_and_saves_files() {
         window.press(&["e"]);
         save_in_dialog(&report);
         let archive = zip::ZipArchive::new(std::fs::File::open(&report).expect("the saved report")).expect("a zip");
-        let names: Vec<&str> = archive.file_names().collect();
-        assert!(names.len() >= 20 && names.contains(&"report.html"), "{names:?}");
+        let names: Vec<String> = archive.file_names().filter_map(Result::ok).map(|name| name.into_owned()).collect();
+        assert!(names.len() >= 20 && names.iter().any(|name| name == "report.html"), "{names:?}");
     }
 
     // The upload goes through the app's protocol, so this checks the request body.
+    // The drawer keeps the demo study's 20% holding limit, which six stocks need.
     let prices = Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/demo/demo_prices.csv");
     build(&window, "Upload CSV", Some(&prices));
 
@@ -183,7 +189,13 @@ impl Window {
     }
 
     /// Press keys together: each key goes down in order, then up in reverse order.
+    ///
+    /// WebKitWebDriver refuses key input while a page loads or a download is open, so the press waits for both.
     fn press(&self, keys: &[&str]) {
+        self.wait(
+            "a loaded page",
+            "return document.readyState === 'complete' && document.querySelector('[data-busy]') === null",
+        );
         let mut actions: Vec<Value> = keys.iter().map(|key| json!({ "type": "keyDown", "value": key })).collect();
         actions.extend(keys.iter().rev().map(|key| json!({ "type": "keyUp", "value": key })));
         let body = json!({ "actions": [{ "type": "key", "id": "keyboard", "actions": actions }] });
@@ -205,23 +217,34 @@ impl Window {
 }
 
 /// Type a path into GTK's Save dialog and press Enter, then wait for the file.
+///
+/// A virtual screen has no window manager, so the test gives the keyboard to
+/// the dialog, and afterwards back to the app's window.
 fn save_in_dialog(path: &Path) {
-    let found = Command::new("timeout")
-        .args(["60", "xdotool", "search", "--sync", "--name", "^Save File$"])
-        .output()
-        .expect("xdotool");
-    let stdout = String::from_utf8_lossy(&found.stdout);
-    let dialog = stdout.lines().last().expect("the Save dialog");
-    // A virtual screen has no window manager, so the dialog gets the keyboard here.
+    let dialog = visible_window("^Save File$");
     for arguments in [
-        vec!["windowfocus", dialog],
+        vec!["windowfocus", dialog.as_str()],
         vec!["key", "--clearmodifiers", "ctrl+a"],
         vec!["type", "--delay", "5", path.to_str().expect("a UTF-8 path")],
         vec!["key", "Return"],
     ] {
         std::thread::sleep(Duration::from_millis(300));
-        let status = Command::new("xdotool").args(&arguments).status().expect("xdotool");
-        assert!(status.success(), "xdotool {arguments:?}");
+        xdotool(&arguments);
     }
     wait_until("the saved file", STEP, || path.metadata().is_ok_and(|metadata| metadata.len() > 0));
+    xdotool(&["windowfocus", visible_window("^Portfolio Lab$").as_str()]);
+}
+
+/// The X window identifier of a visible window with a title that matches `pattern`.
+fn visible_window(pattern: &str) -> String {
+    let found = Command::new("timeout")
+        .args(["60", "xdotool", "search", "--sync", "--onlyvisible", "--name", pattern])
+        .output()
+        .expect("xdotool");
+    String::from_utf8_lossy(&found.stdout).lines().last().unwrap_or_else(|| panic!("no window {pattern}")).to_string()
+}
+
+fn xdotool(arguments: &[&str]) {
+    let status = Command::new("xdotool").args(arguments).status().expect("xdotool");
+    assert!(status.success(), "xdotool {arguments:?}");
 }

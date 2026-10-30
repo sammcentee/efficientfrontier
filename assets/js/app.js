@@ -259,6 +259,27 @@
       stored.hidden = true;
       scheduleDraft();
     });
+    // The web view does not send a form's files to the app, so a form with a
+    // chosen file goes as plain bytes. The app then shows the new page.
+    form.addEventListener("submit", async (event) => {
+      const files = [...form.querySelectorAll('input[type="file"]')].some((input) => !input.disabled && input.files.length);
+      if (!files) return;
+      event.preventDefault();
+      const encoded = new Request(form.action, { method: "POST", body: new FormData(form) });
+      const response = await fetch(form.action, {
+        ...same,
+        method: "POST",
+        headers: { "Content-Type": encoded.headers.get("Content-Type") },
+        body: await encoded.arrayBuffer(),
+      });
+      if (response.ok) {
+        window.location.replace("/");
+      } else {
+        document.open();
+        document.write(await response.text());
+        document.close();
+      }
+    });
     sync();
   }
 

@@ -175,7 +175,7 @@ fn session_cookie(headers: &HeaderMap) -> Option<HeaderValue> {
 
 /// The address of a redirect after which a browser loads the new address with GET.
 fn redirect_target(response: &Response<Vec<u8>>) -> Option<String> {
-    if !matches!(response.status().as_u16(), 301 | 302 | 303) {
+    if !matches!(response.status().as_u16(), 301..=303) {
         return None;
     }
     response.headers().get(LOCATION)?.to_str().ok().map(str::to_string)
