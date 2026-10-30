@@ -2,6 +2,7 @@
 
 This review starts from `claude/redesign` at `0a42423`, after the Nasdaq-100 work in PR #2 and the interface work in PR #3.
 The default branch was `main` at `cdba36f`. These earlier changes remain separate draft pull requests.
+This review describes the Python release and its Streamlit app. The Rust version later replaced both. Commit `6c6df6e` is the last Python release.
 
 ## Assessment
 
