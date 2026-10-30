@@ -37,7 +37,7 @@ pub fn validate_historical_prices(prices: &Frame) -> Result<Frame> {
         return Err(value_error!("Provide a price table with at least five dates and one asset."));
     }
     let columns: Vec<String> = prices.columns.iter().map(|name| name.trim_matches(is_space).to_string()).collect();
-    let folded: HashSet<String> = columns.iter().map(|name| name.to_lowercase()).collect();
+    let folded: HashSet<String> = columns.iter().map(|name| crate::data::casefold(name)).collect();
     if columns.iter().any(String::is_empty) || folded.len() != columns.len() {
         return Err(value_error!("Price column names must be nonempty and unique."));
     }
@@ -85,10 +85,10 @@ pub fn load_historical_prices(content: &[u8]) -> Result<Frame> {
         return Err(unreadable());
     }
     let headers: Vec<String> = rows.remove(0).iter().map(|name| name.trim_matches(is_space).to_string()).collect();
-    if headers.first().is_none_or(|name| name.to_lowercase() != "date") {
+    if headers.first().is_none_or(|name| crate::data::casefold(name) != "date") {
         return Err(value_error!("The first price CSV column must be named Date."));
     }
-    let folded: HashSet<String> = headers.iter().map(|name| name.to_lowercase()).collect();
+    let folded: HashSet<String> = headers.iter().map(|name| crate::data::casefold(name)).collect();
     if headers.iter().any(String::is_empty) || folded.len() != headers.len() {
         return Err(value_error!("Price CSV column headers must be nonempty and unique."));
     }
