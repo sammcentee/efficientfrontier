@@ -2,12 +2,14 @@
 //!
 //! A build runs on its own thread. The session keeps the [`Job`]; the work card
 //! polls its [`Progress`]. Cancel drops the job from the session, so its result
-//! is discarded. The applied result changes only when a build succeeds; a
-//! failure clears it and keeps the setup, as in `app.py`.
+//! is discarded, and the job stops at its next step: a universe download stops
+//! at its next batch of symbols. The applied result changes only when a build
+//! succeeds; a failure clears it and keeps the setup, as in `app.py`.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use efficient_frontier::data::{demo_prices, load_csv, parse_tickers};
@@ -26,7 +28,7 @@ use crate::cache::{dates_key, selection_key};
 use crate::guard::guard;
 use crate::session::{Session, SessionRef, lock};
 use crate::setup::{COST_BPS, CURRENCY_ASSUMPTION, Currency, InputChoices, Market, Plan, Source, resolve};
-use crate::sources::{CompanyProfile, Sources, UniversePrices};
+use crate::sources::{Cancelled, CompanyProfile, Sources, UniversePrices};
 use crate::state::AppState;
 
 /// The work card steps; `mark(n)` shows step `n`.
@@ -38,6 +40,8 @@ pub const STEPS: [&str; 4] = [
 ];
 /// Points on the latest fitted frontier (`selection_frontier`'s default).
 pub const FRONTIER_POINTS: usize = 30;
+/// How often a wait for company profiles looks for a cancelled build.
+const CANCEL_POLL: Duration = Duration::from_millis(100);
 /// Weights at or below this level are not holdings.
 pub const HELD: f64 = 1e-6;
 
@@ -99,6 +103,9 @@ impl Job {
 /// A successful study and everything its pages and export show.
 #[derive(Debug)]
 pub struct Applied {
+    /// Identifies this result in the URLs of its downloads, so a page of an older
+    /// study cannot download a newer one by mistake.
+    pub id: u64,
     /// Stock prices, without comparison ETF columns.
     pub prices: Arc<Frame>,
     pub metadata: Dict,
@@ -116,6 +123,12 @@ pub struct Applied {
 }
 
 impl Applied {
+    /// A new result identifier.
+    pub fn next_id() -> u64 {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    }
+
     /// The result uses the current selection model (`current_selection`).
     pub fn is_current(&self) -> bool {
         self.metadata.get("selection_model_revision").and_then(Json::as_str) == Some(MODEL_REVISION)
@@ -259,6 +272,7 @@ fn run(state: &AppState, plan: &Plan, job: &Job) -> Outcome {
     let fitted = match fit(state, plan, job, &mut metadata, &mut loaded) {
         Ok(Some(fitted)) => fitted,
         Ok(None) => return Outcome::Cancelled,
+        Err(_) if job.is_cancelled() => return Outcome::Cancelled,
         Err(error) => {
             let coverage = loaded.map(|universe: Arc<UniversePrices>| Arc::new(universe.coverage.clone()));
             return Outcome::Failed(BuildError::from_error(&error), coverage);
@@ -266,11 +280,17 @@ fn run(state: &AppState, plan: &Plan, job: &Job) -> Outcome {
     };
     metadata.insert("selection_model_revision", MODEL_REVISION);
     let Fitted { prices, benchmark_prices, study, key } = fitted;
+    if job.is_cancelled() {
+        return Outcome::Cancelled;
+    }
     // The overview computes these while it renders; here they are ready before it opens.
     let frontier = guard(|| {
         state.caches.frontier.get_or_try(key, || selection_frontier(&study, &prices, FRONTIER_POINTS).map(Arc::new))
     })
     .and_then(|result| result.map_err(|error| error.message().to_string()));
+    if job.is_cancelled() {
+        return Outcome::Cancelled;
+    }
     job.detail("Run the out-of-sample tests");
     let out_of_sample = guard(|| {
         state.caches.out_of_sample.get_or_try(key, || run_default_out_of_sample(&study, &prices).map(Arc::new))
@@ -282,14 +302,20 @@ fn run(state: &AppState, plan: &Plan, job: &Job) -> Outcome {
     let profiles = if plan.source == Source::Yahoo {
         job.detail("Load company descriptions");
         let symbols = profile_symbols(&study);
-        state.caches.profiles.get_or_insert_with(symbols.clone(), || {
-            Arc::new(fetch_company_profiles(&state.sources, &symbols, state.profile_timeout))
-        })
+        let cancelled = || job.is_cancelled();
+        let fetched = state.caches.profiles.get_or_try(symbols.clone(), || {
+            fetch_company_profiles(&state.sources, &symbols, state.profile_timeout, &cancelled).map(Arc::new).ok_or(())
+        });
+        match fetched {
+            Ok(profiles) => profiles,
+            Err(()) => return Outcome::Cancelled,
+        }
     } else {
         Arc::new(IndexMap::new())
     };
     let coverage = loaded.map(|universe| Arc::new(universe.coverage.clone()));
     let applied = Applied {
+        id: Applied::next_id(),
         prices: Arc::new(prices),
         metadata,
         selection: study,
@@ -366,6 +392,9 @@ fn fit(
         );
     }
     let benchmark_prices = comparison_prices(state, plan, metadata, &prices, embedded, universe_benchmarks);
+    if job.is_cancelled() {
+        return Ok(None);
+    }
     let key = selection_key(&prices, benchmark_prices.as_ref(), &plan.settings, plan.target_volatility, MODEL_REVISION);
     let options = SelectionOptions {
         target_volatility: plan.target_volatility,
@@ -390,7 +419,8 @@ fn fetch_universe(state: &AppState, plan: &Plan, job: &Job) -> Result<Arc<Univer
         let mut progress = |done: usize, total: usize, message: &str| {
             job.bar(done as f64 / total.max(1) as f64, message);
         };
-        state.sources.universe_prices(plan.market, plan.start, plan.end, &mut progress).map(Arc::new)
+        let cancelled = || job.is_cancelled();
+        state.sources.universe_prices(plan.market, plan.start, plan.end, &mut progress, &cancelled).map(Arc::new)
     })
 }
 
@@ -503,11 +533,13 @@ fn profile_symbols(study: &SelectionStudy) -> Vec<String> {
 /// Profiles that miss the deadline are left out and the remaining symbols are
 /// not requested. A worker that is still waiting finishes in the background and
 /// its answer is ignored. A failed profile is empty; it never stops the study.
+/// `None` when the build is cancelled, so that no partial set is cached.
 pub fn fetch_company_profiles(
     sources: &Arc<dyn Sources>,
     symbols: &[String],
     timeout: Duration,
-) -> IndexMap<String, CompanyProfile> {
+    cancelled: Cancelled,
+) -> Option<IndexMap<String, CompanyProfile>> {
     let queue = Arc::new(Mutex::new(symbols.iter().cloned().collect::<VecDeque<_>>()));
     let stop = Arc::new(AtomicBool::new(false));
     let (sender, receiver) = mpsc::channel();
@@ -526,16 +558,18 @@ pub fn fetch_company_profiles(
     drop(sender);
     let deadline = Instant::now() + timeout;
     let mut profiles = IndexMap::new();
-    while profiles.len() < symbols.len() {
-        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+    while profiles.len() < symbols.len() && !cancelled() {
+        let wait = deadline.saturating_duration_since(Instant::now()).min(CANCEL_POLL);
+        match receiver.recv_timeout(wait) {
             Ok((symbol, profile)) => {
                 profiles.insert(symbol, profile);
             }
+            Err(RecvTimeoutError::Timeout) if Instant::now() < deadline => {}
             Err(_) => break,
         }
     }
     stop.store(true, Ordering::Relaxed);
-    profiles
+    (!cancelled()).then_some(profiles)
 }
 
 #[cfg(test)]

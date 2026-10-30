@@ -203,6 +203,14 @@ body.pl-drawer-open{overflow:hidden}
 .pl-table tbody tr:last-child>*{border-bottom:0}
 .pl-table .pl-r{text-align:right}
 .pl-table input[type=checkbox]{margin:0;accent-color:var(--pl-ink)}
+/* The input prices: app.js keeps only the visible rows and columns in the page, so every row
+   has one fixed height and every column one fixed width (set by app.js). */
+.pl-vtable table{table-layout:fixed;min-width:100%}
+.pl-vtable :is(th,td){max-width:none;height:33px;padding:0 12px;line-height:32px}
+.pl-vtable tbody th,.pl-vtable thead th:first-child{position:sticky;left:0;z-index:1;background:#fff}
+.pl-vtable thead th:first-child{z-index:2;background:#f5f5f7}
+.pl-vtable .pl-vgap{padding:0}
+.pl-vtable tr.pl-vspacer td{height:auto;padding:0;border:0;line-height:0}
 /* Report fragments with their own tables, such as the frontier summary */
 #tile_fitted_frontier .scroll{overflow-x:auto}
 #tile_fitted_frontier table:not(.pl-table){width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}

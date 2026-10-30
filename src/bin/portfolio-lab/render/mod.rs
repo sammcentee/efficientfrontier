@@ -46,8 +46,8 @@ pub fn page(session: &Session, today: Date) -> String {
     let busy = session.job.is_some();
     let current = applied.is_some_and(Applied::is_current);
     let mut body = String::new();
-    if applied.is_some() && !busy {
-        body.push_str(&nav(session.view, current));
+    if let Some(applied) = applied.filter(|_| !busy) {
+        body.push_str(&nav(session.view, current.then_some(applied.id)));
     }
     let (kind, main) = match (&session.job, applied) {
         (Some(job), _) => ("work", work(job)),
@@ -113,8 +113,8 @@ pub fn settings_button(style: &str) -> String {
     )
 }
 
-/// The sticky bar: wordmark, view switch, Settings and Export.
-fn nav(view: View, current: bool) -> String {
+/// The sticky bar: wordmark, view switch, Settings, and Export when `export` names a current result.
+fn nav(view: View, export: Option<u64>) -> String {
     let segments: String = View::ALL
         .iter()
         .map(|option| {
@@ -126,14 +126,14 @@ fn nav(view: View, current: bool) -> String {
             )
         })
         .collect();
-    let export = if current {
-        format!(
-            r#"<a class="pl-btn pl-btn-primary" id="export" href="/export" download="portfolio-lab.zip" data-export title="One zip file. The report opens offline and prints to PDF.">{}<span>Export</span><kbd>E</kbd></a>"#,
-            icon::SHARE
-        )
-    } else {
-        String::new()
-    };
+    let export = export
+        .map(|id| {
+            format!(
+                r#"<a class="pl-btn pl-btn-primary" id="export" href="/export?result={id}" download="portfolio-lab.zip" data-export title="One zip file. The report opens offline and prints to PDF.">{}<span>Export</span><kbd>E</kbd></a>"#,
+                icon::SHARE
+            )
+        })
+        .unwrap_or_default();
     format!(
         r#"<header class="pl-nav" id="localnav"><div class="pl-nav-inner"><span class="pl-wordmark">{PAGE_TITLE}</span><form class="pl-view-switch" method="post" action="/view" role="group" aria-label="View">{segments}</form>{}{export}</div></header>"#,
         settings_button("pl-btn-outline")
