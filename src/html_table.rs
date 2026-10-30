@@ -14,7 +14,7 @@ use crate::pyfmt;
 
 /// Options of [`to_html`]. [`Default`] is the pandas default:
 /// `index=True, escape=True, border=1, classes=None`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct HtmlOptions<'a> {
     /// Write the index as `<th>` cells.
     pub index: bool,
@@ -24,19 +24,21 @@ pub struct HtmlOptions<'a> {
     pub border: u32,
     /// Classes after `dataframe`, separated by spaces.
     pub classes: Option<&'a str>,
+    /// pandas `float_format`: formats every value of a float column; NaN stays `NaN`.
+    pub float_format: Option<fn(f64) -> String>,
 }
 
 impl Default for HtmlOptions<'_> {
     fn default() -> Self {
-        Self { index: true, escape: true, border: 1, classes: None }
+        Self { index: true, escape: true, border: 1, classes: None, float_format: None }
     }
 }
 
 impl HtmlOptions<'static> {
     /// `escape=True, border=0, classes="data"`: the options of every report table.
-    pub const REPORT: Self = Self { index: true, escape: true, border: 0, classes: Some("data") };
+    pub const REPORT: Self = Self { index: true, escape: true, border: 0, classes: Some("data"), float_format: None };
     /// [`HtmlOptions::REPORT`] with `index=False`.
-    pub const REPORT_NO_INDEX: Self = Self { index: false, escape: true, border: 0, classes: Some("data") };
+    pub const REPORT_NO_INDEX: Self = Self { index: false, ..Self::REPORT };
 }
 
 /// `frame.to_html(escape=True, border=0, classes="data")`.
@@ -82,7 +84,20 @@ pub fn to_html(table: &Table, options: &HtmlOptions) -> String {
     }
     lines.push("  </thead>".into());
 
-    let values: Vec<Vec<String>> = table.data.iter().map(|column| format_column(column, options.index)).collect();
+    let values: Vec<Vec<String>> = table
+        .data
+        .iter()
+        .map(|column| match options.float_format {
+            Some(format) if kind(column) == Kind::Float => column
+                .iter()
+                .map(|cell| match cell.as_f64() {
+                    Some(value) if !value.is_nan() => format(value),
+                    _ => "NaN".to_string(),
+                })
+                .collect(),
+            _ => format_column(column, options.index),
+        })
+        .collect();
     let labels: Vec<Vec<String>> = table.index.iter().map(|level| format_column(level, false)).collect();
     let spans = if levels > 1 { row_spans(&labels) } else { Vec::new() };
     lines.push("  <tbody>".into());
