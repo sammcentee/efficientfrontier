@@ -29,7 +29,7 @@ const WOFF2: &str = "font/woff2";
 
 macro_rules! file {
     ($path:literal, $type:expr) => {
-        Asset { path: $path, content_type: $type, body: include_bytes!(concat!("../../../assets/", $path)) }
+        Asset { path: $path, content_type: $type, body: include_bytes!(concat!("../../assets/", $path)) }
     };
 }
 

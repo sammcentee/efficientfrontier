@@ -370,7 +370,7 @@
     }
   });
 
-  /** Export: download the zip, or show the server's message when the export fails. */
+  /** Export and other downloads: save the file, or show the server's message when the download fails. */
   async function exportReport(link) {
     if (link.dataset.busy) return;
     link.dataset.busy = "1";
@@ -380,6 +380,8 @@
         window.location.assign(link.href);
         return;
       }
+      // The desktop app asks where to save the file, then answers "204 No Content".
+      if (response.status === 204) return;
       const url = URL.createObjectURL(await response.blob());
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -396,7 +398,7 @@
   }
 
   document.addEventListener("click", (event) => {
-    const link = event.target.closest("a[data-export]");
+    const link = event.target.closest("a[download]");
     if (!link) return;
     event.preventDefault();
     exportReport(link);

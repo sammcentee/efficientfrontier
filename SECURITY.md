@@ -10,7 +10,7 @@ If the private form is unavailable, open an issue asking for a private reporting
 
 ## Local use and data handling
 
-The default server binds to `127.0.0.1` and collects no usage statistics. It is not configured as a public service: do not expose a shared instance or upload other people's private data without adding appropriate access controls and reviewing session/cache behavior. A session cookie (`HttpOnly`, `SameSite=Strict`) identifies each browser. The server keeps the study of each browser in memory until the server stops.
+The desktop app opens no network port. Its window gets each page from the program through a custom protocol, and the program refuses posts from pages of other origins. Links to other sites open in the default browser, not in the app's window. The app collects no usage statistics. It keeps the study in memory until you close the window. It is not a public service: do not make a shared instance of it or upload other people's private data without access controls and a review of session/cache behavior.
 
 The synthetic demo runs without a market-data network request. CSV analysis stays offline unless the user enables the benchmark download. A study from Yahoo Finance sends the requested symbols and dates directly to Yahoo. The user must have authorization for this access. The repository contains no API credentials or broker/trading integration.
 

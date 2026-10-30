@@ -1,0 +1,31 @@
+[package]
+name = "portfolio-lab"
+version = "2.0.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Portfolio Lab: the desktop app of the efficient frontier study"
+license = "MIT"
+repository = "https://github.com/sammcentee/efficientfrontier"
+publish = false
+
+[dependencies]
+axum = { version = "0.8.9", features = ["multipart"] }
+chrono = "0.4.45"
+efficient-frontier = { path = ".." }
+indexmap = "2.14.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tauri = { version = "2.11.6", features = ["custom-protocol"] }
+tauri-plugin-dialog = "2.7.3"
+tauri-plugin-opener = "2.7.2"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tower = { version = "0.5.3", features = ["util"] }
+
+[build-dependencies]
+tauri-build = "2.6.3"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+ureq = { version = "3.5.0", features = ["json"] }
+zip = "9.1.3"

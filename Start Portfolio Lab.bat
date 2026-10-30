@@ -11,9 +11,9 @@ if errorlevel 1 (
   set "portfolio_exit=1"
   goto finish
 )
-echo Portfolio Lab - starting your local dashboard
+echo Portfolio Lab - starting the desktop app
 echo The first start compiles the app. It needs internet and can take a few minutes.
-cargo run --release --locked --bin portfolio-lab -- %*
+cargo run --release --locked -p portfolio-lab -- %*
 set "portfolio_exit=%errorlevel%"
 :finish
 if not "%portfolio_exit%"=="0" (

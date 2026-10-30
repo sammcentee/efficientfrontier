@@ -16,23 +16,25 @@ The default branch is `main`. The owner authorized public source publication on 
 Run these commands from a fresh clone with the current stable Rust toolchain:
 
 ```bash
-cargo fmt --check
+cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+cargo clippy --locked -p portfolio-lab --all-targets -- -D warnings
+cargo test --locked -p portfolio-lab
 cargo test --locked --test network_live -- --ignored
 cargo run --release --locked --bin efficient-frontier -- --output results/release-check
 cargo run --release --locked --bin efficient-frontier -- --target-volatility .20 --max-weight .20 --output results/release-check-model
 bash run.sh
 ```
 
-The live network tests need internet access. Confirm that CI passes on the intended `main` commit, the app shows the synthetic-data label, and the generated report opens offline. Test a CSV upload and download, including a repeat analysis after changing settings. Review the financial assumptions and known covariance degeneracy in the README.
+The live network tests need internet access. Confirm that CI passes on the intended `main` commit, including the window tests on Ubuntu and Windows. Open the programs from the CI artifacts on Windows and Linux. Confirm that the app shows the synthetic-data label and that the generated report opens offline. Test a CSV upload and download, including a repeat analysis after changing settings. Review the financial assumptions and known covariance degeneracy in the README.
 
-If you replace a file in `assets/plotly/` or `assets/katex/`, update its license file and its version in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). If you add or remove a direct dependency in `Cargo.toml`, update the table of Rust dependencies in that file. Preserve notices in the standalone HTML and report ZIP.
+If you replace a file in `assets/plotly/` or `assets/katex/`, update its license file and its version in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). If you add or remove a direct dependency in `Cargo.toml` or `desktop/Cargo.toml`, update the table of Rust dependencies in that file. Preserve notices in the standalone HTML and report ZIP.
 
 ## When the owner is ready
 
 1. Make the repository public in GitHub settings after the checks above and the owner's explicit decision to publish.
-2. Choose a release version. Write it in the `version` field of `Cargo.toml`.
+2. Choose a release version. Write it in the `version` fields of `Cargo.toml`, `desktop/Cargo.toml`, and `desktop/tauri.conf.json`.
 3. Run `cargo update --workspace`. This command writes the new version into `Cargo.lock`. The launchers use `--locked`, so they stop when `Cargo.lock` does not agree with `Cargo.toml`.
 4. Do the checks above again. Commit `Cargo.toml`, `Cargo.lock`, and a record of the changes.
 5. Create an annotated tag on the verified commit, for example `git tag -a v2.0.0 -m "Version 2.0.0"`. Push the tag with `git push origin v2.0.0`.
@@ -41,4 +43,4 @@ If you replace a file in `assets/plotly/` or `assets/katex/`, update its license
 
 No automation creates a version tag or a GitHub release. Steps 5 and 6 create them.
 
-GitHub visibility and a hosted application are separate decisions. The app currently binds to localhost; public hosting needs its own deployment configuration and a review of data uploads, downloads and access controls.
+GitHub visibility and a hosted application are separate decisions. The app is a desktop program without a network port. A hosted service needs its own deployment configuration and a review of data uploads, downloads and access controls.

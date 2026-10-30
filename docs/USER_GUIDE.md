@@ -4,42 +4,31 @@ Start with the [README quick start](../README.md#setup). This guide covers setup
 
 ## Setup and troubleshooting
 
-Install the Rust toolchain with rustup from https://rustup.rs before the first start. Rust also needs a C compiler and linker:
+The ready-made programs need no installation. The [README](../README.md#ready-made-programs) tells where to download them.
+
+To build from source, install the Rust toolchain with rustup from https://rustup.rs before the first start. Rust also needs a C compiler and linker, and Linux needs WebKitGTK 4.1 for the window:
 
 - Windows: the Microsoft C++ build tools, with "Desktop development with C++". The rustup installer offers them.
 - macOS: the Xcode Command Line Tools. Run `xcode-select --install` in Terminal.
-- Linux and WSL: a C compiler and linker, for example the `build-essential` or `base-devel` package.
+- Linux: a C compiler and WebKitGTK 4.1. On Debian or Ubuntu, run `sudo apt install build-essential libwebkit2gtk-4.1-dev`. On Arch, run `sudo pacman -S --needed base-devel webkit2gtk-4.1`.
 
-The launchers run `cargo run --release --locked --bin portfolio-lab` with your arguments. The first start downloads the dependencies and compiles the app. It needs internet access and takes a few minutes. Later starts are fast. After an update of the repository, the next start compiles the changes.
+The launchers run `cargo run --release --locked -p portfolio-lab`. The first start downloads the dependencies and compiles the app. It needs internet access and takes a few minutes. Later starts are fast. After an update of the repository, the next start compiles the changes.
 
-The launchers open a browser tab. The app binds to `127.0.0.1` and prints its Local URL. The app collects no usage statistics. Keep the launcher window open while you use the app. Press **Ctrl+C** there to stop it. The server stays active after you close the browser tab.
-
-The app keeps one study for each browser, with a session cookie. All tabs of one browser share that study. A page reload keeps the study. The server keeps the studies in memory until it stops.
+The app opens its own window. The window's web view (WebView2 on Windows, WebKitGTK on Linux) shows the pages, and the program makes them without a network port. The app collects no usage statistics. Close the window to stop the app. The app keeps the study in memory until you close it. **Export** and **Download prices.csv** open a Save dialog. Links to company profiles open in your default browser.
 
 | Problem | Action |
 | --- | --- |
+| Windows SmartScreen says that it prevented an unrecognized app from starting | The programs have no code signature. Select **More info**, then **Run anyway**. |
+| Windows says that the WebView2 Runtime is missing | Install the Evergreen WebView2 Runtime from Microsoft. Windows 11 includes it. |
+| The AppImage does not start | Make the file executable with `chmod +x`. If the system has no FUSE 2, start it with `--appimage-extract-and-run`. |
 | The launcher says that Portfolio Lab needs the Rust toolchain | Install Rust from https://rustup.rs. Then open the launcher again. |
 | The first build stopped during a download | Check your internet connection. Then open the launcher again. |
 | The build reports that the linker `cc` or `link.exe` is not found | Install the C compiler and linker for your system, as above. Then open the launcher again. |
+| The Linux build reports that `webkit2gtk-4.1` was not found | Install WebKitGTK 4.1, as above. Then open the launcher again. |
 | The launcher window closes immediately | Extract the whole ZIP first. Keep its files together. |
 | macOS says the `.command` file is not executable | Open Terminal. Type `bash `, drag `Start Portfolio Lab.command` into the window, then press Enter. |
-| No browser tab opens | Visit `http://localhost:8501` or the Local URL from the launcher. |
-| VS Code Remote/WSL cannot reach the app | Forward port 8501 from the Ports panel. |
-| The app reports that it could not use port 8501 | Stop the earlier launcher with Ctrl+C. Or start with `--port 8502` and use the new Local URL. |
 
-For a background or remote session, run:
-
-```bash
-bash run.sh --headless
-```
-
-With `--headless`, the app does not open a browser. `--port <n>` sets the local port. The default port is 8501. To start the app without a launcher, run the launcher command from the project folder:
-
-```bash
-cargo run --release --locked --bin portfolio-lab -- --headless --port 8502
-```
-
-The synthetic demo and CSV analysis work offline after the first build. Yahoo prices, the Nasdaq-100 list, SPY holdings, company profiles, and the QQQ reference need internet access. The app keeps these downloads in memory for one hour. CI tests the Rust version on Linux. Native Windows and macOS startup of the Rust version still need verification.
+The synthetic demo and CSV analysis work offline. Yahoo prices, the Nasdaq-100 list, SPY holdings, company profiles, and the QQQ reference need internet access. The app keeps these downloads in memory for one hour. CI builds and tests the window on Ubuntu and Windows. macOS is not tested.
 
 ## Settings and workflow
 

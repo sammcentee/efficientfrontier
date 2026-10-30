@@ -2,8 +2,7 @@
 //!
 //! [`Fake`] replaces the network, as the Python tests patch the download
 //! functions. A test client keeps the session cookie and follows builds through
-//! `/api/job`. Tests that need the report functions (the reports branch) or the
-//! network modules (the network branch) are ignored until those merges.
+//! `/api/job`. The last tests send the window's requests through the bridge.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -20,6 +19,7 @@ use efficient_frontier::{dict, io_error, value_error};
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
+use crate::bridge::{Bridge, Forwarded, webview_request};
 use crate::build::Applied;
 use crate::render::overview::budget_note;
 use crate::routes::OLDER_STUDY;
@@ -1989,4 +1989,69 @@ async fn draft_checks_compare_file_digests_without_file_bytes() {
         let fields: Vec<(&str, &str)> = fields.iter().map(|(name, value)| (*name, value.as_str())).collect();
         assert_eq!(app.differs(&fields, &[]).await, expected, "{fields:?}");
     }
+}
+
+// ----------------------------------------------------------------------------- the window's protocol
+
+/// A request of the window's web view, through the bridge. A download panics.
+async fn through_window(bridge: &Bridge, method: Method, path: &str, headers: &[(&str, &str)], body: Vec<u8>) -> Reply {
+    match bridge.forward(webview_request(method, path, headers, body)).await {
+        Forwarded::Page(response) => Reply {
+            status: response.status(),
+            headers: response.headers().clone(),
+            body: String::from_utf8_lossy(response.body()).into_owned(),
+        },
+        Forwarded::Download(download) => panic!("{path} offered {} for download", download.name),
+    }
+}
+
+#[tokio::test]
+async fn the_window_builds_a_demo_study_and_gets_its_report_as_a_download() {
+    let mut state = AppState::new(Arc::new(Fake::default()));
+    state.clock = today;
+    let bridge = Bridge::new(crate::routes::router(Arc::new(state)));
+    let own = if cfg!(windows) { "http://app.localhost" } else { "app://localhost" };
+    let load = [("sec-fetch-mode", "navigate"), ("sec-fetch-site", "none")];
+    let script = [("sec-fetch-mode", "cors"), ("sec-fetch-site", "same-origin")];
+
+    let start = through_window(&bridge, Method::GET, "/", &load, Vec::new()).await;
+    assert_eq!(start.status, StatusCode::OK);
+    assert!(start.body.contains("Efficient Frontier Analysis for US Equities"));
+    assert!(start.headers.get(header::SET_COOKIE).is_none(), "the bridge keeps the session cookie");
+
+    let content_type = format!("multipart/form-data; boundary={BOUNDARY}");
+    let post = [
+        ("sec-fetch-mode", "navigate"),
+        ("sec-fetch-site", "same-origin"),
+        ("origin", own),
+        ("content-type", content_type.as_str()),
+    ];
+    let form = multipart(&[("form", "drawer"), ("market", "Demo"), ("cap", "20")], &[]);
+    let posted = through_window(&bridge, Method::POST, "/build", &post, form.clone()).await;
+    assert_eq!(posted.status, StatusCode::OK, "a page that loads the start page");
+    assert!(posted.body.contains("url=/\""), "{}", posted.body);
+
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let job = through_window(&bridge, Method::GET, "/api/job", &script, Vec::new()).await;
+        if serde_json::from_str::<serde_json::Value>(&job.body).unwrap()["active"] == false {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the build did not finish");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let overview = through_window(&bridge, Method::GET, "/", &load, Vec::new()).await;
+    let export = overview.body.split("href=\"/export?result=").nth(1).and_then(|rest| rest.split('"').next());
+    let export = format!("/export?result={}", export.expect("an export link"));
+    match bridge.forward(webview_request(Method::GET, &export, &script, Vec::new())).await {
+        Forwarded::Download(download) => {
+            assert_eq!(download.name, "portfolio-lab.zip");
+            assert!(download.bytes.starts_with(b"PK"), "a zip file");
+        }
+        Forwarded::Page(response) => panic!("the export answered {}", response.status()),
+    }
+
+    let foreign = [("sec-fetch-mode", "navigate"), ("sec-fetch-site", "cross-site"), ("origin", "https://example.com")];
+    let refused = through_window(&bridge, Method::POST, "/build", &[&foreign[..], &post[3..]].concat(), form).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
 }
