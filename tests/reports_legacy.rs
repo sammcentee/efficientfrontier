@@ -872,3 +872,125 @@ fn demo_export_inputs_reproduce_equity_and_cash_paths() {
         assert!((total - study.study.metrics.f64_at(name, "total_return")).abs() < 1e-12);
     }
 }
+
+#[test]
+fn report_uses_configured_annualization_and_preserves_risk_numbers() {
+    let mut analysis = report_analysis();
+    analysis.periods_per_year = 12.0;
+    let empty = Frame::from_columns(Vec::new(), Vec::new());
+    let files =
+        unzip(&report_zip(&analysis, &empty, &dict! {"annualization_days" => 252}, &ReportParts::default()).unwrap());
+    let metadata: Value = serde_json::from_str(&files["metadata.json"]).unwrap();
+    assert_eq!(
+        (metadata["periods_per_year"].as_f64(), metadata["annualization_days"].as_f64()),
+        (Some(12.0), Some(12.0))
+    );
+    let document = &files["report.html"];
+    assert!(document.contains("12 observations per year") && !document.contains("252 trading days"));
+    assert!(document.contains("<th>Sortino</th>") && document.contains("<td>1.250</td>"));
+    assert!(document.contains("<th>Calmar</th>") && document.contains("<td>2.500</td>"));
+    let summary = efficient_frontier::risk::risk_summary(&analysis);
+    assert!((summary.f64_at("Minimum volatility", "max_weight") - 0.6).abs() < 1e-12);
+    assert!((summary.f64_at("Minimum volatility", "effective_holdings") - 1.0 / 0.52).abs() < 1e-12);
+    assert!((summary.f64_at("Minimum volatility", "diversification_ratio") - 0.24 / 0.0336_f64.sqrt()).abs() < 1e-12);
+    assert_eq!(files["risk_summary.csv"], summary.to_csv(None));
+    let contributions = efficient_frontier::risk::risk_contributions(&analysis);
+    assert!(contributions.f64s("Minimum volatility").iter().all(|share| (share - 0.5).abs() < 1e-12));
+    assert!(document.contains("Share of portfolio variance"));
+    assert!(document.contains("Negative shares") && document.contains("portfolio variance is zero"));
+}
+
+#[test]
+fn risk_tables_escape_labels_and_display_undefined_values() {
+    let label = "<img src=x onerror=\"risk()\">";
+    let mut analysis = report_analysis();
+    analysis.portfolios.get_mut("Minimum volatility").unwrap().weights.labels[0] = label.into();
+    analysis.mean_returns.labels[0] = label.into();
+    analysis.covariance = LabeledMatrix::square(vec![label.into(), "BBB".into()], DMatrix::zeros(2, 2));
+    let document = report_html(&analysis, &Dict::new(), &ReportParts::default(), None).unwrap();
+    let risk = document.split("<h2>Concentration and risk</h2>").nth(1).unwrap();
+    let risk = risk.split("<h2>Realized holdout results</h2>").next().unwrap();
+    assert!(!risk.contains(label) && risk.contains("&lt;img src=x onerror="));
+    assert_eq!(risk.matches("<td>—</td>").count(), 3);
+    assert!(risk.contains("<td>60.00%</td>"));
+}
+
+#[test]
+fn optional_weakest_window_report_keeps_its_objective() {
+    let prices = efficient_frontier::data::demo_prices();
+    let options = ProfileOptions { return_objective: ReturnObjective::WorstWindow, ..Default::default() };
+    let profiles = build_profiles(&prices, &options).unwrap();
+    let parts = ReportParts { latest_profiles: Some(&profiles), ..Default::default() };
+    let document = report_html(&report_analysis(), &Dict::new(), &parts, None).unwrap();
+    let section =
+        document.split("<section id=\"latest-profiles\">").nth(1).unwrap().split("</section>").next().unwrap();
+    assert!(section.contains("define the weakest-window fit"));
+    assert!(section.contains("midpoint of this return range, not the midpoint of volatility"));
+    assert!(section.contains("Weakest-window frontier"));
+    assert!(!section.contains("diagnostics, not optimization targets"));
+}
+
+#[test]
+fn report_shows_escaped_stale_price_notes_beside_proposed_holdings() {
+    let label = "<script>alert(\"stale\")</script>";
+    let dates: Vec<Date> = (0..45)
+        .map(|i| day("2024-01-01") + chrono::Days::new(i))
+        .filter(|date| chrono::Datelike::weekday(date).number_from_monday() <= 5)
+        .take(31)
+        .collect();
+    let rising: Vec<f64> = (0..31).map(|i| 100.0 + 10.0 * i as f64 / 30.0).collect();
+    let prices = Frame::from_columns(dates, vec![(label.into(), vec![100.0; 31]), ("BBB".into(), rising)]);
+    let saved = prices.clone();
+    let notes = efficient_frontier::data::stale_price_notes(&prices);
+    assert!(!notes.is_empty());
+    let demo = efficient_frontier::data::demo_prices();
+    let profiles = build_profiles(&demo, &ProfileOptions::default()).unwrap();
+    let parts = ReportParts { latest_profiles: Some(&profiles), ..Default::default() };
+    let document = report_html(&report_analysis(), &Dict::new(), &parts, Some(&prices)).unwrap();
+    let summary = document.split("<section id=\"summary\">").nth(1).unwrap().split("</section>").next().unwrap();
+    assert!(summary.find("Latest proposed holdings") < summary.find("Price checks"));
+    for note in &notes {
+        assert!(summary.contains(&efficient_frontier::pyfmt::escape(note)));
+    }
+    assert!(!summary.contains(label));
+    assert_eq!(prices, saved);
+}
+
+#[test]
+fn report_discloses_an_unavailable_profile_before_fallback_details() {
+    let case = comparison();
+    let options =
+        BacktestOptions { train_fraction: 0.6, rebalance_every: 40, rolling_window: Some(80), ..Default::default() };
+    let study = run_backtests(&case.prices, &options).unwrap();
+    assert_eq!(study.equity.ncols(), 12);
+    let parts = ReportParts {
+        study: Some(&study),
+        latest_profiles: Some(&case.profiles),
+        benchmarks: Some(&case.benchmarks),
+        selected_profile: Some("Extreme"),
+        selected_method: Some("Expanding window"),
+        ..Default::default()
+    };
+    let document = report_html(&case.analysis, &Dict::new(), &parts, None).unwrap();
+    let summary = document.split("<section id=\"summary\">").nth(1).unwrap().split("</section>").next().unwrap();
+    assert!(summary.contains(&story::decision_panel_html(
+        &study,
+        "Expanding window · Extreme",
+        Some(&case.benchmarks)
+    )));
+    assert!(summary.contains("The requested Highest profile was not included in this backtest."));
+    assert!(summary.contains("The detailed result below shows Expanding window · Minimum volatility."));
+}
+
+#[test]
+fn omitted_market_comparison_is_explicit_without_fabricated_references() {
+    let case = comparison();
+    let metadata = dict! {
+        "source" => "Synthetic demo", "benchmarks_note" => "No market comparison for synthetic prices.",
+        "evidence_note" => "No statistical inference without market benchmarks.",
+    };
+    let document = report_html(&case.analysis, &metadata, &ReportParts::default(), None).unwrap();
+    assert!(document.contains("No market comparison for synthetic prices."));
+    assert!(document.contains("No statistical inference without market benchmarks."));
+    assert!(!document.contains("id=\"benchmarks\""));
+}
