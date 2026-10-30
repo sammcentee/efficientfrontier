@@ -1,7 +1,5 @@
 //! HTML tables in the format of `pandas.DataFrame.to_html` (pandas 3.0.6).
 //!
-//! Owner: reports agent.
-//!
 //! The output keeps the pandas layout: two-space indentation, a right-aligned
 //! header row, an optional row of index names, `rowspan` cells for repeated
 //! outer labels of a multi-level index, and the pandas value formats. Floats

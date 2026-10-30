@@ -1,6 +1,6 @@
 //! Current company identities for display, separate from portfolio price data.
 //!
-//! Port of `efficient_frontier/companies.py`.
+//! Port of `efficient_frontier/companies.py` in the Python release (commit 6c6df6e).
 
 use std::time::Duration;
 

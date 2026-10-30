@@ -1,4 +1,5 @@
-//! Server-rendered pages: the port of the page half of `app.py`.
+//! Server-rendered pages: the port of the page half of `app.py`, the Streamlit
+//! app of the Python release (commit 6c6df6e).
 //!
 //! [`page`] chooses the view as the bottom of `app.py` does: the work card while
 //! a build runs, the stale-model notice, the landing or error page, then the

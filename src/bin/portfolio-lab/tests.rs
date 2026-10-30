@@ -244,7 +244,7 @@ impl Sources for Fake {
             gate.wait();
         }
         if self.universe_panics {
-            todo!("network merge: universe::download_universe_prices")
+            todo!("simulated universe download failure")
         }
         let loaded = self.universe.clone().ok_or_else(blocked)?;
         progress(13, 13, "All fixture securities checked");
@@ -285,7 +285,7 @@ impl Sources for Fake {
     fn qqq_reference(&self) -> Result<QqqReference> {
         self.log("qqq".into());
         if self.qqq_panics {
-            todo!("network merge: risk_reference::load_qqq_volatility_reference")
+            todo!("simulated QQQ reference failure")
         }
         self.qqq.clone()
     }

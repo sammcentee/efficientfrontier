@@ -1,6 +1,6 @@
 //! Charts and portable reports for the legacy classic analysis.
 //!
-//! Port of `efficient_frontier/presentation.py`. Owner: reports agent.
+//! Port of `efficient_frontier/presentation.py` in the Python release (commit 6c6df6e).
 //! `csv_text` is [`crate::frame::Table::to_csv`] and [`crate::frame::Frame::to_csv`].
 //!
 //! Charts in the exported report use fixed element ids instead of random ones:

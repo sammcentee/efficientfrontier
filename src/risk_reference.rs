@@ -1,7 +1,8 @@
 //! A current Nasdaq-100 risk reference from QQQ adjusted daily closes.
 //!
-//! Port of `efficient_frontier/risk_reference.py`. The app uses QQQ's trailing
-//! one-year volatility as its starting volatility budget.
+//! Port of `efficient_frontier/risk_reference.py` in the Python release
+//! (commit 6c6df6e). The app uses QQQ's trailing one-year volatility as its
+//! starting volatility budget.
 
 use chrono::{DateTime, Days, Months, NaiveTime, Utc};
 use chrono_tz::America::New_York;
