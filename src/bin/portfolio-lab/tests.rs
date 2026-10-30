@@ -694,7 +694,6 @@ async fn demo_build_is_offline_with_an_explicit_feasible_cap() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn demo_holdings_name_simulated_assets() {
     let mut app = demo_app().await;
     let page = app.page().await;
@@ -729,7 +728,6 @@ async fn overview_orders_its_tiles_and_keeps_details_closed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn overview_shows_one_test_and_separate_latest_weights() {
     let mut app = demo_app().await;
     let page = app.page().await;
@@ -814,7 +812,6 @@ async fn mathematical_definitions_use_rendered_latex_and_applied_limits() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn out_of_sample_section_precedes_replay_and_matches_walk_forward() {
     let mut app = TestApp::new(Fake::universe());
     app.page().await;
@@ -852,7 +849,6 @@ async fn short_history_explains_missing_walk_forward() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn short_history_export_says_why_out_of_sample_is_missing() {
     let prices = first_rows(&market_prices(), 20);
     let benchmarks = benchmark_prices(&prices.index);
@@ -866,7 +862,6 @@ async fn short_history_export_says_why_out_of_sample_is_missing() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn short_daily_windows_are_described_in_less_than_a_month() {
     let prices = first_rows(&market_prices(), 64);
     let benchmarks = benchmark_prices(&prices.index);
@@ -902,7 +897,6 @@ async fn qqq_default_budget_is_named_as_later_information() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn qqq_default_budget_note_is_in_the_walk_forward_caption() {
     let mut app = TestApp::new(Fake::universe());
     app.page().await;
@@ -912,7 +906,6 @@ async fn qqq_default_budget_note_is_in_the_walk_forward_caption() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn visible_replay_diagnosis_reconciles_the_saved_initial_allocation() {
     let mut app = TestApp::new(Fake::universe());
     app.page().await;
@@ -966,7 +959,6 @@ async fn combined_coverage_and_latest_holdings_preserve_every_input() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn combined_holdings_cards_show_company_profiles() {
     let mut app = TestApp::new(Fake::universe());
     app.page().await;
@@ -1029,7 +1021,6 @@ async fn partial_market_prices_keep_available_comparison_and_name_missing_etf() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn partial_market_prices_are_named_on_data_and_method() {
     let mut universe = universe_fixture();
     universe.benchmarks = universe.benchmarks.map(|frame| frame.select(&["SPY"]).unwrap());
@@ -1389,7 +1380,6 @@ async fn csv_frequency_reaches_later_test_without_resampling() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn export_is_deferred_and_captures_completed_selection_not_draft() {
     let mut app = demo_app().await;
     assert!(app.differs(&[("target_vol", "25")], &[]).await);
@@ -1612,7 +1602,6 @@ async fn data_method_is_passive_and_shows_only_the_completed_model() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs reports merge"]
 async fn data_method_names_the_comparisons_and_checks() {
     let mut app = demo_app().await;
     app.form("/view", &[("view", "Data & method")]).await;

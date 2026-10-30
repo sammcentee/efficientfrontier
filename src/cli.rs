@@ -9,18 +9,18 @@ use std::path::{Path, PathBuf};
 
 use clap::{ArgGroup, Parser};
 
-use crate::backtest::{self, BacktestStudy};
+use crate::backtest;
 use crate::benchmarks::{self, BenchmarkComparison};
 use crate::core::{self, Analysis};
 use crate::error::Result;
-use crate::evidence::{self, EvidenceAnalysis};
+use crate::evidence;
 use crate::frame::{Cell, Date, Frame, Table};
-use crate::profiles::{self, ProfileAnalysis};
+use crate::profiles;
 use crate::pyfmt::{self, Dict, Json};
 use crate::selection::{self, SelectionOptions};
 use crate::selection_report::{selection_metrics_frame, selection_report_zip};
 use crate::value_error;
-use crate::{data, historical, membership, universe};
+use crate::{benchmark_report, data, historical, historical_report, membership, presentation, universe};
 
 /// The command-line options. Help texts follow the Python release.
 #[derive(Clone, Debug, Parser)]
@@ -92,8 +92,8 @@ pub struct Args {
     #[arg(long)]
     pub shrinkage: Option<f64>,
     /// Observations per year: 252 trading days, 365 calendar days, 52 weeks, or 12 months; no resampling
-    #[arg(long, default_value_t = 252.0)]
-    pub periods_per_year: f64,
+    #[arg(long)]
+    pub periods_per_year: Option<f64>,
     /// Compare buy-and-hold, fixed rebalancing, expanding and rolling windows
     #[arg(long)]
     pub backtests: bool,
@@ -134,6 +134,8 @@ impl Settings {
 
 /// Every network download of the CLI. Tests replace these with offline fakes.
 pub trait Sources {
+    /// `fetch_sp500_nasdaq100()` or `fetch_nasdaq100()`, then `download_universe_prices`.
+    fn universe(&mut self, sp500_nasdaq100: bool, start: Date, end: Date) -> Result<universe::UniversePrices>;
     fn download_prices(&mut self, tickers: &[String], start: Date, end: Date) -> Result<Frame>;
     fn download_benchmarks(&mut self, dates: &[Date]) -> Result<Frame>;
     fn original_tickers(&mut self) -> Result<Vec<String>>;
@@ -144,6 +146,11 @@ pub trait Sources {
 pub struct LiveSources;
 
 impl Sources for LiveSources {
+    fn universe(&mut self, sp500_nasdaq100: bool, start: Date, end: Date) -> Result<universe::UniversePrices> {
+        let snapshot = if sp500_nasdaq100 { universe::fetch_sp500_nasdaq100()? } else { universe::fetch_nasdaq100()? };
+        universe::download_universe_prices(&snapshot, start, end, None)
+    }
+
     fn download_prices(&mut self, tickers: &[String], start: Date, end: Date) -> Result<Frame> {
         data::download_prices(tickers, start, end)
     }
@@ -282,53 +289,100 @@ pub fn shlex_join(parts: &[String]) -> String {
         .join(" ")
 }
 
-/// Text for `print(frame.round(4).to_string())`: an aligned console table.
+/// Text for `print(frame.round(decimals).to_string())`, laid out as pandas does.
+///
+/// Numeric headers and values get a leading sign space, float columns share the
+/// fewest decimals that keep every rounded value, columns are right-aligned
+/// and joined by one space, and every line is padded to the full width.
 pub fn console_table(table: &Table, decimals: usize) -> String {
     let rows = table.nrows();
-    let index_name = table.index_names.first().cloned().flatten().unwrap_or_default();
-    let labels: Vec<String> =
-        (0..rows).map(|i| table.index.iter().map(|level| level[i].py_str()).collect::<Vec<_>>().join(" ")).collect();
-    let mut columns: Vec<Vec<String>> = Vec::new();
-    for (name, values) in table.columns.iter().zip(&table.data) {
-        let floats = values.iter().all(|cell| matches!(cell, Cell::Float(_) | Cell::Null));
-        let texts: Vec<String> = if floats {
-            let rounded: Vec<f64> =
-                values.iter().map(|cell| cell.as_f64().unwrap_or(f64::NAN)).map(|v| round(v, decimals)).collect();
-            let places = (1..=decimals)
-                .find(|places| rounded.iter().filter(|v| v.is_finite()).all(|v| round(*v, *places) == *v))
-                .unwrap_or(decimals);
-            rounded.iter().map(|v| if v.is_nan() { "NaN".into() } else { format!("{v:.places$}") }).collect()
+    let named_index = table.index_names.iter().any(Option::is_some);
+    let mut index: Vec<String> = Vec::new();
+    if named_index {
+        index.push(table.index_names.iter().map(|name| name.clone().unwrap_or_default()).collect::<Vec<_>>().join(" "));
+    }
+    index.extend((0..rows).map(|i| table.index.iter().map(|level| level[i].py_str()).collect::<Vec<_>>().join(" ")));
+    let index_width = index.iter().map(|text| text.chars().count()).max().unwrap_or(0);
+    let mut index_column = vec![String::new()];
+    index_column.extend(index.iter().map(|text| pad_right(text, index_width)));
+    let mut columns = vec![index_column];
+    for (name, cells) in table.columns.iter().zip(&table.data) {
+        let numeric =
+            cells.iter().all(|cell| matches!(cell, Cell::Float(_) | Cell::Int(_) | Cell::Bool(_) | Cell::Null));
+        let header = if numeric { format!(" {name}") } else { name.clone() };
+        let values = if cells.iter().all(|cell| matches!(cell, Cell::Float(_) | Cell::Null)) {
+            float_texts(cells, decimals)
         } else {
-            values.iter().map(Cell::py_str).collect()
+            cells
+                .iter()
+                .map(|cell| match cell {
+                    Cell::Int(value) if *value >= 0 => format!(" {value}"),
+                    Cell::Int(value) => value.to_string(),
+                    other => format!(" {}", other.py_str()),
+                })
+                .collect()
         };
-        let mut column = vec![name.clone()];
-        column.extend(texts);
+        let width = values.iter().chain([&header]).map(|text| text.chars().count()).max().unwrap_or(0);
+        let mut column = vec![pad_left(&header, width)];
+        if named_index {
+            column.push(String::new());
+        }
+        column.extend(values.iter().map(|text| pad_left(text, width)));
         columns.push(column);
     }
-    let index_width = labels.iter().map(|l| l.chars().count()).chain([index_name.chars().count()]).max().unwrap_or(0);
-    let widths: Vec<usize> = columns.iter().map(|c| c.iter().map(|t| t.chars().count()).max().unwrap_or(0)).collect();
-    let mut lines = Vec::new();
-    let mut header = " ".repeat(index_width);
-    for (column, width) in columns.iter().zip(&widths) {
-        header.push_str(&format!("  {:>width$}", column[0]));
-    }
-    lines.push(header.trim_end().to_string());
-    if !index_name.is_empty() {
-        lines.push(format!("{index_name:<index_width$}"));
-    }
-    for (i, label) in labels.iter().enumerate() {
-        let mut line = format!("{label:<index_width$}");
-        for (column, width) in columns.iter().zip(&widths) {
-            line.push_str(&format!("  {:>width$}", column[i + 1]));
-        }
-        lines.push(line);
-    }
-    lines.join("\n")
+    // pandas `adjoin(1, ...)`: every column but the last is left-justified to its width plus one space.
+    let widths: Vec<usize> = columns
+        .iter()
+        .enumerate()
+        .map(|(k, column)| {
+            column.iter().map(|text| text.chars().count()).max().unwrap_or(0) + usize::from(k + 1 < columns.len())
+        })
+        .collect();
+    (0..columns[0].len())
+        .map(|line| {
+            columns.iter().zip(&widths).map(|(column, width)| pad_right(&column[line], *width)).collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
-fn round(value: f64, decimals: usize) -> f64 {
+/// pandas float column text after `round(decimals)`: six decimals, then trailing
+/// zeros trimmed together, keeping one decimal; a leading space for a nonnegative sign.
+fn float_texts(cells: &[Cell], decimals: usize) -> Vec<String> {
     let scale = 10f64.powi(decimals as i32);
-    (value * scale).round() / scale
+    let mut texts: Vec<Option<String>> = cells
+        .iter()
+        .map(|cell| {
+            let value = cell.as_f64().unwrap_or(f64::NAN);
+            if value.is_nan() {
+                return None;
+            }
+            let rounded = (value * scale).round_ties_even() / scale;
+            let text = format!("{rounded:.6}");
+            Some(if text.starts_with('-') { text } else { format!(" {text}") })
+        })
+        .collect();
+    while texts.iter().flatten().count() > 0 && texts.iter().flatten().all(|text| text.ends_with('0')) {
+        for text in texts.iter_mut().flatten() {
+            text.pop();
+        }
+    }
+    texts
+        .into_iter()
+        .map(|text| match text {
+            Some(text) if text.ends_with('.') => format!("{text}0"),
+            Some(text) => text,
+            None => "NaN".to_string(),
+        })
+        .collect()
+}
+
+fn pad_left(text: &str, width: usize) -> String {
+    format!("{}{text}", " ".repeat(width.saturating_sub(text.chars().count())))
+}
+
+fn pad_right(text: &str, width: usize) -> String {
+    format!("{text}{}", " ".repeat(width.saturating_sub(text.chars().count())))
 }
 
 /// A Yahoo date argument, parsed as pandas reads a timestamp.
@@ -367,7 +421,7 @@ fn selection_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, ou
     let end_text = args.end.clone().unwrap_or_else(today);
     let mut metadata = Dict::new();
     let (prices, source, universe_benchmarks) = if args.sp500_nasdaq100 || args.nasdaq100 {
-        let loaded = load_universe(args.sp500_nasdaq100, &args.start, &end_text)?;
+        let loaded = sources.universe(args.sp500_nasdaq100, parse_date(&args.start)?, parse_date(&end_text)?)?;
         metadata.update(&loaded.metadata);
         let source =
             if args.sp500_nasdaq100 { "S&P 500 + Nasdaq-100 · Yahoo Finance" } else { "Nasdaq-100 · Yahoo Finance" };
@@ -485,7 +539,9 @@ fn selection_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, ou
     ];
     for (key, value) in settings.entries() {
         reproduce.push(format!("--{}", key.replace('_', "-")));
-        reproduce.push(pyfmt::repr(value));
+        // argparse keeps the integer default 252 when the flag is absent.
+        let default_periods = key == "periods_per_year" && args.periods_per_year.is_none();
+        reproduce.push(if default_periods { "252".to_string() } else { pyfmt::repr(value) });
     }
     reproduce.extend(["--cost-bps".into(), pyfmt::repr(args.cost_bps), "--currency".into(), currency.clone()]);
     if benchmark_prices.is_some() {
@@ -543,26 +599,6 @@ fn file_name(path: &Path) -> String {
 /// An absolute path without resolving symbolic links of missing folders.
 fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-/// A current stock universe with its complete prices, as `UniversePrices`.
-struct LoadedUniverse {
-    prices: Frame,
-    benchmarks: Frame,
-    coverage: Table,
-    metadata: Dict,
-}
-
-/// `fetch_sp500_nasdaq100()` or `fetch_nasdaq100()`, then `download_universe_prices`.
-fn load_universe(sp500_nasdaq100: bool, start: &str, end: &str) -> Result<LoadedUniverse> {
-    let snapshot = if sp500_nasdaq100 { universe::fetch_sp500_nasdaq100()? } else { universe::fetch_nasdaq100()? };
-    let loaded = universe::download_universe_prices(&snapshot, parse_date(start)?, parse_date(end)?, None)?;
-    Ok(LoadedUniverse {
-        prices: loaded.prices,
-        benchmarks: loaded.benchmarks,
-        coverage: loaded.coverage,
-        metadata: loaded.metadata,
-    })
 }
 
 /// `DataFrame.to_dict(orient="records")` for metadata.
@@ -653,8 +689,8 @@ fn historical_cli(args: &Args, settings: &Settings, out: &mut dyn Write) -> Resu
         "price_currency" => currency.as_str(),
         "currency_assumption" => "All prices must share the declared currency. No currency conversion occurs.",
     });
-    let files = historical_report_files(&prices, &membership, &result)?;
-    write_report_bundle(&historical_report_bundle(&files)?, &args.output)?;
+    let files = historical_report::build_historical_report(&prices, &membership, &result);
+    write_report_bundle(&historical_report::historical_report_zip(&files)?, &args.output)?;
     writeln!(out, "Source: {source}")?;
     writeln!(out, "Declared price currency: {currency} (no currency conversion)")?;
     writeln!(
@@ -671,42 +707,6 @@ fn historical_cli(args: &Args, settings: &Settings, out: &mut dyn Write) -> Resu
     writeln!(out, "Eligibility decisions: {}", absolute(&args.output.join("coverage.csv")).display())?;
     writeln!(out, "Report: {}", absolute(&args.output.join("report.html")).display())?;
     Ok(0)
-}
-
-/// `historical_report.build_historical_report` (wired in after the report merge).
-fn historical_report_files(
-    prices: &Frame,
-    membership: &membership::MembershipHistory,
-    study: &historical::HistoricalStudy,
-) -> Result<Vec<(String, Vec<u8>)>> {
-    let _ = (prices, membership, study);
-    todo!("historical report: wire in after the report merge")
-}
-
-/// `historical_report.historical_report_zip` (wired in after the report merge).
-fn historical_report_bundle(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
-    let _ = files;
-    todo!("historical report: wire in after the report merge")
-}
-
-/// The legacy report ZIP, `presentation.report_zip` (wired in after the report merge).
-fn legacy_report_zip(
-    analysis: &Analysis,
-    prices: &Frame,
-    metadata: &Dict,
-    study: Option<&BacktestStudy>,
-    latest_profiles: Option<&ProfileAnalysis>,
-    benchmarks: Option<&BenchmarkComparison>,
-    evidence: Option<&EvidenceAnalysis>,
-) -> Result<Vec<u8>> {
-    let _ = (analysis, prices, metadata, study, latest_profiles, benchmarks, evidence);
-    todo!("legacy report: wire in after the report merge")
-}
-
-/// `benchmark_report.default_evidence_strategy` (wired in after the report merge).
-fn default_evidence_strategy(evidence: &EvidenceAnalysis) -> Option<String> {
-    let _ = evidence;
-    todo!("evidence default: wire in after the report merge")
 }
 
 /// Holdout metrics as the Python DataFrame: index `portfolio`, one column per measure.
@@ -731,7 +731,7 @@ fn legacy_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, out: 
     let end_text = args.end.clone().unwrap_or_else(today);
     let mut universe = None;
     let (prices, source) = if args.nasdaq100 {
-        let loaded = load_universe(false, &args.start, &end_text)?;
+        let loaded = sources.universe(false, parse_date(&args.start)?, parse_date(&end_text)?)?;
         if loaded.prices.ncols() < 2 {
             let requested = loaded.coverage.nrows();
             let included = loaded.prices.ncols();
@@ -898,7 +898,7 @@ fn legacy_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, out: 
         };
         let options = evidence::EvidenceOptions {
             risk_free_rate: args.risk_free_rate,
-            periods_per_year: args.periods_per_year,
+            periods_per_year: settings.periods_per_year,
             delayed_entry: study.is_some(),
         };
         match evidence::analyze_evidence(strategy_equity, benchmark_equity, &options) {
@@ -908,15 +908,14 @@ fn legacy_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, out: 
             }
         }
     }
-    let bundle = legacy_report_zip(
-        &analysis,
-        &prices,
-        &metadata,
-        study.as_ref(),
-        latest_profiles.as_ref(),
-        benchmarks.as_ref(),
-        evidence.as_ref(),
-    )?;
+    let parts = presentation::ReportParts {
+        study: study.as_ref(),
+        latest_profiles: latest_profiles.as_ref(),
+        benchmarks: benchmarks.as_ref(),
+        evidence: evidence.as_ref(),
+        ..Default::default()
+    };
+    let bundle = presentation::report_zip(&analysis, &prices, &metadata, &parts)?;
     write_report_bundle(&bundle, &args.output)?;
 
     writeln!(out, "Source: {source}")?;
@@ -982,7 +981,7 @@ fn legacy_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, out: 
         writeln!(out, "{}", console_table(&table.select(&["total_return", "cagr", "volatility", "max_drawdown"]), 4))?;
     }
     if let Some(result) = &evidence {
-        if let Some(selected) = default_evidence_strategy(result) {
+        if let Some(selected) = benchmark_report::default_evidence_strategy(result) {
             writeln!(out, "\nHistorical evidence for {selected} (fixed display choice, not the best result):")?;
             let rows: Vec<usize> = (0..result.summary.nrows())
                 .filter(|i| result.summary.index[0][*i].as_str() == Some(&selected))
@@ -1024,7 +1023,7 @@ pub fn run(mut args: Args, sources: &mut dyn Sources, out: &mut dyn Write, err: 
         risk_free_rate: args.risk_free_rate,
         max_weight: args.max_weight.unwrap_or(if selection_mode { 0.1 } else { 1.0 }),
         shrinkage: args.shrinkage.unwrap_or(if selection_mode { 0.0 } else { 0.1 }),
-        periods_per_year: args.periods_per_year,
+        periods_per_year: args.periods_per_year.unwrap_or(252.0),
     };
     let result = (|| -> Result<i32> {
         let currency = args.currency.trim().to_uppercase();
@@ -1138,13 +1137,19 @@ mod tests {
     }
 
     #[test]
-    fn console_tables_align_and_round() {
-        let table = Table::labelled(Some("strategy"), &["Long strategy name", "B"])
-            .with("total_return", vec![Cell::Float(0.123456), Cell::Float(-0.5)])
-            .with("cagr", vec![Cell::Float(1.0), Cell::Null]);
-        let text = console_table(&table, 4);
-        assert!(text.contains("Long strategy name        0.1235   1.0"), "{text}");
-        assert!(text.contains("B                        -0.5000   NaN"), "{text}");
-        assert!(text.lines().nth(1).unwrap().starts_with("strategy"));
+    fn console_tables_match_pandas_layout() {
+        let table =
+            Table::labelled(Some("strategy"), &["Historical-mean portfolio", "Equal-weight stocks", "S&P 500 (SPY)"])
+                .with("total_return", vec![Cell::Float(0.123456), Cell::Float(-0.5), Cell::Null])
+                .with("cagr", vec![Cell::Float(1.0), Cell::Float(2.0), Cell::Float(3.0)])
+                .with("rebalance_count", vec![Cell::Int(1), Cell::Int(2), Cell::Int(3)])
+                .with("name", vec![Cell::from("a"), Cell::from("bb"), Cell::from("ccc")]);
+        // The exact output of pandas 3.0.6 for the same frame.
+        let expected = "                           total_return  cagr  rebalance_count name\n\
+                        strategy                                                           \n\
+                        Historical-mean portfolio        0.1235   1.0                1    a\n\
+                        Equal-weight stocks             -0.5000   2.0                2   bb\n\
+                        S&P 500 (SPY)                       NaN   3.0                3  ccc";
+        assert_eq!(console_table(&table, 4), expected);
     }
 }
