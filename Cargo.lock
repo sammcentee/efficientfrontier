@@ -556,6 +556,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tower",
  "ureq",
  "zip",
 ]
