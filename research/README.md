@@ -4,6 +4,8 @@ This study asks whether a simple index rule beats both SPY and QQQ after trading
 
 This is an archived experiment. The current app uses the stock-only frontier described in [the R comparison](../docs/R_METHOD.md). For the exact recorded experiment below, use commit `df60ade` in a separate checkout. Its selection lock intentionally rejects later code changes. A new run on revised code is a new experiment.
 
+The scripts in this folder need the Python release. Refer to [Run the archived scripts](#run-the-archived-scripts).
+
 **Result:** no original candidate beats both passive benchmarks in the final period. A subsequent 75% SPY / 25% stock-momentum rule shows a small historical advantage. Statistical uncertainty, survivor bias, and the longer fund test prevent a reliable outperformance claim. Read [the results](RESULTS.md), or open [the interactive comparison](results.html).
 
 ## Benchmark correction and exploratory follow-up
@@ -54,18 +56,33 @@ Paired stationary bootstrap samples preserve shared dates across all candidates 
 
 Simultaneous 97.5% lower bounds cover all candidates in each prespecified risk-controlled study. Bonferroni correction across the two study families targets an approximate 95% familywise confidence level, subject to the bootstrap assumptions. Raw paths and cost sensitivities remain descriptive. Passing a point estimate is weaker than both lower bounds exceeding zero. These bounds do not correct historical membership errors, unknown earlier searches, or all model assumptions. They do not assign a probability of future outperformance.
 
+## Run the archived scripts
+
+The scripts in this folder are Python. Most of them import the Python package `efficient_frontier` of the Python release. `reproduce_r_frontier.py` uses only NumPy, pandas, and CVXPY. The Rust version of this repository does not contain the package or install these libraries. Commit `6c6df6e` is the last Python release. You need a Git clone of the repository, not the ZIP download. Run these commands from the root of the clone. They check out that commit in a separate worktree and install its packages:
+
+```bash
+git worktree add ../efficientfrontier-python 6c6df6e
+cd ../efficientfrontier-python
+python3.14 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Python 3.14 was the tested version of the Python release. On Windows, create the environment with `py -3.14 -m venv .venv`. Then use `.venv\Scripts\python.exe` in place of `.venv/bin/python`.
+
+For the exact recorded index experiment, use commit `df60ade` in place of `6c6df6e`. The code hashes in `selection_lock.json` match that commit. Commit `6c6df6e` changed two of the recorded files, `efficient_frontier/core.py` and `efficient_frontier/selection.py`. Thus a run at `6c6df6e` is a new experiment. Commit `df60ade` does not contain `reproduce_r_frontier.py`. Run that script at `6c6df6e`.
+
 ## Reproduce the study
 
-Run from the repository root with the same adjusted-price CSV inputs. Each CSV has a date index and one column per security. Use the input hashes in `selection_lock.json` to identify the archived snapshot. New downloads can differ after vendor adjustments. Price inputs and executable pickle artifacts are not included in Git. Derived tables and code hashes are in `results/`.
+Run from the root of the Python checkout with the same adjusted-price CSV inputs. Each CSV has a date index and one column per security. Use the input hashes in `selection_lock.json` to identify the archived snapshot. New downloads can differ after vendor adjustments. Price inputs and executable pickle artifacts are not included in Git. Derived tables and code hashes are in `results/`.
 
 ```sh
-python research/run_index_research.py development \
+.venv/bin/python research/run_index_research.py development \
   --stock-prices /path/to/prices.csv --benchmarks /path/to/benchmark_prices.csv \
   --fund-prices /path/to/fund_prices.csv --output /tmp/index-original
-python research/run_index_research.py evaluation \
+.venv/bin/python research/run_index_research.py evaluation \
   --stock-prices /path/to/prices.csv --benchmarks /path/to/benchmark_prices.csv \
   --fund-prices /path/to/fund_prices.csv --output /tmp/index-original
-python research/evaluate_core_momentum.py \
+.venv/bin/python research/evaluate_core_momentum.py \
   --original-output /tmp/index-original \
   --stock-prices /path/to/prices.csv --benchmarks /path/to/benchmark_prices.csv \
   --fund-prices /path/to/fund_prices.csv --output /tmp/index-core

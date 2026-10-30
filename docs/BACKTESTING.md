@@ -204,11 +204,11 @@ Historical profile backtests use the same historical-mean objective, but each fi
 
 The initial sample and rolling window each need at least six returns for the complete profile comparison. If either is too short, the legacy CLI retains the original 12 combinations and explains why it omitted the profiles. A latest full-history fit can still be available when the earlier backtest fit is too short.
 
-The Python API keeps `include_profiles=False` as its compatibility default. `run_backtests(..., include_profiles=True)` requests the additional profiles. Direct API calls reject shorter fits. The legacy CLI uses the fallback above.
+In the library API, `BacktestOptions::default()` keeps `include_profiles: false` for compatibility. To request the additional profiles, give `run_backtests` options with `include_profiles: true`. Direct API calls reject shorter fits. The legacy CLI uses the fallback above.
 
 ### Optional weakest-window comparison
 
-The Python API retains a separate weakest-window comparison through `build_profiles(..., return_objective="worst_window")`. This is separate from the app's stock model.
+The library API keeps a separate weakest-window comparison. To use it, give `build_profiles` options with `return_objective: ReturnObjective::WorstWindow`. This is separate from the app's stock model.
 
 This objective maximizes the lowest of the three portfolio window means. At each frontier target, it minimizes variance subject to `mu_window @ w >= target` in every window. Low uses the minimum-variance endpoint. Medium uses the midpoint of the endpoint return targets. Highest uses the maximum feasible weakest-window target, with minimum variance among tied solutions. Medium therefore uses a return midpoint in this optional model.
 
@@ -288,7 +288,7 @@ The legacy overview keeps the profile, maximum-Sharpe, and equal-weight comparis
 Run the separate legacy comparison from the command line:
 
 ```bash
-.venv/bin/python -m efficient_frontier --csv data/holdings.csv \
+cargo run --release --bin efficient-frontier -- --csv data/holdings.csv \
   --backtests --train-fraction .5 --rolling-window 252 \
   --rebalance-every 21 --cost-bps 10 --output results/holdings-study
 ```
