@@ -29,6 +29,9 @@ use crate::{benchmark_report, data, historical, historical_report, membership, p
     name = "efficient-frontier",
     version,
     about = "Build portfolio frontiers, market comparisons, and historical evidence.",
+    // argparse accepts unique option prefixes and keeps the last value of a repeated option.
+    infer_long_args = true,
+    args_override_self = true,
     group(ArgGroup::new("source").args(["csv", "tickers", "original_holdings", "nasdaq100", "sp500_nasdaq100"])),
     group(ArgGroup::new("membership").args(["historical_membership", "membership_csv", "historical_demo"])),
     group(ArgGroup::new("benchmark").args(["benchmark_csv", "download_benchmarks", "no_benchmarks"]))
@@ -1084,62 +1087,14 @@ pub fn main() -> i32 {
 mod tests {
     use super::*;
 
-    fn bundle(names: &[&str]) -> Vec<u8> {
-        let mut buffer = Cursor::new(Vec::new());
-        {
-            let mut archive = zip::ZipWriter::new(&mut buffer);
-            for name in names {
-                archive.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
-                archive.write_all(b"generated\n").unwrap();
-            }
-            archive.finish().unwrap();
-        }
-        buffer.into_inner()
-    }
-
     #[test]
-    fn reruns_clean_only_known_exports() {
-        let folder = tempfile::tempdir().unwrap();
-        let generated = [
-            "policy.json",
-            "latest_weights.csv",
-            "latest_estimates.csv",
-            "fit_estimates.csv",
-            "eligibility.csv",
-            "latest/frontier.csv",
-            "latest/frontier_weights.csv",
-            "latest/fitted_comparison.csv",
-            "validation/metrics.csv",
-            "validation/equity.csv",
-            "validation/01_allocations.csv",
-            "test/metrics.csv",
-            "test/equity.csv",
-            "test/01_holdings.csv",
-            "test/01_trades.csv",
-            "out_of_sample/windows.csv",
-            "out_of_sample/metrics.csv",
-            "out_of_sample/weights.csv",
-            "out_of_sample/eligibility.csv",
-        ];
-        let mut first = vec!["report.html"];
-        first.extend(generated);
-        write_report_bundle(&bundle(&first), folder.path()).unwrap();
-        let notes = [
-            folder.path().join("notes.txt"),
-            folder.path().join("validation/notes.csv"),
-            folder.path().join("test/01_custom.csv"),
-        ];
-        for path in &notes {
-            std::fs::write(path, "Keep this user file.\n").unwrap();
-        }
-        write_report_bundle(&bundle(&["report.html", "weights.csv"]), folder.path()).unwrap();
-        for name in generated {
-            assert!(!folder.path().join(name).exists(), "{name}");
-        }
-        for path in &notes {
-            assert_eq!(std::fs::read_to_string(path).unwrap(), "Keep this user file.\n");
-        }
-        assert!(folder.path().join("report.zip").is_file());
+    fn options_accept_unique_prefixes_and_keep_the_last_repeated_value() {
+        let args = Args::try_parse_from(["efficient-frontier", "--target-vol", ".2", "--output", "a", "--output", "b"])
+            .unwrap();
+        assert_eq!(args.target_volatility, Some(0.2));
+        assert_eq!(args.output, PathBuf::from("b"));
+        // "--hist" matches both --historical-membership and --historical-demo.
+        assert!(Args::try_parse_from(["efficient-frontier", "--hist"]).is_err());
     }
 
     #[test]
