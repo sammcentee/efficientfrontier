@@ -213,7 +213,8 @@ pub fn read_csv_rows(text: &str) -> std::result::Result<Vec<Vec<String>>, String
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         let newline = c == '\n' || c == '\r';
-        if newline && c == '\r' && chars.peek() == Some(&'\n') {
+        let crlf = c == '\r' && chars.peek() == Some(&'\n');
+        if crlf {
             chars.next();
         }
         match state {
@@ -249,7 +250,7 @@ pub fn read_csv_rows(text: &str) -> std::result::Result<Vec<Vec<String>>, String
             },
             State::InQuoted => match c {
                 '"' => state = State::QuoteInQuoted,
-                '\r' => field.push_str(if newline { "\r\n" } else { "\r" }),
+                '\r' => field.push_str(if crlf { "\r\n" } else { "\r" }),
                 _ => field.push(c),
             },
             State::QuoteInQuoted => match c {
@@ -455,5 +456,6 @@ mod tests {
         assert_eq!(read_csv_rows("a,\"b,\"\"c\"\"\"\n\nd").unwrap(), vec![vec!["a", "b,\"c\""], vec![], vec!["d"]]);
         assert!(read_csv_rows("\"a\"b").is_err());
         assert!(read_csv_rows("\"a").is_err());
+        assert_eq!(read_csv_rows("\"a\rb\",\"c\r\nd\"\n").unwrap(), vec![vec!["a\rb", "c\r\nd"]]);
     }
 }
