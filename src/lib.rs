@@ -8,6 +8,7 @@ pub mod backtest;
 pub mod backtest_report;
 pub mod benchmark_report;
 pub mod benchmarks;
+pub mod cli;
 pub mod companies;
 pub mod core;
 pub mod data;
