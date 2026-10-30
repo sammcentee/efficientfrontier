@@ -10,3 +10,5 @@ results/
 /data/
 /private/
 /prices.csv
+
+/target/

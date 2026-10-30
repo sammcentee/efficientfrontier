@@ -1,0 +1,8 @@
+{
+ "options": {
+  "target_volatility": 0.001,
+  "max_weight": 0.1
+ },
+ "benchmarks": false,
+ "error": "2019-07-15: requested annual volatility 0.10% is below the feasible minimum 9.80% with the 10.0% position cap."
+}
