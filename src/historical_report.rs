@@ -1,6 +1,6 @@
 //! Portable inputs, results and offline charts for historical membership studies.
 //!
-//! Port of `efficient_frontier/historical_report.py`. Owner: reports agent.
+//! Port of `efficient_frontier/historical_report.py` in the Python release (commit 6c6df6e).
 //!
 //! The report charts use the fixed element ids `historical-growth` and
 //! `historical-drawdown` instead of random ones.

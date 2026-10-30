@@ -1,6 +1,6 @@
 //! Offline evidence and reproducible exports for the single portfolio model.
 //!
-//! Port of `efficient_frontier/selection_report.py`. Owner: reports agent.
+//! Port of `efficient_frontier/selection_report.py` in the Python release (commit 6c6df6e).
 //! The web app calls the public functions below; keep these signatures.
 //!
 //! Charts in the exported report use fixed element ids (`chart-latest-frontier`,

@@ -1,6 +1,6 @@
 //! Descriptive findings and portable views of a backtesting study.
 //!
-//! Port of `efficient_frontier/backtest_report.py`. Owner: reports agent.
+//! Port of `efficient_frontier/backtest_report.py` in the Python release (commit 6c6df6e).
 
 use std::cmp::Ordering;
 

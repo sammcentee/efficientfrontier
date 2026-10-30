@@ -1,6 +1,6 @@
 //! Plain-language answers, HTML fragments and story chart helpers shared by the app and the report.
 //!
-//! Port of `efficient_frontier/story.py`. Owner: reports agent.
+//! Port of `efficient_frontier/story.py` in the Python release (commit 6c6df6e).
 //! The web app calls the public functions below; keep these signatures.
 //!
 //! Every function is pure: it reads engine results and returns text, HTML or a

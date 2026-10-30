@@ -1,9 +1,9 @@
 //! Current stock universes and explicit price coverage for each security.
 //!
-//! Port of `efficient_frontier/universe.py`: the Nasdaq-100 list from Nasdaq,
-//! the SPY stock holdings from State Street as an S&P 500 proxy, their union,
-//! and complete member prices from Yahoo Finance with a coverage record for
-//! every member.
+//! Port of `efficient_frontier/universe.py` in the Python release (commit
+//! 6c6df6e): the Nasdaq-100 list from Nasdaq, the SPY stock holdings from State
+//! Street as an S&P 500 proxy, their union, and complete member prices from
+//! Yahoo Finance with a coverage record for every member.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Seek};

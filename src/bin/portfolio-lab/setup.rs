@@ -1,8 +1,9 @@
 //! The study setup: the drawer controls, their defaults, and the study that a setup requests.
 //!
-//! Port of the setup half of `app.py`: `MARKETS`, `FREQUENCIES`, `DEFAULT_SETUP`,
-//! `FIXED_ASSUMPTIONS`, `resolve`, `differs` and `read_draft`. Everything here is
-//! pure, so the unit tests below cover it without a server.
+//! Port of the setup half of `app.py`, the Streamlit app of the Python release
+//! (commit 6c6df6e): `MARKETS`, `FREQUENCIES`, `DEFAULT_SETUP`, `FIXED_ASSUMPTIONS`,
+//! `resolve`, `differs` and `read_draft`. Everything here is pure, so the unit
+//! tests below cover it without a server.
 
 use std::collections::HashMap;
 use std::sync::Arc;

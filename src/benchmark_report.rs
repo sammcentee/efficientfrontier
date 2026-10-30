@@ -1,6 +1,6 @@
 //! Benchmark comparisons and uncertainty in historical portfolio results.
 //!
-//! Port of `efficient_frontier/benchmark_report.py`. Owner: reports agent.
+//! Port of `efficient_frontier/benchmark_report.py` in the Python release (commit 6c6df6e).
 //!
 //! It also holds the pandas numeric helpers that the report modules share:
 //! [`np_sum`], [`np_mean`], [`drawdown`] and the chart value helpers.

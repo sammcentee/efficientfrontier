@@ -1,8 +1,9 @@
 //! Reproducible command-line analysis and report export.
 //!
-//! Port of `efficient_frontier/__main__.py`. The flags, defaults, checks,
-//! messages and exported files are those of the Python release. Network
-//! access goes through [`Sources`], so tests can replace every download.
+//! Port of `efficient_frontier/__main__.py` in the Python release (commit
+//! 6c6df6e). The flags, defaults, checks, messages and exported files are those
+//! of the Python release. Network access goes through [`Sources`], so tests can
+//! replace every download.
 
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
