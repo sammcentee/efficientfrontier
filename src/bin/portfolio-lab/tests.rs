@@ -1128,7 +1128,6 @@ async fn custom_tickers_and_dates_download_only_on_submit() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs network merge"]
 async fn original_60_holdings_use_current_symbols() {
     let prices = market_prices();
     let fake =

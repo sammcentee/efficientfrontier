@@ -20,7 +20,7 @@ use crate::pyfmt::{self, Dict, Json};
 use crate::selection::{self, SelectionOptions};
 use crate::selection_report::{selection_metrics_frame, selection_report_zip};
 use crate::value_error;
-use crate::{data, historical, membership};
+use crate::{data, historical, membership, universe};
 
 /// The command-line options. Help texts follow the Python release.
 #[derive(Clone, Debug, Parser)]
@@ -555,8 +555,14 @@ struct LoadedUniverse {
 
 /// `fetch_sp500_nasdaq100()` or `fetch_nasdaq100()`, then `download_universe_prices`.
 fn load_universe(sp500_nasdaq100: bool, start: &str, end: &str) -> Result<LoadedUniverse> {
-    let _ = (sp500_nasdaq100, start, end);
-    todo!("universe downloads: wire in after the network merge")
+    let snapshot = if sp500_nasdaq100 { universe::fetch_sp500_nasdaq100()? } else { universe::fetch_nasdaq100()? };
+    let loaded = universe::download_universe_prices(&snapshot, parse_date(start)?, parse_date(end)?, None)?;
+    Ok(LoadedUniverse {
+        prices: loaded.prices,
+        benchmarks: loaded.benchmarks,
+        coverage: loaded.coverage,
+        metadata: loaded.metadata,
+    })
 }
 
 /// `DataFrame.to_dict(orient="records")` for metadata.
