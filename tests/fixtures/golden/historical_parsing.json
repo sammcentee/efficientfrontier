@@ -1,0 +1,2485 @@
+{
+ "membership": [
+  {
+   "text": "",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "\n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "\n\n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "  \n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "date,tickers\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,symbol\n2020-01-01,A\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers,extra\n2020-01-01,A,x\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"A,A\"\n",
+   "error": "A membership snapshot contains duplicate symbols."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"A, A\"\n",
+   "error": "A membership snapshot contains duplicate symbols."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"A,\"\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"A,B\"C\n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "date,tickers\n2020-01-01\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n2020-01-02\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n2020-01-01,B\n",
+   "error": "Snapshot dates must be unique and in increasing order."
+  },
+  {
+   "text": "date,tickers\n2020-01-02,A\n2020-01-01,B\n",
+   "error": "Snapshot dates must be unique and in increasing order."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,BAD SYMBOL\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,=A\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-02-30,A\n",
+   "error": "Snapshot date must be a valid calendar date."
+  },
+  {
+   "text": "date,tickers\n01/02/2020,A\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\ngarbage,2020-01-01,A\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n2020-01-02,B,C\n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A,B\n2020-01-02,B,C\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A,B\n2020-01-02,B\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\nx\n2020-01-02,A,B\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "\n\ndate,tickers\n\n2020-01-01,A\n\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n   \n2020-01-01,A\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n\"\"\n2020-01-01,A\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n,\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\n2020-01-01 ,A\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\n 2020-01-01,A\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\" A , B \"\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A",
+      "B"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\r\n2020-01-01,A\r\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "\ufeffdate,tickers\n2020-01-01,A\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "\ufeff\"date\",tickers\n2020-01-01,A\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "\ufeff\ufeffdate,tickers\n2020-01-01,A\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "\"date\",\"tickers\"\n\"2020-01-01\",\"A\"\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date ,tickers\n2020-01-01,A\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "Date,tickers\n2020-01-01,A\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,date\n2020-01-01,A\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"A\nB\"\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\r\n2020-01-01,\"A,\r\nB\"\r\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A",
+      "B"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"A\n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\"B\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,a.b:c-d_e\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "a.b:c-d_e"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n2020-01-01,_A\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\u00e9\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,NA\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "NA"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n2020-01-01,nan\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "nan"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\nNaT,A\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"\"\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A,\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers,\n2020-01-01,A,\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n,\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n,,\n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": ",\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "a\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date\n2020-01-01\n",
+   "error": "Membership CSV must contain date,tickers columns and at least one full roster."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\"A\"\"B\"\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n\t\n2020-01-02,B\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ],
+    [
+     "2020-01-02",
+     [
+      "B"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n2020-01-02,\"B,C\",\n",
+   "error": "Membership CSV must contain date,tickers columns and full rosters."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n2020-02-01,B\n2020-03-01,C\n",
+   "error": "Membership coverage end must be on or after the last snapshot."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n2020-01-31,B\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ],
+    [
+     "2020-01-31",
+     [
+      "B"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\n2020-02-01,B\n",
+   "error": "Membership coverage end must be on or after the last snapshot."
+  },
+  {
+   "text": "date,tickers\n2020-1-01,A\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\n2020-01-01T00:00,A\n",
+   "error": "Snapshot date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "text": "date,tickers\n2020-00-10,A\n",
+   "error": "Snapshot date must be a valid calendar date."
+  },
+  {
+   "text": "date,tickers\n1999-12-31,\"Q, R ,S\"\n",
+   "snapshots": [
+    [
+     "1999-12-31",
+     [
+      "Q",
+      "R",
+      "S"
+     ]
+    ]
+   ]
+  },
+  {
+   "text": "date,tickers\n2020-01-01,A\u0000B\n",
+   "error": "Membership symbols must be nonempty price-column identifiers without spaces."
+  },
+  {
+   "text": "date,tickers\n2020-01-01,\u001cA\u001f\n",
+   "snapshots": [
+    [
+     "2020-01-01",
+     [
+      "A"
+     ]
+    ]
+   ]
+  }
+ ],
+ "prices": [
+  {
+   "text": "",
+   "error": "Provide a nonempty UTF-8 price CSV with Date as the first column."
+  },
+  {
+   "text": "\n",
+   "error": "The first price CSV column must be named Date."
+  },
+  {
+   "text": "\ufeff",
+   "error": "Provide a nonempty UTF-8 price CSV with Date as the first column."
+  },
+  {
+   "text": "day,A\n2021-01-01,1\n",
+   "error": "The first price CSV column must be named Date."
+  },
+  {
+   "text": "Date,A,A\n2021-01-01,1,2\n",
+   "error": "Price CSV column headers must be nonempty and unique."
+  },
+  {
+   "text": "Date,A\n2021-01-01,1,2\n",
+   "error": "Every price CSV row must have the same number of columns as its header."
+  },
+  {
+   "text": "Date\n2021-01-01\n",
+   "error": "Provide a price table with at least five dates and one asset."
+  },
+  {
+   "text": "Date,A\n2021-01-04,1\n2021-01-05,1\n",
+   "error": "Provide a price table with at least five dates and one asset."
+  },
+  {
+   "text": "Date,A,a\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Price CSV column headers must be nonempty and unique."
+  },
+  {
+   "text": "Date,A,\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Price CSV column headers must be nonempty and unique."
+  },
+  {
+   "text": "Date, A ,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": " date ,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "DATE,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n\n",
+   "error": "Every price CSV row must have the same number of columns as its header."
+  },
+  {
+   "text": "Date,A,B\n\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Every price CSV row must have the same number of columns as its header."
+  },
+  {
+   "text": "\ufeff\ufeffDate,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "\"Date\",\"A\",\"B\"\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,=A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "=A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\r\n2021-01-04,1,2\r\n2021-01-05,1,2\r\n2021-01-06,1,2\r\n2021-01-07,1,2\r\n2021-01-08,1,2\r\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\n2021/01/04,1,2\n2021/01/05,1,2\n2021/01/06,1,2\n2021/01/07,1,2\n2021/01/08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\n2021-01-05,\n2021-01-06,\n2021-01-07,\n2021-01-08,\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      null
+     ],
+     [
+      null
+     ],
+     [
+      null
+     ],
+     [
+      null
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\n0,1,2\n1,1,2\n2,1,2\n3,1,2\n4,1,2\n",
+   "error": "Every row must have a valid date."
+  },
+  {
+   "text": "Date,A,B\n2021-01-09,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08",
+     "2021-01-09"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\u001c\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Every price CSV row must have the same number of columns as its header."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Every row must have a valid date; blank dates are not allowed."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-05,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Duplicate dates are not allowed; provide one price per asset per day."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\ngarbage,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Every row must have a valid date."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,,\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      null,
+      null
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,-1,\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,abc,-1\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\ngarbage,abc,-1\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Every row must have a valid date."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,\"1\",2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A",
+     "B"
+    ],
+    "data": [
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ],
+     [
+      1.0,
+      2.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,\"1\"x,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Provide a nonempty UTF-8 price CSV with Date as the first column."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06,\"1\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Provide a nonempty UTF-8 price CSV with Date as the first column."
+  },
+  {
+   "text": "Date,A,B\n2021-01-04,1,2\n2021-01-05,1,2\n2021-01-06 00:00,1,2\n2021-01-07,1,2\n2021-01-08,1,2\n",
+   "error": "Every row must have a valid date."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1.5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.5
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\" 1.5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.5
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1.5 \"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.5
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"+1.5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.5
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"-1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"0\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1e3\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1000.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1E3\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1000.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1e-3\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      0.001
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\".5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      0.5
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"5.\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      5.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"inf\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"Infinity\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"-inf\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"+inf\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"INF\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"iNf\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"infinity\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"-Infinity\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"nan\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"NaN\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"-nan\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"NA\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"N/A\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"null\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"None\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"True\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1_000\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1,000\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"0x1A\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1.5.2\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"(1)\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1+2j\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u0661\u0662\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\uff11\uff12\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\t\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\" \"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"  1  \"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1d\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1f\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"$1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1e\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"e1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"-\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"+\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\".\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1e400\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1e-400\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"00012\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      12.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1.0e+02\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      100.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u00a01\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1\u00a0\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"#N/A\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"nan \"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\" nan\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"Inf \"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\" inf\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\t1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1\t\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\n1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\r1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u000b1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\f1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u001c1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"-0.0\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Each supplied price must be finite and strictly positive."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"+.5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      0.5
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1.e5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      100000.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\".e5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1e+\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1e5.5\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"0x1p3\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"+-1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1E+0005\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      100000.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"infinit\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u00a0\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u2000\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u001c\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"\u0085\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1\u0085\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\" \t \"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      null
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"123456789012345678901234567890\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.2345678901234568e+29
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"4.9e-324\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      5e-324
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"1 2\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "error": "Prices must be numeric values or blank cells."
+  },
+  {
+   "text": "Date,A\n2021-01-04,\"0.1e1\"\n2021-01-05,1\n2021-01-06,1\n2021-01-07,1\n2021-01-08,1\n",
+   "prices": {
+    "index_names": [
+     "Date"
+    ],
+    "index": [
+     "2021-01-04",
+     "2021-01-05",
+     "2021-01-06",
+     "2021-01-07",
+     "2021-01-08"
+    ],
+    "columns": [
+     "A"
+    ],
+    "data": [
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ],
+     [
+      1.0
+     ]
+    ]
+   }
+  }
+ ],
+ "lookups": [
+  {
+   "date": "2019-12-31",
+   "error": "Membership date 2019-12-31 is outside coverage 2020-01-01 through 2020-01-12."
+  },
+  {
+   "date": "2020-01-01",
+   "roster": [
+    "B",
+    "A"
+   ]
+  },
+  {
+   "date": "2020-01-05",
+   "roster": [
+    "B",
+    "A"
+   ]
+  },
+  {
+   "date": "2020-01-06",
+   "roster": [
+    "A",
+    "C"
+   ]
+  },
+  {
+   "date": "2020-01-09",
+   "roster": [
+    "A",
+    "C"
+   ]
+  },
+  {
+   "date": "2020-01-10",
+   "roster": [
+    "B",
+    "C"
+   ]
+  },
+  {
+   "date": "2020-01-12",
+   "roster": [
+    "B",
+    "C"
+   ]
+  },
+  {
+   "date": "2020-01-13",
+   "error": "Membership date 2020-01-13 is outside coverage 2020-01-01 through 2020-01-12."
+  },
+  {
+   "date": "2020-01-01T12:00:00",
+   "error": "Membership lookup date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "date": "01/02/2020",
+   "error": "Membership lookup date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "date": "2020-02-30",
+   "error": "Membership lookup date must be a valid calendar date."
+  },
+  {
+   "date": "NaT",
+   "error": "Membership lookup date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "date": "",
+   "error": "Membership lookup date must be a date in YYYY-MM-DD format."
+  },
+  {
+   "date": " 2020-01-01",
+   "error": "Membership lookup date must be a date in YYYY-MM-DD format."
+  }
+ ],
+ "coverage_ends": [
+  {
+   "coverage_end": "2019-12-31",
+   "error": "Membership coverage end must be on or after the last snapshot."
+  },
+  {
+   "coverage_end": "2020-01-09",
+   "error": "Membership coverage end must be on or after the last snapshot."
+  },
+  {
+   "coverage_end": "2020-01-10",
+   "metadata": {
+    "source": "User-supplied membership CSV",
+    "coverage_start": "2020-01-01",
+    "coverage_end": "2020-01-10",
+    "snapshot_count": 2,
+    "symbol_count": 3,
+    "limitations": [
+     "User-supplied full rosters and coverage dates are not independently verified.",
+     "Price-column identifiers must identify the same security throughout the input history."
+    ]
+   }
+  },
+  {
+   "coverage_end": "2020-02-30",
+   "error": "Membership coverage end must be a valid calendar date."
+  },
+  {
+   "coverage_end": "",
+   "error": "Membership coverage end must be a date in YYYY-MM-DD format."
+  },
+  {
+   "coverage_end": "2020-01-10 ",
+   "error": "Membership coverage end must be a date in YYYY-MM-DD format."
+  },
+  {
+   "coverage_end": "garbage",
+   "error": "Membership coverage end must be a date in YYYY-MM-DD format."
+  }
+ ]
+}
