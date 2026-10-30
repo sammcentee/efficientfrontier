@@ -56,19 +56,19 @@ Use `--target-volatility` for the app's stock model. Set a feasible holding limi
 
 ```bash
 # Current SPY and Nasdaq-100 stocks, with automatic benchmark prices
-.venv/bin/python -m efficient_frontier \
+cargo run --release --bin efficient-frontier -- \
   --sp500-nasdaq100 --target-volatility .20 --currency USD
 
 # Offline stock and benchmark files on identical dates
-.venv/bin/python -m efficient_frontier --csv data/prices.csv \
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv \
   --target-volatility .20 --benchmark-csv data/benchmarks.csv --currency USD
 
 # Explicit Yahoo benchmark download for a CSV portfolio
-.venv/bin/python -m efficient_frontier --csv data/prices.csv \
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv \
   --target-volatility .20 --download-benchmarks --currency USD
 
 # Stock study without ETF comparisons
-.venv/bin/python -m efficient_frontier --csv data/prices.csv \
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv \
   --target-volatility .20 --no-benchmarks
 ```
 
@@ -117,11 +117,11 @@ The report also retains exact stock prices, latest fitted weights, and eligibili
 
 ## Legacy statistical research
 
-The remaining sections describe the earlier CLI and Python API. These calculations do not run in the stock-model app or its `--target-volatility` CLI path.
+The remaining sections describe the earlier CLI and library API. These calculations do not run in the stock-model app or its `--target-volatility` CLI path.
 
 ```bash
 # Separate legacy strategy comparison with statistical evidence
-.venv/bin/python -m efficient_frontier --csv data/prices.csv \
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv \
   --benchmark-csv data/benchmarks.csv --backtests --currency USD
 ```
 

@@ -4,37 +4,42 @@ Start with the [README quick start](../README.md#setup). This guide covers setup
 
 ## Setup and troubleshooting
 
-Use Python 3.14. The launchers create a project-local `.venv`. They install the runtime packages on first use and after `requirements.txt` changes. An incomplete package install is retried on the next launch.
+Install the Rust toolchain with rustup from https://rustup.rs before the first start. Rust also needs a C compiler and linker:
 
-On Windows, the current Python Install Manager can obtain Python 3.14 automatically. An older `py` launcher needs an installed 3.14 runtime. On macOS, install the 3.14 runtime before you open the `.command` launcher.
+- Windows: the Microsoft C++ build tools, with "Desktop development with C++". The rustup installer offers them.
+- macOS: the Xcode Command Line Tools. Run `xcode-select --install` in Terminal.
+- Linux and WSL: a C compiler and linker, for example the `build-essential` or `base-devel` package.
 
-The launchers open a browser tab. The app binds to `127.0.0.1`, and Streamlit usage statistics are disabled. Keep the launcher window open while you use the app. Press **Ctrl+C** there to stop it. The server stays active after you close the browser tab.
+The launchers run `cargo run --release --locked --bin portfolio-lab` with your arguments. The first start downloads the dependencies and compiles the app. It needs internet access and takes a few minutes. Later starts are fast. After an update of the repository, the next start compiles the changes.
+
+The launchers open a browser tab. The app binds to `127.0.0.1` and prints its Local URL. The app collects no usage statistics. Keep the launcher window open while you use the app. Press **Ctrl+C** there to stop it. The server stays active after you close the browser tab.
+
+The app keeps one study for each browser, with a session cookie. All tabs of one browser share that study. A page reload keeps the study. The server keeps the studies in memory until it stops.
 
 | Problem | Action |
 | --- | --- |
-| Python was not found, or the launcher requests Python 3.14 | Install Python 3.14, then reopen the launcher. |
-| Package download stopped | Check your internet connection and reopen the launcher. |
+| The launcher says that Portfolio Lab needs the Rust toolchain | Install Rust from https://rustup.rs. Then open the launcher again. |
+| The first build stopped during a download | Check your internet connection. Then open the launcher again. |
+| The build reports that the linker `cc` or `link.exe` is not found | Install the C compiler and linker for your system, as above. Then open the launcher again. |
 | The launcher window closes immediately | Extract the whole ZIP first. Keep its files together. |
 | macOS says the `.command` file is not executable | Open Terminal. Type `bash `, drag `Start Portfolio Lab.command` into the window, then press Enter. |
 | No browser tab opens | Visit `http://localhost:8501` or the Local URL from the launcher. |
 | VS Code Remote/WSL cannot reach the app | Forward port 8501 from the Ports panel. |
-| Port 8501 is in use | Stop the earlier launcher with Ctrl+C. Or pass `--server.port=8502` and use the new Local URL. |
-| The launcher reports a different Python version in `.venv` | Remove only that project's `.venv` folder, then reopen the launcher. |
+| The app reports that it could not use port 8501 | Stop the earlier launcher with Ctrl+C. Or start with `--port 8502` and use the new Local URL. |
 
 For a background or remote session, run:
 
 ```bash
-bash run.sh --server.headless=true
+bash run.sh --headless
 ```
 
-To create an environment explicitly on Linux or WSL:
+With `--headless`, the app does not open a browser. `--port <n>` sets the local port. The default port is 8501. To start the app without a launcher, run the launcher command from the project folder:
 
 ```bash
-python3.14 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+cargo run --release --locked --bin portfolio-lab -- --headless --port 8502
 ```
 
-The synthetic demo and CSV analysis work offline after setup. Yahoo prices and the current Nasdaq list need internet access. Python 3.14 is the tested version. Native Windows startup has a smoke check. macOS startup still needs verification on a Mac.
+The synthetic demo and CSV analysis work offline after the first build. Yahoo prices, the Nasdaq-100 list, SPY holdings, company profiles, and the QQQ reference need internet access. The app keeps these downloads in memory for one hour. CI tests the Rust version on Linux. Native Windows and macOS startup of the Rust version still need verification.
 
 ## Settings and workflow
 
@@ -155,13 +160,15 @@ Set **Settings → Data options → Price frequency** to match the CSV:
 
 The CLI uses `--periods-per-year`, with a default of 252. It accepts any positive finite value. This factor changes annualization only. It does not convert daily prices to weekly or monthly prices.
 
-Yahoo uses `auto_adjust=True` and the adjusted `Close` field. The end date is exclusive. The app caches price downloads for one hour. For **My tickers**, incomplete history stops the analysis. Change the symbols or dates and rerun. The combined and Nasdaq-only inputs instead record exclusions under the [coverage rules](#stock-universe).
+Yahoo prices are adjusted daily closes. The app calculates them as yfinance does with `auto_adjust=True`. The end date is exclusive. The app caches price downloads for one hour.
+
+For **My tickers**, incomplete history stops the analysis. Change the symbols or dates and rerun. The combined and Nasdaq-only inputs instead record exclusions under the [coverage rules](#stock-universe).
 
 Yahoo symbols retain exchange suffixes such as `VOD.L`, `IWDA.AS`, `BMW.DE`, and `7203.T`. Explicit aliases convert `BRK.B` to `BRK-B`, `BRK.A` to `BRK-A`, `BF.B` to `BF-B`, and `BF.A` to `BF-A`. Other periods remain unchanged. International inputs still need a common currency and compatible dates. Different market holidays can create gaps.
 
 The original spreadsheet is a static list of 60 symbols. It is not a full S&P 500 universe or a historical membership record. The Yahoo preset uses Marsh's `MRSH` symbol in place of the spreadsheet's historical `MMC`. Availability and symbols can change.
 
-Yahoo/yfinance is unofficial. The [yfinance project](https://github.com/ranaroussi/yfinance), [Yahoo terms](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html), and [redistribution guidance](https://help.yahoo.com/kb/SLN2352.html) describe access and use limits. The project license does not grant permission to access or redistribute market data. Use synthetic prices for public examples.
+Yahoo Finance access is unofficial. The app calls the same public Yahoo endpoints as the [yfinance project](https://github.com/ranaroussi/yfinance). The yfinance project, [Yahoo terms](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html), and [redistribution guidance](https://help.yahoo.com/kb/SLN2352.html) describe access and use limits. The project license does not grant permission to access or redistribute market data. Use synthetic prices for public examples.
 
 ## SPY and QQQ comparisons
 
@@ -175,22 +182,24 @@ Synthetic demo results do not use actual market benchmarks. Comparisons need a U
 
 ## Command-line options and exports
 
-Run the CLI from the repository root. On Windows, replace `.venv/bin/python` with `.venv\Scripts\python.exe`.
+Run the CLI from the repository root. The examples use `cargo run`, which compiles the CLI on the first run.
 
 ```bash
 # The app's model across current SPY and Nasdaq-100 stocks
-.venv/bin/python -m efficient_frontier --sp500-nasdaq100 --target-volatility .20
+cargo run --release --bin efficient-frontier -- --sp500-nasdaq100 --target-volatility .20
 
 # Offline six-asset example with a feasible holding limit
-.venv/bin/python -m efficient_frontier --target-volatility .20 --max-weight .20
+cargo run --release --bin efficient-frontier -- --target-volatility .20 --max-weight .20
 
 # Offline stock and benchmark files with identical dates
-.venv/bin/python -m efficient_frontier --csv data/prices.csv \
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv \
   --target-volatility .20 --benchmark-csv data/benchmarks.csv --currency USD
 
 # All options, including separate legacy research tools
-.venv/bin/python -m efficient_frontier --help
+cargo run --release --bin efficient-frontier -- --help
 ```
+
+You can also build the CLI one time with `cargo build --release`. Then run `./target/release/efficient-frontier` with the same flags. On Windows, the program is `target\release\efficient-frontier.exe`. `cargo install --path .` puts `efficient-frontier` and `portfolio-lab` in `~/.cargo/bin`. The `reproduce_command` in `metadata.json` starts with `efficient-frontier`.
 
 Use `--target-volatility` to run the app's stock model from the CLI. The CLI also accepts explicit test assumptions for reproduction. `--train-fraction .7` and `--cost-bps 10` match the app. The stock model always buys once and holds. The CLI rejects `--rebalance-every` with `--target-volatility`. That option belongs to the separate legacy `--backtests` tools.
 
@@ -216,14 +225,14 @@ The CLI without `--target-volatility` retains the classic frontier tools. `--bac
 
 ```bash
 # Legacy four-method comparison using supplied prices
-.venv/bin/python -m efficient_frontier --csv data/prices.csv --backtests
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv --backtests
 
 # Legacy rolling-window study with weekly data
-.venv/bin/python -m efficient_frontier --csv data/weekly-prices.csv \
+cargo run --release --bin efficient-frontier -- --csv data/weekly-prices.csv \
   --periods-per-year 52 --backtests --rebalance-every 4 --rolling-window 52
 
 # Legacy original spreadsheet universe
-.venv/bin/python -m efficient_frontier --original-holdings --backtests
+cargo run --release --bin efficient-frontier -- --original-holdings --backtests
 ```
 
 The classic analysis contains a mean-return frontier, minimum-volatility portfolio, maximum-Sharpe portfolio, and equal-weight reference. It estimates the model from the initial training returns. Its original holdout enters at the final training close without trade fees. Separate backtests delay execution and deduct selected costs, so their buy-and-hold result differs.
@@ -232,13 +241,13 @@ Maximum Sharpe needs a feasible positive estimated excess return. If none exists
 
 Simple returns equal `price[t] / price[t-1] - 1`. The split uses `floor(training_fraction × number_of_returns)`. Annual arithmetic means and sample covariance use the chosen observations per year. Mean-return frontier estimates are not CAGR or forecasts. Singular covariance can produce several tied allocations. The [method guide](BACKTESTING.md) defines these estimates and their limits.
 
-The original R script sampled 5–40 holdings from a fixed 60-ticker list. The Python optimizer uses the whole supplied universe, with no fixed input or selected-holdings cap. Forty frontier points means forty return targets, not forty assets. Large universes still face memory, solver, history, and provider limits. See [optimizer capacity](PERFORMANCE.md).
+The original R script sampled 5–40 holdings from a fixed 60-ticker list. The current optimizer uses the whole supplied universe, with no fixed input or selected-holdings cap. Forty frontier points means forty return targets, not forty assets. Large universes still face memory, solver, history, and provider limits. See [optimizer capacity](PERFORMANCE.md).
 
-The historical R script replaced the daily mean with a terminal price-ratio expression, omitted the risk-free rate from Sharpe, and allocated ten million weight vectors. Its 12-worker cluster did not serve the serial loop. The current Python model uses arithmetic mean returns and an optimizer. It does not reproduce the R script's return calculation or random search. The historical source and spreadsheet remain unchanged.
+The historical R script replaced the daily mean with a terminal price-ratio expression, omitted the risk-free rate from Sharpe, and allocated ten million weight vectors. Its 12-worker cluster did not serve the serial loop. The current model uses arithmetic mean returns and an optimizer. It does not reproduce the R script's return calculation or random search. The historical source and spreadsheet remain unchanged.
 
 ## Historical membership
 
-The separate historical-membership CLI and Python API accept dated member lists. The offline example contains member additions, removals, re-entry, and missing price history.
+The separate historical-membership CLI and library API accept dated member lists. The offline example contains member additions, removals, re-entry, and missing price history.
 
 For real data, supply an adjusted-price CSV and the bundled Nasdaq-100 membership or your own membership CSV. This tool stays offline. The bundled community reconstruction covers **2010-01-01 through 2026-09-30**. Its provenance and known gaps appear in the report. It is not a certified complete index history.
 
@@ -264,14 +273,14 @@ The historical report includes membership snapshots, sparse input prices, eligib
 
 ```bash
 # Fully offline example; rolling window defaults to 126 returns
-.venv/bin/python -m efficient_frontier --historical-demo --output results/historical-demo
+cargo run --release --bin efficient-frontier -- --historical-demo --output results/historical-demo
 
 # Bundled historical membership with your supplied price history
-.venv/bin/python -m efficient_frontier --historical-membership \
+cargo run --release --bin efficient-frontier -- --historical-membership \
   --csv private/historical-prices.csv --output results/historical
 
 # Your own full membership snapshots and explicit final covered date
-.venv/bin/python -m efficient_frontier --membership-csv private/membership.csv \
+cargo run --release --bin efficient-frontier -- --membership-csv private/membership.csv \
   --membership-end 2024-12-31 --csv private/prices.csv \
   --rolling-window 126 --rebalance-every 21 --cost-bps 10 \
   --output results/custom-historical
