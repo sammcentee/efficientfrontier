@@ -100,8 +100,10 @@ Rolling maximum Sharpe's advantage over rebalanced equal weight shrank from 39.0
 
 Use an authorized CSV containing the same 60 adjusted price series and dates. The cached local study records the source, symbol mapping, fetch timestamps and input hashes in `results/holdings-study/input_provenance.json`. Provider revisions or another adjusted-price implementation can change results.
 
+The recorded study used the Python release. The Rust CLI accepts the same flags:
+
 ```bash
-.venv/bin/python -m efficient_frontier --csv data/holdings.csv \
+cargo run --release --bin efficient-frontier -- --csv data/holdings.csv \
   --backtests --train-fraction .5 --rolling-window 252 \
   --rebalance-every 21 --cost-bps 10 --output results/holdings-study
 

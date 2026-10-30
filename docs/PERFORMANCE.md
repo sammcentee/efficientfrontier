@@ -1,16 +1,64 @@
 # Optimizer capacity and reproducible benchmarks
 
-The active implementation is Python plus NumPy/CVXPY and the compiled Rust Clarabel solver. R is retained only as historical source. No hardcoded maximum ticker count or holdings count exists. Allocations can use any nonempty subset of the supplied universe, subject to the long-only, fully invested model and any optional position cap.
+The active implementation is Rust. The Clarabel 0.11.1 crate solves the convex programs, with its `faer-sparse` feature. R remains only as historical source. No hardcoded maximum ticker count or holdings count exists. Allocations can use any nonempty subset of the supplied universe, subject to the long-only, fully invested model and any optional position cap.
 
 This page measures computation time and memory. For investment performance against SPY and QQQ, see the [benchmark guide](BENCHMARKS.md).
 
-## Measured comparison
+## Rust and Python releases compared
 
-Measured on 2026-10-03 with Python 3.14.7, NumPy 2.5.3, pandas 3.0.6, CVXPY 1.9.3 and Clarabel 0.11.1, Linux/WSL2, 14 available logical CPUs. Each case runs in a fresh subprocess with `OPENBLAS_NUM_THREADS=1`, `OMP_NUM_THREADS=1` and Clarabel's default thread setting. These are single-run measurements, not averages or service guarantees.
+We measured both releases on 2026-10-30 on one machine, with Linux/WSL2 and 16 logical CPUs. The Python release used NumPy 2.5.3, CVXPY 1.9.3, and Clarabel 0.11.1. The Rust release uses the Clarabel 0.11.1 crate with the `faer-sparse` feature, as the Python wheel does. Each value comes from a single run. The values are not averages or service guarantees.
 
-The baseline is `efficient_frontier/core.py` at commit `277b4ed`. Both versions use identical synthetic annual means and a dense, full-rank covariance matrix generated from up to 24 factors plus a positive diagonal. The optimizer receives the complete dense matrix; this benchmark does not substitute an approximate risk model. A fixed seed makes each size reproducible. Synthetic Sharpe values are test outputs, not evidence of investment returns.
+Both benchmarks use the same design. Each case has synthetic annual means and a dense, full-rank covariance matrix from up to 24 factors plus a positive diagonal. The optimizer receives the complete dense matrix. The benchmark does not use an approximate risk model. Each case requests 40 frontier points and has no additional position cap.
 
-Each case requests 40 frontier points and uses no additional position cap:
+| Assets | Python optimizer | Rust optimizer | Python peak RSS | Rust peak RSS |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.169 s | 0.120 s | 197.3 MiB | 5.3 MiB |
+| 500 | 4.498 s | 4.034 s | 271.6 MiB | 31.4 MiB |
+| 1,000 | 22.236 s | 21.386 s | 475.4 MiB | 108.3 MiB |
+
+The Rust optimizer took 29%, 10%, and 4% less time at 100, 500, and 1,000 assets. The Rust peak RSS was 3% to 23% of the Python value. The Python value includes the Python interpreter and its imported libraries.
+
+The Rust benchmark makes its synthetic data with its own seeded generator. The construction is the same, but the random numbers are different. Thus the two benchmarks do not solve identical problems. Synthetic Sharpe values are test outputs, not evidence of investment returns.
+
+Optimizer time covers `optimize()`. This includes input validation, problem construction, and the solver run. It does not include model generation, price downloads, historical estimation, charts, or report export. Peak RSS is the maximum resident memory of the whole worker process in both benchmarks. It is not the size of the covariance array alone.
+
+Complete CLI runs took 0.06–0.63 s in Rust and 1.1–3.5 s in Python on the same machine. These runs were the demo, a CSV study, the backtests, and the historical demo. Most of the Python time was import time.
+
+## Capacity limits
+
+The model always uses the full covariance. Dense covariance storage is quadratic in the asset count. The factorization of dense systems is generally cubic. Memory, solver convergence, available history, and data-provider limits remain practical limits. The change to Rust did not remove these limits.
+
+## Reproduce on Linux
+
+Run this command from the repository root:
+
+```bash
+cargo run --release --example optimizer_benchmark -- \
+  --sizes 100 500 1000 --frontier-points 40 \
+  --timeout 60 --output results/benchmarks.json
+```
+
+Each case runs in a new worker process. The timeout is a safety budget for each worker process, not a limit in the app. It includes model generation and checks, as well as optimization. The benchmark records a timed-out or failed case. Such a case gives the benchmark a nonzero exit code. You can change the sizes, the point count, and the time budget.
+
+Each case checks that all weights are finite and nonnegative, sum to one, and obey the cap. It also compares each frontier return with the return of its weights.
+
+Add `--max-weight .01` to benchmark an optional 1% position cap. For each size, the size times the cap must be at least one. The benchmark writes JSON to the ignored `results/` folder. The JSON includes the environment, timings, peak RSS, and the results of the checks. Peak RSS is available on Linux only.
+
+## Compare with the Python release
+
+The Python benchmark is `benchmarks/optimizer.py` at commit `6c6df6e`. Check out that commit and install its packages, as the [research archive](../research/README.md#run-the-archived-scripts) shows. Then run this command from the root of that checkout:
+
+```bash
+.venv/bin/python -m benchmarks.optimizer \
+  --sizes 100 500 1000 --frontier-points 40 \
+  --timeout 60 --output results/benchmarks-python.json
+```
+
+The Python benchmark has a `--baseline` option for an archived `core.py`. The Rust benchmark does not have this option.
+
+## Earlier Python measurement: 3 October 2026
+
+This record describes the Python release. It compared the Python optimizer before and after a change for speed. The baseline was `efficient_frontier/core.py` at commit `277b4ed`. The environment was Python 3.14.7, NumPy 2.5.3, pandas 3.0.6, CVXPY 1.9.3, and Clarabel 0.11.1. The machine had Linux/WSL2 and 14 logical CPUs. Each case used one BLAS thread and one OpenMP thread.
 
 | Assets | Previous Python optimizer | Updated optimizer | Previous peak RSS | Updated peak RSS |
 | ---: | ---: | ---: | ---: | ---: |
@@ -18,44 +66,6 @@ Each case requests 40 frontier points and uses no additional position cap:
 | 500 | 9.644 s | 4.286 s | 303.1 MiB | 268.3 MiB |
 | 1,000 | 29.769 s | 20.757 s | 601.3 MiB | 461.1 MiB |
 
-The current 2,000-asset, 40-point case did not finish within the 60-second subprocess budget and was terminated. No successful timing or peak-memory result is claimed for that case; 2,000 is not an application cap. A separate 500-asset comparison with a 0.5% position cap (requiring at least 200 holdings) completed all 40 points: 7.604 → 4.396 seconds and 304.0 → 271.5 MiB peak RSS, with all allocation checks passing.
+A 2,000-asset case with 40 points did not complete in the 60-second budget. The value 2,000 is not an application cap. `docs/PERFORMANCE.md` at commit `6c6df6e` keeps the full record and the list of changes.
 
-All six cases produced 40 points. Every portfolio and frontier allocation was checked for finite values, nonnegative weights, total weight one, and compliance with the selected cap. Frontier expected returns were checked against their actual weights. Separate analytic unit tests verify correct minimum-volatility and maximum-Sharpe solutions, including a 128-asset case in which all 128 holdings are used.
-
-Optimizer time covers `optimize()`, including input validation, problem construction and solving. It excludes model generation, price downloading, historical estimation, charts and report export. Peak RSS is the Linux maximum resident memory of the entire worker process, including Python imports and model generation. It is not covariance-array size alone.
-
-## What changed
-
-- No extra position cap is applied by default in the app or CLI. Single-ticker inputs are supported, and optional caps can be smaller than the old interface's 5% minimum.
-- At a 100% cap, nonnegativity and full investment already imply the upper bound; redundant solver constraints are removed.
-- A capped maximum-Sharpe problem uses one shared normalization variable, avoiding a dense constraint matrix built by broadcasting a sum across every asset. At 128 assets the constraint matrix has 641 nonzeros with a 5% cap, compared with 16,640 previously; uncapped it has 256 rather than 16,512.
-- Positive-definite covariance validation uses Cholesky first, with eigenvalue validation retained for singular cases. This changes the constant cost, not the cubic complexity class of dense validation.
-- Large correlation charts start with a display subset. This does not change optimization inputs or exported weights.
-
-The full covariance is still used. Dense covariance storage is quadratic in asset count; factorizing dense systems is generally cubic. Memory, solver convergence, available history and data-provider limits remain practical limits. There is no language switch that makes an arbitrarily large dense problem free to compute.
-
-## Reproduce on Linux
-
-From the repository root after installing the requirements:
-
-```bash
-.venv/bin/python -m benchmarks.optimizer \
-  --sizes 100 500 1000 --frontier-points 40 \
-  --timeout 60 --output results/benchmarks.json
-```
-
-The timeout is a benchmark safety budget per subprocess, not a limit in the app. It includes imports, model generation and verification as well as optimization. A timed-out or failed case is recorded and gives the benchmark a nonzero exit code. Sizes, point counts and the time budget can be changed explicitly.
-
-Compare with the previous implementation on the same machine:
-
-```bash
-git show 277b4ed:efficient_frontier/core.py > /tmp/efficientfrontier-core-before.py
-.venv/bin/python -m benchmarks.optimizer \
-  --sizes 100 500 1000 --frontier-points 40 \
-  --baseline /tmp/efficientfrontier-core-before.py \
-  --output results/benchmarks-comparison.json
-```
-
-Add `--max-weight .01` to benchmark an optional 1% position cap; all selected sizes must make that cap feasible. Benchmark JSON is generated locally under ignored `results/` and includes the environment, timings, peak RSS and validation results.
-
-References: [Clarabel Python interface](https://clarabel.org/stable/python/getting_started_py/), [Clarabel solver settings](https://clarabel.org/stable/api_settings/), and [CVXPY solver features and repeated solves](https://www.cvxpy.org/tutorial/solvers/index.html).
+References: [Clarabel Rust interface](https://clarabel.org/stable/rust/getting_started_rs/), [Clarabel API documentation](https://docs.rs/clarabel/0.11.1/clarabel/), and [Clarabel solver settings](https://clarabel.org/stable/api_settings/).

@@ -1,20 +1,20 @@
 # Efficient Frontier Analysis for US Equities
 
-A local Python app for stock portfolio optimization and historical tests. It estimates returns and covariance from supplied prices, then finds stock weights within a volatility budget and holding limit.
+A local Rust app for stock portfolio optimization and historical tests. It estimates returns and covariance from supplied prices, then finds stock weights within a volatility budget and holding limit.
 
 The default universe combines the stocks held by SPY with current Nasdaq-100 constituents. You can also use your own stock symbols, a price CSV, or synthetic demo data. SPY and QQQ provide comparisons and do not enter the stock allocation.
 
 ## Setup
 
-Install **Python 3.14**, then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
+Install the Rust toolchain with [rustup](https://rustup.rs). Rust also needs a C compiler and linker. The table gives the tools for each system. Then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
 
-| System | Start the app |
-| --- | --- |
-| Windows | Open `Start Portfolio Lab.bat`. |
-| macOS | Open `Start Portfolio Lab.command`. |
-| Linux or WSL | Run `bash run.sh` from the project folder. |
+| System | Install first | Start the app |
+| --- | --- | --- |
+| Windows | Microsoft C++ build tools with "Desktop development with C++". The rustup installer offers them. | Open `Start Portfolio Lab.bat`. |
+| macOS | Xcode Command Line Tools. Run `xcode-select --install`. | Open `Start Portfolio Lab.command`. |
+| Linux or WSL | A C compiler and linker, for example the `build-essential` or `base-devel` package. | Run `bash run.sh` from the project folder. |
 
-The first launch installs dependencies and needs internet access. The app opens at **http://localhost:8501**. Keep the launcher open and press **Ctrl+C** there to stop it. Demo and CSV studies work offline after setup.
+The first start compiles the app. It needs internet access and takes a few minutes. Later starts are fast. The app opens at **http://localhost:8501**. Keep the launcher open and press **Ctrl+C** there to stop it. Demo and CSV studies work offline after the first build.
 
 For a Git checkout:
 
@@ -83,13 +83,15 @@ Run the app's model without a browser:
 
 ```bash
 # Offline demo
-.venv/bin/python -m efficient_frontier --target-volatility .20 --max-weight .20
+cargo run --release --bin efficient-frontier -- --target-volatility .20 --max-weight .20
 
 # Supplied stock prices, with at least ten eligible stocks
-.venv/bin/python -m efficient_frontier --csv data/prices.csv --target-volatility .20
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv --target-volatility .20
 ```
 
-On Windows, use `.venv\Scripts\python.exe`. Output goes to `results/latest/`. Use `--output` to preserve separate studies. Reports contain the input prices. Keep private data in ignored `data/` or `private/` folders.
+The first run compiles the CLI. You can also build it one time with `cargo build --release`. Then run `./target/release/efficient-frontier` with the same flags. On Windows, the program is `target\release\efficient-frontier.exe`.
+
+Output goes to `results/latest/`. Use `--output` to preserve separate studies. Reports contain the input prices. Keep private data in ignored `data/` or `private/` folders.
 
 ## Reference
 
@@ -99,6 +101,6 @@ On Windows, use `.venv\Scripts\python.exe`. Output goes to `results/latest/`. Us
 - [Contributing](CONTRIBUTING.md): development setup and checks.
 - [Validation record](docs/VALIDATION.md): dated checks and limitations.
 
-The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required. Earlier findings remain in the [stock study](docs/HOLDINGS_STUDY.md) and [research archive](research/README.md).
+The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required. The Rust version replaced the Python release. Git history keeps the last Python release at commit `6c6df6e`. Earlier findings remain in the [stock study](docs/HOLDINGS_STUDY.md) and [research archive](research/README.md).
 
 Code and documentation use the [MIT License](LICENSE). [Third-party terms](THIRD_PARTY_NOTICES.md) still apply. The software license does not grant rights to download or redistribute market data.
