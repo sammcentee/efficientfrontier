@@ -5,6 +5,7 @@
 //! `/api/job`. Tests that need the report functions (the reports branch) or the
 //! network modules (the network branch) are ignored until those merges.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,13 +17,15 @@ use efficient_frontier::frame::{Cell, Date, Frame, Table, iso};
 use efficient_frontier::pyfmt::{Dict, Json};
 use efficient_frontier::selection::SELECTED;
 use efficient_frontier::{dict, io_error, value_error};
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
 use crate::build::Applied;
 use crate::render::overview::budget_note;
-use crate::session::{Session, lock};
-use crate::setup::Market;
-use crate::sources::{CompanyProfile, Progress, QqqReference, Sources, UniversePrices};
+use crate::routes::OLDER_STUDY;
+use crate::session::{IDLE_LIMIT, Session, Sessions, lock};
+use crate::setup::{Market, hex};
+use crate::sources::{Cancelled, CompanyProfile, Progress, QqqReference, Sources, UniversePrices, cancelled_error};
 use crate::state::AppState;
 
 // ----------------------------------------------------------------------------- fixtures
@@ -187,7 +190,12 @@ struct Fake {
     qqq_panics: bool,
     universe: Option<UniversePrices>,
     universe_gate: Option<Arc<Gate>>,
+    /// Download the universe in four batches; after batch 1, wait for this gate.
+    batch_gate: Option<Arc<Gate>>,
     universe_panics: bool,
+    /// Universe downloads running now, and the most at once.
+    running: AtomicUsize,
+    most_running: AtomicUsize,
     prices: Option<Result<Frame>>,
     benchmarks: Option<Frame>,
     profiles: Profiles,
@@ -201,7 +209,10 @@ impl Default for Fake {
             qqq_panics: false,
             universe: None,
             universe_gate: None,
+            batch_gate: None,
             universe_panics: false,
+            running: AtomicUsize::new(0),
+            most_running: AtomicUsize::new(0),
             prices: None,
             benchmarks: None,
             profiles: Profiles::Named,
@@ -236,12 +247,26 @@ fn blocked() -> Error {
     Error::Runtime("An app test attempted an unmocked market download.".into())
 }
 
-impl Sources for Fake {
-    fn universe_prices(&self, market: Market, start: Date, end: Date, progress: Progress) -> Result<UniversePrices> {
-        self.log(format!("universe {} {} {}", market.label(), iso(start), iso(end)));
+impl Fake {
+    /// The universe download, batch by batch when `batch_gate` is set. A cancelled
+    /// build stops before its next batch, as the live download does.
+    fn download_universe(&self, progress: Progress, cancelled: Cancelled) -> Result<UniversePrices> {
         if let Some(gate) = &self.universe_gate {
             progress(3, 13, "Checked 3 of 13 securities.");
             gate.wait();
+        }
+        if let Some(gate) = &self.batch_gate {
+            for batch in 1..=4 {
+                if cancelled() {
+                    self.log(format!("stopped before batch {batch}"));
+                    return Err(cancelled_error());
+                }
+                self.log(format!("batch {batch}"));
+                progress(25 * batch, 100, &format!("Checked {} of 100 securities.", 25 * batch));
+                if batch == 1 {
+                    gate.wait();
+                }
+            }
         }
         if self.universe_panics {
             todo!("simulated universe download failure")
@@ -249,6 +274,24 @@ impl Sources for Fake {
         let loaded = self.universe.clone().ok_or_else(blocked)?;
         progress(13, 13, "All fixture securities checked");
         Ok(loaded)
+    }
+}
+
+impl Sources for Fake {
+    fn universe_prices(
+        &self,
+        market: Market,
+        start: Date,
+        end: Date,
+        progress: Progress,
+        cancelled: Cancelled,
+    ) -> Result<UniversePrices> {
+        self.log(format!("universe {} {} {}", market.label(), iso(start), iso(end)));
+        let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most_running.fetch_max(running, Ordering::SeqCst);
+        let result = self.download_universe(progress, cancelled);
+        self.running.fetch_sub(1, Ordering::SeqCst);
+        result
     }
 
     fn prices(&self, tickers: &[String], start: Date, end: Date) -> Result<Frame> {
@@ -358,9 +401,24 @@ impl TestApp {
     }
 
     async fn send(&mut self, method: Method, path: &str, content_type: Option<String>, body: Vec<u8>) -> Reply {
+        self.send_with(method, path, &[], content_type, body).await
+    }
+
+    /// A request with extra headers, such as the browser's `Origin` and `Sec-Fetch-*`.
+    async fn send_with(
+        &mut self,
+        method: Method,
+        path: &str,
+        headers: &[(&str, &str)],
+        content_type: Option<String>,
+        body: Vec<u8>,
+    ) -> Reply {
         let mut request = Request::builder().method(method).uri(path);
         if let Some(cookie) = &self.cookie {
             request = request.header(header::COOKIE, cookie);
+        }
+        for (name, value) in headers {
+            request = request.header(*name, *value);
         }
         if let Some(content_type) = content_type {
             request = request.header(header::CONTENT_TYPE, content_type);
@@ -718,7 +776,8 @@ async fn overview_orders_its_tiles_and_keeps_details_closed() {
     assert!(page.contains("the replay below uses a separate initial allocation"));
     let nav = element(&page, "localnav");
     assert!(nav.contains(">Overview</button>") && nav.contains(">Data &amp; method</button>"));
-    assert!(nav.contains(r#"href="/export""#) && nav.contains("portfolio-lab.zip"));
+    let id = app.applied().id;
+    assert!(nav.contains(&format!(r#"href="/export?result={id}""#)) && nav.contains("portfolio-lab.zip"));
     for removed in ["risk_profile", "comparison_method", "key_low", "open_historical", "run_legacy"] {
         assert!(!page.contains(removed), "{removed}");
     }
@@ -855,7 +914,7 @@ async fn short_history_export_says_why_out_of_sample_is_missing() {
     let mut app = csv_app(&prices, Some(&benchmarks)).await;
     let page = app.page().await;
     assert!(element(&page, "tile_final_test").contains("plotly-graph-div"));
-    let reply = app.get("/export").await;
+    let reply = app.get(&format!("/export?result={}", app.applied().id)).await;
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(reply.headers[header::CONTENT_TYPE], "application/zip");
     assert!(reply.body.contains("metadata.json") && !reply.body.contains("out_of_sample/windows.csv"));
@@ -1383,7 +1442,7 @@ async fn csv_frequency_reaches_later_test_without_resampling() {
 async fn export_is_deferred_and_captures_completed_selection_not_draft() {
     let mut app = demo_app().await;
     assert!(app.differs(&[("target_vol", "25")], &[]).await);
-    let reply = app.get("/export").await;
+    let reply = app.get(&format!("/export?result={}", app.applied().id)).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
     assert_eq!(reply.headers[header::CONTENT_DISPOSITION], "attachment; filename=\"portfolio-lab.zip\"");
     for name in
@@ -1528,6 +1587,7 @@ fn with_revision(applied: &Applied, revision: &str) -> Applied {
     let mut metadata: Dict = applied.metadata.clone();
     metadata.insert("selection_model_revision", revision);
     Applied {
+        id: applied.id,
         prices: applied.prices.clone(),
         metadata,
         selection: applied.selection.clone(),
@@ -1555,7 +1615,8 @@ async fn old_study_waits_for_intentional_migration_and_retains_input_prices() {
     assert_eq!(checked(&drawer, "market"), "Demo");
     assert_eq!((value(&drawer, "target_vol"), value(&drawer, "cap")), ("20.00".to_string(), "20".to_string()));
     assert_eq!(app.applied().prices, prices);
-    assert_eq!(app.get("/export").await.status, StatusCode::NOT_FOUND);
+    let old = app.applied().id;
+    assert_eq!(app.get(&format!("/export?result={old}")).await.status, StatusCode::NOT_FOUND);
     app.build(&[], &[]).await;
     assert!(app.applied().is_current());
     assert!(app.page().await.contains(r#"id="export""#));
@@ -1584,16 +1645,18 @@ async fn data_method_is_passive_and_shows_only_the_completed_model() {
     let trades = &study.test.trades[SELECTED];
     let fee = trades.f64s("cost")[0] * 10_000.0;
     assert!(page.contains(&efficient_frontier::pyfmt::format(fee, ",.2f")));
-    let csv = app.get("/download/prices.csv").await;
+    let id = app.applied().id;
+    assert!(data.contains(&format!(r#"data-src="/api/prices?result={id}""#)));
+    let csv = app.get(&format!("/download/prices.csv?result={id}")).await;
     assert_eq!(csv.headers[header::CONTENT_DISPOSITION], "attachment; filename=\"prices.csv\"");
     assert!(csv.body.starts_with("Date,DEMO_"));
-    let fragment = app.get("/fragment/prices").await.body;
-    assert!(
-        fragment.contains(&format!(
-            r#"<th scope="row">{}</th>"#,
-            crate::render::format::day(app.applied().prices.index[0])
-        ))
-    );
+    let table: serde_json::Value =
+        serde_json::from_str(&app.get(&format!("/api/prices?result={id}")).await.body).unwrap();
+    let prices = app.applied().prices.clone();
+    assert_eq!(table["index"][0], crate::render::format::day(prices.index[0]));
+    assert_eq!(table["columns"].as_array().unwrap().len(), prices.ncols());
+    assert_eq!(table["rows"].as_array().unwrap().len(), prices.nrows());
+    assert_eq!(table["rows"][0][0], crate::render::format::number(prices.get(0, 0)));
     assert_eq!(app.state.caches.selection.computed(), 1);
     assert!(Arc::ptr_eq(&app.applied().selection, &study));
     app.form("/view", &[("view", "Portfolio")]).await;
@@ -1723,4 +1786,207 @@ async fn the_drawer_shows_every_control_for_its_market() {
     let drawer = app.drawer().await;
     assert!(drawer.contains("Reference from the saved input history: SPY "));
     assert!(drawer.contains(r#"<div data-when-market="Upload CSV">"#));
+}
+
+// ----------------------------------------------------------------------------- review fixes
+
+/// Poll until `done` holds, for work on a background thread.
+async fn eventually(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !done() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// Wait until the running build reports this progress message.
+async fn wait_for_progress(app: &mut TestApp, text: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let value: serde_json::Value = serde_json::from_str(&app.get("/api/job").await.body).unwrap();
+        if value["bar"]["text"] == text {
+            return;
+        }
+        assert!(Instant::now() < deadline, "no progress {text:?}: {value}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+const HOST: (&str, &str) = ("host", "127.0.0.1:8501");
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cross_site_posts_and_background_reads_are_refused() {
+    let mut app = TestApp::new(Fake::universe());
+    app.page().await;
+    let form = Some("application/x-www-form-urlencoded".to_string());
+    let limits = b"target_vol=30&cap=30".to_vec();
+    let body = multipart(&[("form", "landing"), ("target_vol", "20"), ("cap", "10")], &[]);
+    let multipart_type = Some(format!("multipart/form-data; boundary={BOUNDARY}"));
+    let refused = [
+        vec![HOST, ("origin", "https://evil.example")],
+        vec![HOST, ("origin", "http://localhost:8501")],
+        vec![HOST, ("origin", "null")],
+        vec![HOST, ("sec-fetch-site", "cross-site")],
+        vec![HOST, ("sec-fetch-site", "same-site")],
+        vec![HOST, ("origin", "http://127.0.0.1:8501"), ("sec-fetch-site", "cross-site")],
+    ];
+    for headers in &refused {
+        let reply = app.send_with(Method::POST, "/build", headers, multipart_type.clone(), body.clone()).await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{headers:?}");
+        let reply = app.send_with(Method::POST, "/api/preview", headers, form.clone(), limits.clone()).await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{headers:?}");
+    }
+    let session = app.session();
+    assert!(session.job.is_none() && session.setup.cap == 10.0, "no refused request changed the study");
+    assert!(app.fake.downloads().is_empty());
+    let own = [HOST, ("origin", "http://127.0.0.1:8501"), ("sec-fetch-site", "same-origin")];
+    let reply = app.send_with(Method::POST, "/api/preview", &own, form.clone(), limits).await;
+    assert_eq!(reply.status, StatusCode::NO_CONTENT);
+    assert_eq!(app.session().setup.cap, 30.0);
+    let background = [HOST, ("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "no-cors")];
+    assert_eq!(
+        app.send_with(Method::GET, "/api/job", &background, None, Vec::new()).await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        app.send_with(Method::GET, "/assets/js/app.js", &background, None, Vec::new()).await.status,
+        StatusCode::FORBIDDEN
+    );
+    let link = [HOST, ("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "navigate")];
+    assert_eq!(app.send_with(Method::GET, "/", &link, None, Vec::new()).await.status, StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_post_without_a_known_session_creates_nothing() {
+    let mut app = TestApp::new(Fake::universe());
+    let body = multipart(&[("form", "landing"), ("target_vol", "20"), ("cap", "10")], &[]);
+    let content_type = Some(format!("multipart/form-data; boundary={BOUNDARY}"));
+    for cookie in [None, Some("pl_session=0123456789abcdef0123456789abcdef".to_string())] {
+        app.cookie = cookie;
+        let reply = app.send(Method::POST, "/build", content_type.clone(), body.clone()).await;
+        assert_eq!(reply.status, StatusCode::SEE_OTHER);
+        assert_eq!(reply.headers[header::LOCATION], "/");
+        assert!(!reply.headers.contains_key(header::SET_COOKIE));
+        let reply = app.form("/api/preview", &[("target_vol", "30"), ("cap", "30")]).await;
+        assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    }
+    assert_eq!(app.state.sessions.count(), 0);
+    assert!(app.fake.calls().is_empty(), "no session, no QQQ lookup, no build");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_session_store_removes_the_least_recently_used_browser() {
+    let mut first = TestApp::with(Fake::default(), |state| state.sessions = Sessions::new(2, IDLE_LIMIT));
+    let share = |app: &TestApp| TestApp {
+        router: app.router.clone(),
+        state: app.state.clone(),
+        fake: app.fake.clone(),
+        cookie: None,
+    };
+    first.page().await;
+    first.form("/api/preview", &[("target_vol", "25"), ("cap", "10")]).await;
+    let first_cookie = first.cookie.clone();
+    let mut second = share(&first);
+    second.page().await;
+    let mut third = share(&first);
+    third.page().await;
+    assert_eq!(first.state.sessions.count(), 2);
+    // The first browser's session left; its next page starts a new one with the defaults.
+    let page = first.page().await;
+    assert_ne!(first.cookie, first_cookie);
+    assert_eq!(value(&page, "preview_target_vol"), "20.00");
+    assert_eq!(first.state.sessions.count(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_stops_the_universe_download_at_the_next_batch() {
+    let gate = Arc::new(Gate::default());
+    let mut app = TestApp::new(Fake { batch_gate: Some(gate.clone()), ..Fake::universe() });
+    app.page().await;
+    let reply = app.multipart("/build", &[("form", "landing"), ("target_vol", "20"), ("cap", "10")], &[]).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    wait_for_progress(&mut app, "Checked 25 of 100 securities.").await;
+    assert_eq!(app.form("/cancel", &[]).await.status, StatusCode::SEE_OTHER);
+    gate.release();
+    let fake = app.fake.clone();
+    eventually("the download to stop", || fake.calls().iter().any(|call| call.starts_with("stopped"))).await;
+    let batches: Vec<String> = app.fake.calls().into_iter().filter(|call| call.starts_with("batch")).collect();
+    assert_eq!(batches, ["batch 1"]);
+    assert!(app.fake.calls().contains(&"stopped before batch 2".to_string()));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(app.state.caches.universe.computed(), 0, "a cancelled download is not cached");
+    assert_eq!(app.state.caches.selection.computed(), 0, "no fit after Cancel");
+    assert!(app.session().applied.is_none() && app.session().build_error.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rebuild_after_cancel_waits_for_the_stopping_download() {
+    let gate = Arc::new(Gate::default());
+    let mut app = TestApp::new(Fake { batch_gate: Some(gate.clone()), ..Fake::universe() });
+    app.page().await;
+    let landing = [("form", "landing"), ("target_vol", "20"), ("cap", "10")];
+    app.multipart("/build", &landing, &[]).await;
+    wait_for_progress(&mut app, "Checked 25 of 100 securities.").await;
+    app.form("/cancel", &[]).await;
+    app.multipart("/build", &landing, &[]).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let universe_calls = |app: &TestApp| app.fake.calls().iter().filter(|call| call.starts_with("universe ")).count();
+    assert_eq!(universe_calls(&app), 1, "the second build waits for the same download");
+    gate.release();
+    app.wait().await;
+    assert!(app.session().build_error.is_none(), "{:?}", app.session().build_error);
+    assert!(app.session().applied.is_some());
+    assert_eq!(universe_calls(&app), 2);
+    assert_eq!(app.fake.most_running.load(Ordering::SeqCst), 1, "never two downloads at once");
+    let batches: Vec<String> = app.fake.calls().into_iter().filter(|call| call.starts_with("batch")).collect();
+    assert_eq!(batches, ["batch 1", "batch 1", "batch 2", "batch 3", "batch 4"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn downloads_of_an_older_study_answer_409() {
+    let mut app = demo_app().await;
+    let older = app.applied().id;
+    app.build(&[("cap", "25")], &[]).await;
+    let newer = app.applied().id;
+    assert_ne!(older, newer);
+    for path in ["/export", "/download/prices.csv", "/api/prices"] {
+        let reply = app.get(&format!("{path}?result={older}")).await;
+        assert_eq!(reply.status, StatusCode::CONFLICT, "{path}");
+        assert!(reply.body.contains(OLDER_STUDY), "{path}");
+        assert_eq!(app.get(path).await.status, StatusCode::CONFLICT, "{path} without a result id");
+        let reply = app.get(&format!("{path}?result={newer}")).await;
+        assert_eq!(reply.status, StatusCode::OK, "{path}: {}", reply.body);
+    }
+    let page = app.page().await;
+    assert!(page.contains(&format!("/export?result={newer}")));
+    app.form("/view", &[("view", "Data & method")]).await;
+    let page = app.page().await;
+    assert!(page.contains(&format!("/download/prices.csv?result={newer}")));
+    assert!(page.contains(&format!("/api/prices?result={newer}")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn draft_checks_compare_file_digests_without_file_bytes() {
+    let prices = market_prices();
+    let mut app = csv_app(&prices, Some(&benchmark_prices(&prices.index))).await;
+    let applied = hex(&Sha256::digest(csv(&prices)));
+    let mut changed = prices.clone();
+    changed.values[(0, 0)] *= 1.01;
+    let other = hex(&Sha256::digest(csv(&changed)));
+    let draft = |name: &'static str, digest: String| {
+        vec![
+            ("market", "Upload CSV".to_string()),
+            ("prices_upload_name", name.to_string()),
+            ("prices_upload_sha256", digest),
+        ]
+    };
+    for (fields, expected) in [
+        (draft("portfolio.csv", applied.clone()), false),
+        (draft("portfolio.csv", other), true),
+        (draft("renamed.csv", applied.clone()), true),
+        (draft("portfolio.csv", "not a digest".into()), false),
+    ] {
+        let fields: Vec<(&str, &str)> = fields.iter().map(|(name, value)| (*name, value.as_str())).collect();
+        assert_eq!(app.differs(&fields, &[]).await, expected, "{fields:?}");
+    }
 }

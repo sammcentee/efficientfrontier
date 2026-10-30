@@ -6,8 +6,8 @@
 //! tests below cover it without a server.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
+use axum::body::Bytes;
 use chrono::Months;
 use efficient_frontier::frame::{Date, iso};
 use efficient_frontier::pyfmt::{Dict, Json};
@@ -185,17 +185,28 @@ impl Currency {
 }
 
 /// An uploaded CSV file: its name, its bytes and their SHA-256 digest.
+///
+/// The bytes share the request's buffer, so a stored file is never copied.
 #[derive(Clone, Debug)]
 pub struct Upload {
     pub name: String,
-    pub bytes: Arc<[u8]>,
+    pub bytes: Bytes,
     pub sha256: String,
 }
 
 impl Upload {
-    pub fn new(name: impl Into<String>, bytes: Vec<u8>) -> Self {
+    /// A file with its digest. Hashing a large file takes time: call this off the async workers.
+    pub fn new(name: impl Into<String>, bytes: impl Into<Bytes>) -> Self {
+        let bytes = bytes.into();
         let sha256 = hex(&Sha256::digest(&bytes));
-        Self { name: name.into(), bytes: bytes.into(), sha256 }
+        Self { name: name.into(), bytes, sha256 }
+    }
+
+    /// The identity of a file that the browser hashed, without its bytes. Only a
+    /// draft comparison uses it; a build always receives the file itself.
+    pub fn identity(name: impl Into<String>, sha256: &str) -> Option<Self> {
+        let valid = sha256.len() == 64 && sha256.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        valid.then(|| Self { name: name.into(), bytes: Bytes::new(), sha256: sha256.to_string() })
     }
 }
 
@@ -549,7 +560,7 @@ mod tests {
     fn csv_frequency_and_files_reach_the_plan_only_for_upload_csv() {
         let today = day("2026-10-30");
         let mut setup = Setup::new(today);
-        setup.prices_file = Some(Upload::new("portfolio.csv", b"Date,A\n".to_vec()));
+        setup.prices_file = Some(Upload::new("portfolio.csv", b"Date,A\n".as_slice()));
         setup.download_benchmarks = true;
         setup.frequency = Frequency::Monthly;
         let plan = resolve(&setup, today);
@@ -602,10 +613,10 @@ mod tests {
         let today = day("2026-10-30");
         let mut setup = Setup::new(today);
         setup.market = Market::UploadCsv;
-        setup.prices_file = Some(Upload::new("portfolio.csv", b"one".to_vec()));
+        setup.prices_file = Some(Upload::new("portfolio.csv", b"one".as_slice()));
         let plan = resolve(&setup, today);
         let metadata = applied_metadata(&plan);
-        setup.prices_file = Some(Upload::new("portfolio.csv", b"two".to_vec()));
+        setup.prices_file = Some(Upload::new("portfolio.csv", b"two".as_slice()));
         assert!(differs(&resolve(&setup, today), &metadata, &plan.input_choices));
     }
 
@@ -613,8 +624,8 @@ mod tests {
     fn draft_keeps_hidden_controls_and_files_unless_removed() {
         let today = day("2026-10-30");
         let mut setup = Setup::new(today);
-        setup.prices_file = Some(Upload::new("portfolio.csv", b"prices".to_vec()));
-        setup.benchmark_file = Some(Upload::new("benchmarks.csv", b"spy".to_vec()));
+        setup.prices_file = Some(Upload::new("portfolio.csv", b"prices".as_slice()));
+        setup.benchmark_file = Some(Upload::new("benchmarks.csv", b"spy".as_slice()));
         let mut draft = Draft::default();
         for (key, value) in
             [("market", "Upload CSV"), ("cap", "30"), ("target_vol", "250"), ("clear_benchmark_file", "1")]
@@ -628,7 +639,7 @@ mod tests {
         assert_eq!(next.ticker_text, DEFAULT_TICKERS);
         assert_eq!(next.prices_file, setup.prices_file);
         assert_eq!(next.benchmark_file, None);
-        draft.uploads.insert("prices_upload".into(), Upload::new("new.csv", b"new".to_vec()));
+        draft.uploads.insert("prices_upload".into(), Upload::new("new.csv", b"new".as_slice()));
         draft.fields.insert("clear_prices_file".into(), "1".into());
         assert_eq!(read_draft(&draft, &setup).prices_file.unwrap().name, "new.csv", "a new upload wins over removal");
         draft.fields.insert("compare_market".into(), "false".into());

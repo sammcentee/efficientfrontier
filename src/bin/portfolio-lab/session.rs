@@ -1,15 +1,16 @@
 //! Browser sessions: a cookie identifies the server-side state of one browser.
 //!
-//! This replaces `st.session_state`. The state lives in memory for the life of
-//! the process. Every tab of one browser shares the cookie, so it shares the
-//! study, and a reload keeps it.
+//! This replaces `st.session_state`. The state lives in memory. Every tab of one
+//! browser shares the cookie, so it shares the study, and a reload keeps it.
+//! As Streamlit drops disconnected sessions, the store removes a session after
+//! a day without requests, and the least recently used one when it is full.
 
 use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::http::header::COOKIE;
 use axum::http::{HeaderMap, HeaderValue};
@@ -23,6 +24,10 @@ use crate::sources::QqqReference;
 
 /// The name of the session cookie.
 pub const COOKIE_NAME: &str = "pl_session";
+/// The most sessions that the server keeps.
+pub const MAX_SESSIONS: usize = 32;
+/// A session without requests for this long is removed.
+pub const IDLE_LIMIT: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The two result pages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,23 +91,88 @@ impl Session {
 
 pub type SessionRef = Arc<Mutex<Session>>;
 
-/// Every session by cookie value.
-#[derive(Default)]
+struct Entry {
+    session: SessionRef,
+    last_used: Instant,
+}
+
+/// Every session by cookie value, with a size limit and an idle limit.
 pub struct Sessions {
-    map: Mutex<HashMap<String, SessionRef>>,
+    map: Mutex<HashMap<String, Entry>>,
+    capacity: usize,
+    idle_limit: Duration,
+}
+
+impl Default for Sessions {
+    fn default() -> Self {
+        Self::new(MAX_SESSIONS, IDLE_LIMIT)
+    }
 }
 
 impl Sessions {
-    pub fn get(&self, id: &str) -> Option<SessionRef> {
-        lock(&self.map).get(id).cloned()
+    pub fn new(capacity: usize, idle_limit: Duration) -> Self {
+        Self { map: Mutex::new(HashMap::new()), capacity: capacity.max(1), idle_limit }
     }
 
-    /// Store a new session under a new random identifier.
+    /// The session of a cookie, which counts as a use of it.
+    pub fn get(&self, id: &str) -> Option<SessionRef> {
+        let (found, retired) = {
+            let mut map = lock(&self.map);
+            let retired = self.remove_idle(&mut map);
+            let found = map.get_mut(id).map(|entry| {
+                entry.last_used = Instant::now();
+                entry.session.clone()
+            });
+            (found, retired)
+        };
+        retire(retired);
+        found
+    }
+
+    /// Store a new session under a new random identifier. When the store is
+    /// full, the least recently used session makes room.
     pub fn insert(&self, session: Session) -> (String, SessionRef) {
         let id = new_id();
         let handle = Arc::new(Mutex::new(session));
-        lock(&self.map).insert(id.clone(), handle.clone());
+        let retired = {
+            let mut map = lock(&self.map);
+            let mut retired = self.remove_idle(&mut map);
+            while map.len() >= self.capacity {
+                let oldest = map.iter().min_by_key(|(_, entry)| entry.last_used).map(|(key, _)| key.clone());
+                match oldest.and_then(|key| map.remove(&key)) {
+                    Some(entry) => retired.push(entry.session),
+                    None => break,
+                }
+            }
+            map.insert(id.clone(), Entry { session: handle.clone(), last_used: Instant::now() });
+            retired
+        };
+        retire(retired);
         (id, handle)
+    }
+
+    /// How many sessions the store keeps.
+    #[cfg(test)]
+    pub fn count(&self) -> usize {
+        lock(&self.map).len()
+    }
+
+    fn remove_idle(&self, map: &mut HashMap<String, Entry>) -> Vec<SessionRef> {
+        let idle: Vec<String> = map
+            .iter()
+            .filter(|(_, entry)| entry.last_used.elapsed() >= self.idle_limit)
+            .map(|(key, _)| key.clone())
+            .collect();
+        idle.iter().filter_map(|key| map.remove(key)).map(|entry| entry.session).collect()
+    }
+}
+
+/// Cancel the builds of removed sessions; their memory goes with the last reference.
+fn retire(sessions: Vec<SessionRef>) {
+    for session in sessions {
+        if let Some(job) = lock(&session).job.take() {
+            job.cancel();
+        }
     }
 }
 
@@ -143,10 +213,11 @@ pub fn cookie_id(headers: &HeaderMap) -> Option<String> {
         .map(|(_, value)| value.to_string())
 }
 
-/// The `Set-Cookie` value for a new session. `SameSite=Strict` keeps other
-/// sites from posting to this server with the session.
+/// The `Set-Cookie` value for a new session. `SameSite=Lax` keeps the cookie
+/// off requests that other sites make in the background, but keeps it on a
+/// link from another site, so open tabs do not lose their study.
 pub fn set_cookie(id: &str) -> HeaderValue {
-    HeaderValue::from_str(&format!("{COOKIE_NAME}={id}; Path=/; HttpOnly; SameSite=Strict"))
+    HeaderValue::from_str(&format!("{COOKIE_NAME}={id}; Path=/; HttpOnly; SameSite=Lax"))
         .expect("hexadecimal cookie value")
 }
 
@@ -170,7 +241,45 @@ mod tests {
         assert_eq!(cookie_id(&headers).as_deref(), Some("abc123"));
         assert_eq!(cookie_id(&HeaderMap::new()), None);
         let value = set_cookie("abc123");
-        assert!(value.to_str().unwrap().starts_with("pl_session=abc123; Path=/; HttpOnly; SameSite=Strict"));
+        assert_eq!(value.to_str().unwrap(), "pl_session=abc123; Path=/; HttpOnly; SameSite=Lax");
+    }
+
+    fn session() -> Session {
+        Session::new(Setup::new(efficient_frontier::frame::Date::from_ymd_opt(2026, 10, 30).unwrap()))
+    }
+
+    #[test]
+    fn a_full_store_removes_the_least_recently_used_session_and_cancels_its_build() {
+        let pause = || std::thread::sleep(Duration::from_millis(5));
+        let sessions = Sessions::new(2, IDLE_LIMIT);
+        let (first, first_handle) = sessions.insert(session());
+        let job = crate::build::Job::new();
+        lock(&first_handle).job = Some(job.clone());
+        pause();
+        let (second, _) = sessions.insert(session());
+        pause();
+        assert!(sessions.get(&first).is_some(), "a use makes the first session the most recent");
+        pause();
+        let (third, _) = sessions.insert(session());
+        assert_eq!(sessions.count(), 2);
+        assert!(sessions.get(&second).is_none(), "the least recently used session left");
+        assert!(!job.is_cancelled());
+        pause();
+        assert!(sessions.get(&third).is_some());
+        pause();
+        sessions.insert(session());
+        assert!(sessions.get(&first).is_none());
+        assert!(job.is_cancelled(), "a removed session's build stops");
+    }
+
+    #[test]
+    fn idle_sessions_are_removed() {
+        let sessions = Sessions::new(MAX_SESSIONS, Duration::from_millis(40));
+        let (id, _) = sessions.insert(session());
+        assert!(sessions.get(&id).is_some());
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(sessions.get(&id).is_none());
+        assert_eq!(sessions.count(), 0);
     }
 
     #[test]
