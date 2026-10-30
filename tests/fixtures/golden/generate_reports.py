@@ -17,6 +17,11 @@ reports_<case>.zip beside this script. The archive holds:
 
 The walk case uses the market fixture of tests/test_out_of_sample.py and writes
 it as reports_walk_prices.csv and reports_walk_benchmarks.csv.
+
+The legacy cases write reports_legacy_<case>.zip from presentation.report_zip on
+the legacy market fixture of generate_legacy.py and on the demo prices. The
+historical case writes reports_historical_demo.zip from the historical demo.
+The same layout applies; the story and benchmark snippets join snippets.json.
 """
 
 import base64
@@ -39,8 +44,18 @@ from plotly.offline import get_plotlyjs  # noqa: E402
 
 from efficient_frontier import out_of_sample as walk_forward  # noqa: E402
 from efficient_frontier import selection_report as report  # noqa: E402
+from efficient_frontier import presentation  # noqa: E402
 from efficient_frontier import story  # noqa: E402
+from efficient_frontier.backtest import run_backtests  # noqa: E402
 from efficient_frontier.backtest_report import backtest_chart, backtest_html, findings_markdown  # noqa: E402
+from efficient_frontier.benchmark_report import benchmark_html, benchmark_markdown, evidence_chart  # noqa: E402
+from efficient_frontier.benchmarks import compare_benchmarks  # noqa: E402
+from efficient_frontier.core import analyze  # noqa: E402
+from efficient_frontier.data import demo_prices  # noqa: E402
+from efficient_frontier.evidence import analyze_evidence  # noqa: E402
+from efficient_frontier.historical import historical_demo, run_historical_backtests  # noqa: E402
+from efficient_frontier.historical_report import build_historical_report, historical_report_zip  # noqa: E402
+from efficient_frontier.profiles import build_profiles  # noqa: E402
 from efficient_frontier.data import validate_prices  # noqa: E402
 from efficient_frontier.out_of_sample import run_out_of_sample  # noqa: E402
 from efficient_frontier.selection import run_selection, selection_frontier  # noqa: E402
@@ -199,6 +214,115 @@ def walk_result(study, prices, failure):
         walk_forward._fit_targets = original
 
 
+def write_golden(path, archive_bytes, snippets, charts):
+    """Write the archive members with plotly.js replaced, and the snippets and charts."""
+    plotly = get_plotlyjs()
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as source, \
+            zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as golden:
+        names = source.namelist()
+        for member in names:
+            text = source.read(member).decode("utf-8")
+            if member == "report.html":
+                assert text.count(plotly) == 1
+                text = text.replace(plotly, "[plotly.js]")
+            golden.writestr(f"archive/{member}", text)
+        golden.writestr("names.json", json.dumps(names, indent=1))
+        golden.writestr("snippets.json", json.dumps(snippets, indent=1, ensure_ascii=False))
+        golden.writestr("charts.json", json.dumps(charts, indent=1, ensure_ascii=False))
+    path.write_bytes(output.getvalue())
+
+
+LEGACY_SETTINGS = {"train_fraction": 0.6, "risk_free_rate": 0.03, "max_weight": 0.4}
+
+
+def legacy_full():
+    """The legacy CLI with --backtests and benchmark prices: every optional part."""
+    market, market_benchmarks = load("legacy_market_prices.csv"), load("legacy_market_benchmark_prices.csv")
+    analysis = analyze(market, **LEGACY_SETTINGS)
+    study = run_backtests(market, **LEGACY_SETTINGS, rebalance_every=20, cost_bps=15.0, include_profiles=True)
+    latest = build_profiles(market, risk_free_rate=0.03, max_weight=0.4)
+    benchmarks = compare_benchmarks(market_benchmarks, market, analysis, study, latest, risk_free_rate=0.03)
+    evidence = analyze_evidence(study.equity, benchmarks.backtest_equity, risk_free_rate=0.03, periods_per_year=252.0,
+                                delayed_entry=True)
+    metadata = {"source": "CSV: legacy_market_prices.csv", "price_currency": "USD",
+                "currency_assumption": "The user declares all asset prices in USD. No currency conversion occurs.",
+                **LEGACY_SETTINGS, "benchmark_source": "CSV: legacy <benchmarks>.csv", "notes": ["é", 1]}
+    return market, analysis, study, latest, benchmarks, evidence, metadata
+
+
+def legacy_plain():
+    """A holdout-only analysis with benchmarks and holdout evidence, without backtests or profiles."""
+    market, market_benchmarks = load("legacy_market_prices.csv"), load("legacy_market_benchmark_prices.csv")
+    analysis = analyze(market, **LEGACY_SETTINGS)
+    benchmarks = compare_benchmarks(market_benchmarks, market, analysis, risk_free_rate=0.03)
+    evidence = analyze_evidence(analysis.equity, benchmarks.holdout_equity, risk_free_rate=0.03, periods_per_year=252.0,
+                                delayed_entry=False)
+    metadata = {"source": "CSV: legacy_market_prices.csv", "price_currency": "USD", **LEGACY_SETTINGS,
+                "benchmark_source": "CSV: legacy_market_benchmark_prices.csv",
+                "universe_coverage": COVERAGE}
+    return market, analysis, None, None, benchmarks, evidence, metadata
+
+
+def legacy_demo():
+    """The demo with latest profiles and no market comparison."""
+    prices = demo_prices()
+    analysis = analyze(prices)
+    latest = build_profiles(prices)
+    metadata = {"source": "Demo · synthetic", "universe": "Demo", "price_currency": "USD",
+                "benchmarks_note": "Synthetic demo data has no real market benchmark comparison."}
+    return prices, analysis, None, latest, None, None, metadata
+
+
+def legacy_case(name, build, **view):
+    prices, analysis, study, latest, benchmarks, evidence, metadata = build()
+    archive = presentation.report_zip(analysis, prices, metadata, study, latest, benchmarks, evidence, **view)
+    charts = {
+        "frontier_chart": figure(presentation.frontier_chart(
+            analysis, benchmarks.training_estimates if benchmarks is not None else None, selected="Medium")),
+        "holdout_chart": figure(presentation.holdout_chart(
+            analysis, benchmarks.holdout_equity if benchmarks is not None else None)),
+    }
+    snippets = {}
+    if latest is not None:
+        charts["latest_profile_chart"] = figure(presentation.latest_profile_chart(
+            latest, benchmarks.latest_estimates if benchmarks is not None else None, selected="Extreme"))
+        snippets["why_text"] = story.why_text(latest, "Medium", "Nasdaq-100")
+        snippets["stats_html"] = story.stats_html(latest, "Low", "Upload CSV", {"A00": "<Name>"})
+        snippets["levels_ledger_html"] = story.levels_ledger_html(latest, "Extreme", None, "Demo")
+    if benchmarks is not None:
+        snippets["benchmark_html"] = benchmark_html(benchmarks, evidence, backtest=study is not None)
+        snippets["benchmark_markdown"] = benchmark_markdown(benchmarks, evidence, backtest=study is not None)
+    if study is not None:
+        selected = "Expanding window · Medium"
+        for mode in ("Growth", "Drawdown", "Relative to markets"):
+            charts[f"story_chart {mode}"] = figure(story.story_chart(study, selected, mode, benchmarks, evidence))
+        charts["evidence_chart"] = figure(evidence_chart(evidence, selected))
+        snippets.update({
+            "decision_panel_html": story.decision_panel_html(study, "Rolling window · Low", benchmarks),
+            "market_answer": story.market_answer(study, selected, benchmarks),
+            "market_lead": story.market_lead(study, selected),
+            "result_tile_html": story.result_tile_html(study, selected, benchmarks, evidence, {"universe": "Nasdaq-100"}),
+            "chart_footnote": story.chart_footnote(study, benchmarks),
+            "evidence_answer": story.evidence_answer(evidence, selected),
+            "evidence_lead": story.evidence_lead(evidence, selected, story.months_tested(study), {"evidence_note": "x"}),
+            "clarity_text": story.clarity_text(evidence, selected),
+            "interval_html": story.interval_html(evidence, selected),
+            "stretch_summary_html": story.stretch_summary_html(evidence, selected),
+            "stretch_table_html": story.stretch_table_html(evidence, selected),
+            "backtest_html": backtest_html(study, benchmarks, evidence, focus="Rolling window · Extreme"),
+            "findings_markdown": findings_markdown(study, "Golden", benchmarks, evidence),
+        })
+    write_golden(HERE / f"reports_legacy_{name}.zip", archive, snippets, charts)
+
+
+def historical_case():
+    prices, membership = historical_demo()
+    study = run_historical_backtests(prices, membership)
+    archive = historical_report_zip(build_historical_report(prices, membership, study))
+    write_golden(HERE / "reports_historical_demo.zip", archive, {}, {})
+
+
 def run_case(name, case):
     prices, benchmarks = prices_for(case)
     metadata = case["metadata"]
@@ -261,6 +385,10 @@ def main():
     benchmarks.to_csv(HERE / "reports_walk_benchmarks.csv", lineterminator="\n")
     for name, case in CASES.items():
         run_case(name, case)
+    legacy_case("full", legacy_full, selected_profile="Extreme", selected_method="Rolling window")
+    legacy_case("plain", legacy_plain)
+    legacy_case("demo", legacy_demo)
+    historical_case()
 
 
 if __name__ == "__main__":

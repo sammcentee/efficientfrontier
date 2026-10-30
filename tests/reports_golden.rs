@@ -16,18 +16,29 @@ use std::collections::BTreeMap;
 use std::io::Read as _;
 
 use common::{assert_close, golden_dir, table_json};
+use efficient_frontier::backtest::{BacktestOptions, BacktestStudy, run_backtests};
 use efficient_frontier::backtest_report::{ChartOptions, backtest_chart, backtest_html, findings_markdown};
+use efficient_frontier::benchmark_report::{benchmark_html, benchmark_markdown, evidence_chart};
+use efficient_frontier::benchmarks::{BenchmarkComparison, compare_benchmarks};
+use efficient_frontier::core::{Analysis, AnalyzeOptions, analyze};
+use efficient_frontier::data::demo_prices;
 use efficient_frontier::data::read_csv_rows;
 use efficient_frontier::dict;
+use efficient_frontier::evidence::{EvidenceAnalysis, EvidenceOptions, analyze_evidence};
 use efficient_frontier::frame::{Cell, Frame, Table};
+use efficient_frontier::historical::{HistoricalOptions, historical_demo, run_historical_backtests};
+use efficient_frontier::historical_report::{build_historical_report, historical_report_zip};
 use efficient_frontier::out_of_sample::{OutOfSampleStudy, run_default_out_of_sample};
 use efficient_frontier::plot::{Figure, PLOTLY_JS};
+use efficient_frontier::presentation::{self, ReportParts};
+use efficient_frontier::profiles::{ProfileAnalysis, ProfileOptions, build_profiles};
 use efficient_frontier::pyfmt::{Dict, Json};
 use efficient_frontier::selection::{
     SelectionFrontier, SelectionOptions, SelectionStudy, run_selection, selection_frontier,
 };
 use efficient_frontier::selection_report as report;
 use efficient_frontier::story;
+use indexmap::IndexMap;
 use serde_json::{Value, json};
 
 /// The inputs of one golden case, as in `CASES` of the generator.
@@ -461,6 +472,45 @@ fn findings_json(findings: &report::OutOfSampleFindings) -> Value {
     })
 }
 
+/// Compare every member of an exported archive with the golden archive. Returns the report's chart blocks.
+fn compare_archive(
+    result: &mut Report,
+    bytes: &[u8],
+    golden: &BTreeMap<String, String>,
+    json_tolerance: f64,
+) -> Vec<String> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> =
+        (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().unwrap().to_string()).collect();
+    let expected_names: Vec<String> = serde_json::from_str(&golden["names.json"]).unwrap();
+    result.values("archive names", &json!(names), &json!(expected_names), 0.0);
+    let mut blocks = Vec::new();
+    for member in &names {
+        let mut file = archive.by_name(member).unwrap();
+        assert_eq!(file.compression(), zip::CompressionMethod::Deflated, "{member}");
+        let mut text = String::new();
+        file.read_to_string(&mut text).unwrap();
+        let Some(expected) = golden.get(&format!("archive/{member}")) else { continue };
+        if member == "report.html" {
+            assert_eq!(text.matches(PLOTLY_JS).count(), 1, "plotly.js appears once");
+            let text = tied_weights_by_symbol(&text.replace(PLOTLY_JS, "[plotly.js]"));
+            blocks = result.html("report.html", &text, &tied_weights_by_symbol(expected));
+            let mut ids: Vec<&str> =
+                text.match_indices("class=\"plotly-graph-div\"").map(|(i, _)| &text[..i]).collect();
+            ids.iter_mut().for_each(|prefix| *prefix = prefix.rsplit("id=\"").next().unwrap_or(""));
+            let unique: std::collections::HashSet<&str> = ids.iter().copied().collect();
+            assert_eq!(unique.len(), ids.len(), "chart ids are unique");
+        } else if member.ends_with(".json") {
+            compare_json_text(result, member, &text, expected, json_tolerance);
+        } else if member.ends_with(".csv") {
+            compare_csv(result, member, &text, expected);
+        } else {
+            result.html(member, &text, expected);
+        }
+    }
+    blocks
+}
+
 fn check(name: &str) {
     let case = run_case(name);
     let golden = golden(name);
@@ -470,37 +520,12 @@ fn check(name: &str) {
     // The ZIP export: member order, every CSV, metadata.json, the notice and the report.
     let walk = case.walk.as_ref().ok();
     let bytes = report::selection_report_zip(study, prices, &case.metadata, Some(&case.frontier), walk).unwrap();
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
-    let names: Vec<String> =
-        (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().unwrap().to_string()).collect();
-    let expected_names: Vec<String> = serde_json::from_str(&golden["names.json"]).unwrap();
-    result.values("archive names", &json!(names), &json!(expected_names), 0.0);
-    for member in &names {
-        let mut file = archive.by_name(member).unwrap();
-        assert_eq!(file.compression(), zip::CompressionMethod::Deflated, "{member}");
-        let mut text = String::new();
-        file.read_to_string(&mut text).unwrap();
-        let Some(expected) = golden.get(&format!("archive/{member}")) else { continue };
-        match member.as_str() {
-            "report.html" => {
-                assert_eq!(text.matches(PLOTLY_JS).count(), 1, "plotly.js appears once");
-                let text = tied_weights_by_symbol(&text.replace(PLOTLY_JS, "[plotly.js]"));
-                let blocks = result.html("report.html", &text, &tied_weights_by_symbol(expected));
-                let figures =
-                    [report::selection_frontier_chart(&case.frontier, study), report::selection_chart(&study.test)];
-                // Each embedded chart is the figure of the public chart function.
-                let embedded: Vec<Value> = blocks.iter().map(|block| block_figure(block)).collect();
-                result.values("report frontier chart", &embedded[0], &figures[0].to_json(), 0.0);
-                result.values("report replay chart", &embedded[embedded.len() - 1], &figures[1].to_json(), 0.0);
-                for id in ["chart-latest-frontier", "chart-replay"] {
-                    assert_eq!(text.matches(&format!("id=\"{id}\"")).count(), 1, "{id} is unique");
-                }
-            }
-            "metadata.json" => compare_json_text(&mut result, member, &text, expected, 1e-6),
-            "THIRD_PARTY_NOTICES.txt" => result.text(member, &text, expected),
-            _ => compare_csv(&mut result, member, &text, expected),
-        }
-    }
+    let blocks = compare_archive(&mut result, &bytes, &golden, 1e-6);
+    let figures = [report::selection_frontier_chart(&case.frontier, study), report::selection_chart(&study.test)];
+    // Each embedded chart is the figure of the public chart function.
+    let embedded: Vec<Value> = blocks.iter().map(|block| block_figure(block)).collect();
+    result.values("report frontier chart", &embedded[0], &figures[0].to_json(), 0.0);
+    result.values("report replay chart", &embedded[embedded.len() - 1], &figures[1].to_json(), 0.0);
 
     // App-facing snippets and tables.
     let snippets: Value = serde_json::from_str(&golden["snippets.json"]).unwrap();
@@ -517,8 +542,8 @@ fn check(name: &str) {
         ("result_drivers_html", story::result_drivers_html(&study.test, &study.selected)),
         ("context_result_html", story::context_result_html(&case.metadata, prices)),
         ("fine_print_html", story::fine_print_html(&case.metadata, prices)),
-        ("backtest_html", backtest_html(&study.test, None, None)),
-        ("findings_markdown", findings_markdown(&study.test, "Golden <source>", None)),
+        ("backtest_html", backtest_html(&study.test, None, None, None)),
+        ("findings_markdown", findings_markdown(&study.test, "Golden <source>", None, None)),
     ];
     for (key, actual) in &texts {
         result.html(key, actual, &snippet(key));
@@ -610,4 +635,199 @@ fn walk_forward_report_with_a_failed_window_matches_python() {
 #[test]
 fn too_short_walk_forward_history_report_matches_python() {
     check("short");
+}
+
+// ----------------------------------------------------------------------------- legacy and historical reports
+
+struct Legacy {
+    prices: Frame,
+    analysis: Analysis,
+    study: Option<BacktestStudy>,
+    latest: Option<ProfileAnalysis>,
+    benchmarks: Option<BenchmarkComparison>,
+    evidence: Option<EvidenceAnalysis>,
+    metadata: Dict,
+}
+
+/// The inputs of `legacy_full`, `legacy_plain` and `legacy_demo` in the generator.
+fn legacy(name: &str) -> Legacy {
+    let settings = AnalyzeOptions { train_fraction: 0.6, risk_free_rate: 0.03, max_weight: 0.4, ..Default::default() };
+    match name {
+        "full" | "plain" => {
+            let market = common::prices("legacy_market_prices.csv");
+            let market_benchmarks = common::prices("legacy_market_benchmark_prices.csv");
+            let analysis = analyze(&market, &settings).unwrap();
+            let full = name == "full";
+            let study = full.then(|| {
+                let options = BacktestOptions {
+                    train_fraction: 0.6,
+                    risk_free_rate: 0.03,
+                    max_weight: 0.4,
+                    rebalance_every: 20,
+                    cost_bps: 15.0,
+                    include_profiles: true,
+                    ..Default::default()
+                };
+                run_backtests(&market, &options).unwrap()
+            });
+            let latest = full.then(|| {
+                build_profiles(&market, &ProfileOptions { risk_free_rate: 0.03, max_weight: 0.4, ..Default::default() })
+                    .unwrap()
+            });
+            let benchmarks =
+                compare_benchmarks(&market_benchmarks, &market, &analysis, study.as_ref(), latest.as_ref(), 0.03)
+                    .unwrap();
+            let (equity, reference) = match &study {
+                Some(study) => (&study.equity, benchmarks.backtest_equity.as_ref().unwrap()),
+                None => (&analysis.equity, &benchmarks.holdout_equity),
+            };
+            let options = EvidenceOptions { risk_free_rate: 0.03, periods_per_year: 252.0, delayed_entry: full };
+            let evidence = analyze_evidence(equity, reference, &options).unwrap();
+            let metadata = if full {
+                dict! {
+                    "source" => "CSV: legacy_market_prices.csv", "price_currency" => "USD",
+                    "currency_assumption" => "The user declares all asset prices in USD. No currency conversion occurs.",
+                    "train_fraction" => 0.6, "risk_free_rate" => 0.03, "max_weight" => 0.4,
+                    "benchmark_source" => "CSV: legacy <benchmarks>.csv", "notes" => vec![Json::from("é"), Json::Int(1)],
+                }
+            } else {
+                dict! {
+                    "source" => "CSV: legacy_market_prices.csv", "price_currency" => "USD",
+                    "train_fraction" => 0.6, "risk_free_rate" => 0.03, "max_weight" => 0.4,
+                    "benchmark_source" => "CSV: legacy_market_benchmark_prices.csv", "universe_coverage" => coverage(),
+                }
+            };
+            Legacy {
+                prices: market,
+                analysis,
+                study,
+                latest,
+                benchmarks: Some(benchmarks),
+                evidence: Some(evidence),
+                metadata,
+            }
+        }
+        "demo" => {
+            let prices = demo_prices();
+            let analysis = analyze(&prices, &AnalyzeOptions::default()).unwrap();
+            let latest = build_profiles(&prices, &ProfileOptions::default()).unwrap();
+            let metadata = dict! {
+                "source" => "Demo · synthetic", "universe" => "Demo", "price_currency" => "USD",
+                "benchmarks_note" => "Synthetic demo data has no real market benchmark comparison.",
+            };
+            Legacy { prices, analysis, study: None, latest: Some(latest), benchmarks: None, evidence: None, metadata }
+        }
+        other => panic!("unknown legacy case {other}"),
+    }
+}
+
+fn check_legacy(name: &str, view: (Option<&str>, Option<&str>)) {
+    let case = legacy(name);
+    let golden = golden(&format!("legacy_{name}"));
+    let mut result = Report::default();
+    let parts = ReportParts {
+        study: case.study.as_ref(),
+        latest_profiles: case.latest.as_ref(),
+        benchmarks: case.benchmarks.as_ref(),
+        evidence: case.evidence.as_ref(),
+        selected_profile: view.0,
+        selected_method: view.1,
+    };
+    let bytes = presentation::report_zip(&case.analysis, &case.prices, &case.metadata, &parts).unwrap();
+    compare_archive(&mut result, &bytes, &golden, 1e-5);
+
+    let snippets: Value = serde_json::from_str(&golden["snippets.json"]).unwrap();
+    let mut texts: Vec<(&str, String)> = Vec::new();
+    let mut charts: Vec<(String, Figure, f64)> = Vec::new();
+    let benchmarks = case.benchmarks.as_ref();
+    charts.push((
+        "frontier_chart".into(),
+        presentation::frontier_chart(&case.analysis, benchmarks.map(|b| &b.training_estimates), Some("Medium")),
+        1e-5,
+    ));
+    charts.push((
+        "holdout_chart".into(),
+        presentation::holdout_chart(&case.analysis, benchmarks.map(|b| &b.holdout_equity), None).unwrap(),
+        1e-5 * 10_000.0,
+    ));
+    if let Some(latest) = &case.latest {
+        charts.push((
+            "latest_profile_chart".into(),
+            presentation::latest_profile_chart(latest, benchmarks.map(|b| &b.latest_estimates), Some("Extreme")),
+            1e-5,
+        ));
+        let why = story::why_text(latest, "Medium", "Nasdaq-100");
+        result.values("why_text", &json!(why), &snippets["why_text"], 0.0);
+        let names: IndexMap<String, String> = [("A00".to_string(), "<Name>".to_string())].into_iter().collect();
+        texts.push(("stats_html", story::stats_html(latest, "Low", "Upload CSV", Some(&names))));
+        texts.push(("levels_ledger_html", story::levels_ledger_html(latest, "Extreme", None, "Demo")));
+    }
+    if let Some(benchmarks) = benchmarks {
+        let backtest = case.study.is_some();
+        texts.push(("benchmark_html", benchmark_html(benchmarks, case.evidence.as_ref(), backtest)));
+        texts.push(("benchmark_markdown", benchmark_markdown(benchmarks, case.evidence.as_ref(), backtest)));
+    }
+    if let Some(study) = &case.study {
+        let selected = "Expanding window · Medium";
+        let evidence = case.evidence.as_ref();
+        for mode in ["Growth", "Drawdown", "Relative to markets"] {
+            let figure = story::story_chart(study, selected, mode, benchmarks, evidence).unwrap();
+            charts.push((format!("story_chart {mode}"), figure, 1e-5 * 10_000.0));
+        }
+        charts.push(("evidence_chart".into(), evidence_chart(evidence.unwrap(), selected).unwrap(), 1e-5));
+        let metadata = dict! {"universe" => "Nasdaq-100"};
+        let note = dict! {"evidence_note" => "x"};
+        texts.extend([
+            ("decision_panel_html", story::decision_panel_html(study, "Rolling window · Low", benchmarks)),
+            ("market_answer", story::market_answer(study, selected, benchmarks)),
+            ("market_lead", story::market_lead(study, selected)),
+            ("result_tile_html", story::result_tile_html(study, selected, benchmarks, evidence, &metadata)),
+            ("chart_footnote", story::chart_footnote(study, benchmarks)),
+            ("evidence_answer", story::evidence_answer(evidence, selected)),
+            ("evidence_lead", story::evidence_lead(evidence, selected, story::months_tested(study), Some(&note))),
+            ("clarity_text", story::clarity_text(evidence, selected)),
+            ("interval_html", story::interval_html(evidence.unwrap(), selected)),
+            ("stretch_summary_html", story::stretch_summary_html(evidence.unwrap(), selected)),
+            ("stretch_table_html", story::stretch_table_html(evidence.unwrap(), selected)),
+            ("backtest_html", backtest_html(study, benchmarks, evidence, Some("Rolling window · Extreme"))),
+            ("findings_markdown", findings_markdown(study, "Golden", benchmarks, evidence)),
+        ]);
+    }
+    for (key, actual) in &texts {
+        let expected = snippets[*key].as_str().unwrap_or_else(|| panic!("snippet {key}"));
+        result.html(key, actual, expected);
+    }
+    let figures: Value = serde_json::from_str(&golden["charts.json"]).unwrap();
+    assert_eq!(charts.len(), figures.as_object().unwrap().len(), "{name}: chart count");
+    for (key, figure, tolerance) in &charts {
+        result.values(key, &figure_json(figure), &figures[key.as_str()], *tolerance);
+    }
+    result.finish(&format!("legacy {name}"));
+}
+
+#[test]
+fn legacy_report_with_backtests_benchmarks_and_evidence_matches_python() {
+    check_legacy("full", (Some("Extreme"), Some("Rolling window")));
+}
+
+#[test]
+fn legacy_holdout_report_with_benchmarks_and_evidence_matches_python() {
+    check_legacy("plain", (None, None));
+}
+
+#[test]
+fn legacy_demo_report_with_profiles_matches_python() {
+    check_legacy("demo", (None, None));
+}
+
+#[test]
+fn historical_demo_report_matches_python() {
+    let (prices, membership) = historical_demo();
+    let study = run_historical_backtests(&prices, &membership, &HistoricalOptions::default()).unwrap();
+    let files = build_historical_report(&prices, &membership, &study);
+    let bytes = historical_report_zip(&files).unwrap();
+    let golden = golden("historical_demo");
+    let mut result = Report::default();
+    compare_archive(&mut result, &bytes, &golden, 1e-8);
+    result.finish("historical demo");
 }

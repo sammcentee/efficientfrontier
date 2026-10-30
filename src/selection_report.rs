@@ -1218,14 +1218,14 @@ pub fn selection_report_zip(
     write_zip(&entries)
 }
 
-/// A deflated ZIP archive of text files, in the given order.
-pub fn write_zip(entries: &[(String, String)]) -> Result<Vec<u8>> {
+/// A deflated ZIP archive of the given files, in the given order.
+pub fn write_zip<T: AsRef<[u8]>>(entries: &[(String, T)]) -> Result<Vec<u8>> {
     let failure = |error: zip::result::ZipError| Error::Io(format!("Could not write the report archive: {error}"));
     let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (name, text) in entries {
         archive.start_file(name.as_str(), options).map_err(failure)?;
-        archive.write_all(text.as_bytes())?;
+        archive.write_all(text.as_ref())?;
     }
     Ok(archive.finish().map_err(failure)?.into_inner())
 }

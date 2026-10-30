@@ -1,19 +1,18 @@
 //! Descriptive findings and portable views of a backtesting study.
 //!
 //! Port of `efficient_frontier/backtest_report.py`. Owner: reports agent.
-//!
-//! The benchmark comparison section (`benchmark_html` and `benchmark_markdown`)
-//! needs the benchmark and evidence types, which wave 2 ports. Until then a
-//! caller passes the rendered section and the benchmark paths in a
-//! [`BenchmarkSection`].
 
 use std::cmp::Ordering;
 
 use serde_json::{Value, json};
 
 use crate::backtest::BacktestStudy;
-use crate::benchmark_report::{add_benchmark_paths, dates_json, drawdown, np_sum, values_json};
+use crate::benchmark_report::{
+    add_benchmark_paths, benchmark_html, benchmark_markdown, dates_json, drawdown, np_sum, values_json,
+};
+use crate::benchmarks::BenchmarkComparison;
 use crate::error::Result;
+use crate::evidence::EvidenceAnalysis;
 use crate::frame::{Cell, Frame, Table, iso};
 use crate::html_table::data_table;
 use crate::plot::Figure;
@@ -86,18 +85,6 @@ pub const ASSUMPTIONS: [&str; 6] = [
      after evaluation; it is not a forecast or a recommendation to hold its assets. Repeated \
      strategy selection using these results can overfit the evaluation period.",
 ];
-
-/// What a benchmark comparison adds to the backtest report.
-///
-/// Wave 2 builds it from the comparison and evidence types: `equity` is
-/// `benchmarks.backtest_equity`, `html` is `benchmark_html(benchmarks, evidence, backtest=True)`
-/// and `markdown` is `benchmark_markdown(benchmarks, evidence, backtest=True)`.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct BenchmarkSection<'a> {
-    pub equity: Option<&'a Frame>,
-    pub html: &'a str,
-    pub markdown: &'a str,
-}
 
 fn assumptions(study: &BacktestStudy) -> Vec<String> {
     let settings = &study.settings;
@@ -406,7 +393,12 @@ fn markdown_table(frame: &Table) -> String {
 }
 
 /// Create a standalone findings report without a Markdown-table dependency.
-pub fn findings_markdown(study: &BacktestStudy, source: &str, benchmarks: Option<&BenchmarkSection>) -> String {
+pub fn findings_markdown(
+    study: &BacktestStudy,
+    source: &str,
+    benchmarks: Option<&BenchmarkComparison>,
+    evidence: Option<&EvidenceAnalysis>,
+) -> String {
     let best = best_strategy(study);
     let mut holdings = formatted(&top_holdings(study, &best), &HOLDINGS);
     holdings.index_names = vec![Some("Asset".into())];
@@ -417,7 +409,8 @@ pub fn findings_markdown(study: &BacktestStudy, source: &str, benchmarks: Option
         .map(|(key, value)| format!("- {}: {}", markdown(key), markdown(&value.py_str())))
         .collect();
     let notes: Vec<String> = study.warnings.iter().map(|note| format!("- {}", markdown(note))).collect();
-    let comparison = benchmarks.map_or_else(String::new, |section| format!("{}\n", section.markdown));
+    let comparison = benchmarks
+        .map_or_else(String::new, |benchmarks| format!("{}\n", benchmark_markdown(benchmarks, evidence, true)));
     let bullets: Vec<String> =
         findings(study).iter().map(|note| format!("- {}", markdown(&display_label(note)))).collect();
     let mut document = format!(
@@ -476,7 +469,12 @@ fn holdings_chart(holdings: &Table) -> Figure {
 /// Return escaped report sections; the parent document supplies plotly.js.
 ///
 /// Chart ids start with `backtest-`, so the document must not hold two backtest sections.
-pub fn backtest_html(study: &BacktestStudy, benchmarks: Option<&BenchmarkSection>, focus: Option<&str>) -> String {
+pub fn backtest_html(
+    study: &BacktestStudy,
+    benchmarks: Option<&BenchmarkComparison>,
+    evidence: Option<&EvidenceAnalysis>,
+    focus: Option<&str>,
+) -> String {
     let best = best_strategy(study);
     let focus = focus_strategy(study, focus);
     let holdings = top_holdings(study, &best);
@@ -494,8 +492,8 @@ pub fn backtest_html(study: &BacktestStudy, benchmarks: Option<&BenchmarkSection
             format!("<tr><th>{}</th><td>{}</td></tr>", escape(&setting_label(key)), escape(&setting_text(key, value)))
         })
         .collect();
-    let benchmark_equity = benchmarks.and_then(|section| section.equity);
-    let comparison = benchmarks.map_or("", |section| section.html);
+    let benchmark_equity = benchmarks.and_then(|benchmarks| benchmarks.backtest_equity.as_ref());
+    let comparison = benchmarks.map_or_else(String::new, |benchmarks| benchmark_html(benchmarks, evidence, true));
     let chart = |drawdown: bool| {
         let options = ChartOptions { drawdown, benchmark_equity, focus: Some(focus.as_str()), ..Default::default() };
         backtest_chart(study, &options).expect("every study strategy is known")
