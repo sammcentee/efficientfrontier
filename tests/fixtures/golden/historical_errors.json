@@ -1,0 +1,412 @@
+{
+ "cases": [
+  {
+   "nan": [
+    [
+     40,
+     2
+    ]
+   ],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "Missing price for held asset on 2021-03-01: C. Supply verified prices or corporate-action proceeds; prices are never filled."
+  },
+  {
+   "nan": [
+    [
+     26,
+     2
+    ]
+   ],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "Missing execution price on 2021-02-09: C. Targets use prior prices; a missing execution price cannot remove a selected member."
+  },
+  {
+   "nan": [
+    [
+     24,
+     1
+    ]
+   ],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     24,
+     "A,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "Missing price for held asset on 2021-02-05: B. Supply verified prices or corporate-action proceeds; prices are never filled."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ]
+   ],
+   "coverage_end": "2021-02-15",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "Membership date 2021-03-05 is outside coverage 2021-01-04 through 2021-02-15."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 1.0,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "train_fraction must be between zero and one."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 1,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "rolling_window must be an integer between two and the initial training length."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 23,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "rolling_window must be an integer between two and the initial training length."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 0,
+    "cost_bps": 10.0
+   },
+   "error": "rebalance_every must be a positive integer."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0,
+    "max_weight": 0.0
+   },
+   "error": "max_weight must be greater than zero and at most one."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0,
+    "max_weight": "inf"
+   },
+   "error": "max_weight must be a finite number."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0,
+    "shrinkage": -1.0
+   },
+   "error": "shrinkage must be between zero and one."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10000.0
+   },
+   "error": "cost_bps must be nonnegative and less than 10000."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0,
+    "risk_free_rate": null
+   },
+   "error": "risk_free_rate must be a finite number."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.5,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0,
+    "periods_per_year": 0.0
+   },
+   "error": "periods_per_year must be a finite positive number."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.02,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "At least two training returns and two holdout returns are required."
+  },
+  {
+   "nan": [],
+   "changes": [
+    [
+     0,
+     "A,B"
+    ],
+    [
+     26,
+     "A,C,MISSING"
+    ],
+    [
+     32,
+     "A,B,C"
+    ]
+   ],
+   "coverage_end": "2021-03-05",
+   "options": {
+    "train_fraction": 0.99,
+    "rolling_window": 5,
+    "rebalance_every": 3,
+    "cost_bps": 10.0
+   },
+   "error": "At least two training returns and two holdout returns are required."
+  }
+ ]
+}
