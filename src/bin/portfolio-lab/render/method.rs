@@ -311,8 +311,9 @@ pub fn data_method(session: &Session, applied: &Applied) -> String {
         ) + &table(&study.eligibility, None, &same_label, &default_format).html()),
     ));
     data.push_str(&format!(
-        r#"<details class="pl-expander" data-src="/fragment/prices"><summary><span class="pl-expander-label">Input prices</span><span class="pl-expander-icon" aria-hidden="true">{}</span></summary><div class="pl-expander-body"><div class="pl-lazy" data-lazy><p class="pl-caption">Loading the input prices…</p></div><a class="pl-btn pl-btn-secondary" href="/download/prices.csv" download="prices.csv" id="download_prices">Download prices.csv</a></div></details>"#,
-        super::html::icon::CHEVRON
+        r#"<details class="pl-expander" data-src="/api/prices?result={id}"><summary><span class="pl-expander-label">Input prices</span><span class="pl-expander-icon" aria-hidden="true">{chevron}</span></summary><div class="pl-expander-body"><div class="pl-lazy" data-lazy><p class="pl-caption">Loading the input prices…</p></div><a class="pl-btn pl-btn-secondary" href="/download/prices.csv?result={id}" download="prices.csv" id="download_prices">Download prices.csv</a></div></details>"#,
+        id = applied.id,
+        chevron = super::html::icon::CHEVRON
     ));
     data.push_str(&expander("Source and settings", &guarded(|| settings_table(metadata))));
     html.push_str(&format!(r#"<section class="pl-tile" id="tile_data">{data}</section>"#));

@@ -3,12 +3,12 @@
 //! Downloads, company profiles and the QQQ reference expire one hour after they
 //! were stored. The selection, frontier and walk-forward results keep the two
 //! most recently used studies. Failures are not cached, because Streamlit does
-//! not cache exceptions. The caches are shared by every browser session.
+//! not cache exceptions. The caches are shared by every browser session, and one
+//! key is computed by one caller at a time, as Streamlit's per-key lock does.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use chrono::Datelike;
@@ -35,12 +35,55 @@ pub struct Cache<K, V> {
     ttl: Option<Duration>,
     capacity: Option<usize>,
     entries: Mutex<VecDeque<(K, V, Instant)>>,
+    /// The computations in progress, by key.
+    flights: Mutex<Vec<(K, Arc<Flight>)>>,
     computed: AtomicUsize,
 }
 
-impl<K: PartialEq, V: Clone> Cache<K, V> {
+/// One computation in progress. Other callers for its key wait until it ends.
+#[derive(Default)]
+struct Flight {
+    ended: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl Flight {
+    fn wait(&self) {
+        let mut ended = lock(&self.ended);
+        while !*ended {
+            ended = self.changed.wait(ended).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    fn end(&self) {
+        *lock(&self.ended) = true;
+        self.changed.notify_all();
+    }
+}
+
+/// Ends a flight when its computation returns or panics, so waiting callers never block forever.
+struct Landing<'a, K: PartialEq, V> {
+    cache: &'a Cache<K, V>,
+    key: &'a K,
+    flight: Arc<Flight>,
+}
+
+impl<K: PartialEq, V> Drop for Landing<'_, K, V> {
+    fn drop(&mut self) {
+        lock(&self.cache.flights).retain(|(key, flight)| !(key == self.key && Arc::ptr_eq(flight, &self.flight)));
+        self.flight.end();
+    }
+}
+
+impl<K: PartialEq + Clone, V: Clone> Cache<K, V> {
     pub fn new(ttl: Option<Duration>, capacity: Option<usize>) -> Self {
-        Self { ttl, capacity, entries: Mutex::new(VecDeque::new()), computed: AtomicUsize::new(0) }
+        Self {
+            ttl,
+            capacity,
+            entries: Mutex::new(VecDeque::new()),
+            flights: Mutex::new(Vec::new()),
+            computed: AtomicUsize::new(0),
+        }
     }
 
     /// The stored value, which becomes the most recently used entry.
@@ -68,23 +111,34 @@ impl<K: PartialEq, V: Clone> Cache<K, V> {
     }
 
     /// The stored value, or the computed one. An error is returned and not stored.
-    /// The lock is not held while `compute` runs.
+    ///
+    /// While one caller computes a key, other callers for the same key wait for
+    /// its result instead of computing it again. When the computation fails, the
+    /// next waiting caller computes. No lock is held while `compute` runs.
     pub fn get_or_try<E>(&self, key: K, compute: impl FnOnce() -> Result<V, E>) -> Result<V, E> {
-        if let Some(value) = self.get(&key) {
-            return Ok(value);
-        }
+        let flight = loop {
+            let running = {
+                let mut flights = lock(&self.flights);
+                // Look again under the flight lock: a computation that just ended stored its value first.
+                if let Some(value) = self.get(&key) {
+                    return Ok(value);
+                }
+                match flights.iter().find(|(running, _)| running == &key) {
+                    Some((_, flight)) => flight.clone(),
+                    None => {
+                        let flight = Arc::new(Flight::default());
+                        flights.push((key.clone(), flight.clone()));
+                        break flight;
+                    }
+                }
+            };
+            running.wait();
+        };
+        let _landing = Landing { cache: self, key: &key, flight };
         let value = compute()?;
         self.computed.fetch_add(1, Ordering::Relaxed);
-        self.insert(key, value.clone());
+        self.insert(key.clone(), value.clone());
         Ok(value)
-    }
-
-    /// [`Cache::get_or_try`] for a computation that cannot fail.
-    pub fn get_or_insert_with(&self, key: K, compute: impl FnOnce() -> V) -> V {
-        match self.get_or_try(key, || Ok::<V, std::convert::Infallible>(compute())) {
-            Ok(value) => value,
-            Err(never) => match never {},
-        }
     }
 
     /// How many values this cache has computed: the misses that succeeded.
@@ -217,6 +271,68 @@ mod tests {
         assert_eq!(cache.get_or_try(1, || Ok::<i32, &str>(7)), Ok(7));
         assert_eq!(cache.get_or_try(1, || Ok::<i32, &str>(8)), Ok(7));
         assert_eq!(cache.computed(), 1);
+    }
+
+    #[test]
+    fn concurrent_callers_of_one_key_share_one_computation() {
+        let cache: Arc<Cache<u8, i32>> = Arc::new(Cache::new(Some(ONE_HOUR), None));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (started, release) = (Arc::new(std::sync::Barrier::new(2)), Arc::new(std::sync::Barrier::new(2)));
+        let leader = {
+            let (cache, calls, started, release) = (cache.clone(), calls.clone(), started.clone(), release.clone());
+            std::thread::spawn(move || {
+                cache.get_or_try(1, || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    started.wait();
+                    release.wait();
+                    Ok::<i32, ()>(7)
+                })
+            })
+        };
+        started.wait();
+        let follower = {
+            let (cache, calls) = (cache.clone(), calls.clone());
+            std::thread::spawn(move || {
+                cache.get_or_try(1, || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok::<i32, ()>(8)
+                })
+            })
+        };
+        // The follower finds the running computation and waits for it.
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!follower.is_finished());
+        release.wait();
+        assert_eq!((leader.join().unwrap(), follower.join().unwrap()), (Ok(7), Ok(7)));
+        assert_eq!((calls.load(Ordering::SeqCst), cache.computed()), (1, 1));
+        assert_eq!(cache.get_or_try(2, || Ok::<i32, ()>(9)), Ok(9), "other keys compute independently");
+    }
+
+    #[test]
+    fn a_failed_or_panicking_computation_lets_the_next_caller_compute() {
+        let cache: Arc<Cache<u8, i32>> = Arc::new(Cache::new(None, Some(2)));
+        let (started, release) = (Arc::new(std::sync::Barrier::new(2)), Arc::new(std::sync::Barrier::new(2)));
+        let leader = {
+            let (cache, started, release) = (cache.clone(), started.clone(), release.clone());
+            std::thread::spawn(move || {
+                cache.get_or_try(1, || -> Result<i32, &str> {
+                    started.wait();
+                    release.wait();
+                    panic!("leader failed")
+                })
+            })
+        };
+        started.wait();
+        let follower = {
+            let cache = cache.clone();
+            std::thread::spawn(move || cache.get_or_try(1, || Ok::<i32, &str>(5)))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        release.wait();
+        assert!(leader.join().is_err());
+        assert_eq!(follower.join().unwrap(), Ok(5));
+        assert_eq!(cache.get_or_try(3, || Err::<i32, &str>("offline")), Err("offline"));
+        assert_eq!(cache.get_or_try(3, || Ok::<i32, &str>(4)), Ok(4));
     }
 
     #[test]

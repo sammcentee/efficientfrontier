@@ -130,6 +130,37 @@ pub fn frame(frame: &Frame, index_label: &str, format: &dyn Fn(f64) -> String) -
     grid
 }
 
+/// A dated [`Frame`] as JSON for the browser's table: dates as "2 Oct 2026" and
+/// values in the default `st.dataframe` format, as text. The browser shows only
+/// the visible rows, so a large price history does not stop the page.
+pub fn frame_json(frame: &Frame, index_label: &str) -> String {
+    let text = |value: &str| serde_json::to_string(value).expect("JSON text");
+    let mut json = String::with_capacity(frame.nrows() * (frame.ncols() + 1) * 10 + 256);
+    json.push_str(&format!(r#"{{"index_label":{},"columns":["#, text(index_label)));
+    json.push_str(&frame.columns.iter().map(|column| text(column)).collect::<Vec<_>>().join(","));
+    json.push_str(r#"],"index":["#);
+    json.push_str(&frame.index.iter().map(|date| text(&day(*date))).collect::<Vec<_>>().join(","));
+    json.push_str(r#"],"rows":["#);
+    for i in 0..frame.nrows() {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push('[');
+        for j in 0..frame.ncols() {
+            if j > 0 {
+                json.push(',');
+            }
+            // A formatted number has only digits, a sign and a point: no JSON escape is needed.
+            json.push('"');
+            json.push_str(&number(frame.get(i, j)));
+            json.push('"');
+        }
+        json.push(']');
+    }
+    json.push_str("]}");
+    json
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +187,20 @@ mod tests {
         assert!(html.contains(r#"<input type="checkbox" disabled checked aria-label="true">"#));
         let hidden = table(&data, None, &same_label, &default_format).html();
         assert!(!hidden.contains("Symbol") && hidden.contains(r#"<td class="pl-r">0.5</td>"#));
+    }
+
+    #[test]
+    fn frames_become_json_with_display_text() {
+        let prices = Frame::from_columns(
+            vec![Date::from_ymd_opt(2021, 1, 4).unwrap(), Date::from_ymd_opt(2021, 1, 5).unwrap()],
+            vec![("A\"B".into(), vec![99.54586, -0.5]), ("C".into(), vec![1255.0, f64::NAN])],
+        );
+        let json = frame_json(&prices, "Date");
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["index_label"], "Date");
+        assert_eq!(value["columns"], serde_json::json!(["A\"B", "C"]));
+        assert_eq!(value["index"], serde_json::json!(["4 Jan 2021", "5 Jan 2021"]));
+        assert_eq!(value["rows"], serde_json::json!([["99.5459", "1255"], ["-0.5", ""]]));
     }
 
     #[test]

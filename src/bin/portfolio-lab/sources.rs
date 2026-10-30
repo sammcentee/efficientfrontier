@@ -5,7 +5,7 @@
 //! tests supply their own data instead of the network, as the Python tests
 //! patch these functions.
 
-use efficient_frontier::error::Result;
+use efficient_frontier::error::{Error, Result};
 use efficient_frontier::frame::{Date, Frame, Table};
 use efficient_frontier::pyfmt::Dict;
 use efficient_frontier::{companies, data, risk_reference, universe};
@@ -16,6 +16,19 @@ use crate::setup::Market;
 
 /// The progress callback of a universe download: `(completed, total, message)`.
 pub type Progress<'a> = &'a mut dyn FnMut(usize, usize, &str);
+
+/// True once the build that asked for the data is cancelled.
+pub type Cancelled<'a> = &'a dyn Fn() -> bool;
+
+/// The message of a download that a cancelled build stopped.
+pub const CANCELLED: &str = "The build was cancelled.";
+
+/// The error of a download that a cancelled build stopped. It is a runtime
+/// error, so the universe download stops instead of retrying the batch symbol
+/// by symbol, as it does after a value error.
+pub fn cancelled_error() -> Error {
+    Error::Runtime(CANCELLED.into())
+}
 
 /// A current company name, one business sentence and the profile URL.
 /// Every field is empty when the provider has no profile (Python's `{}`).
@@ -51,7 +64,15 @@ pub struct UniversePrices {
 /// Market data for the app. [`Live`] downloads it; tests supply fixtures.
 pub trait Sources: Send + Sync {
     /// The current members of a universe market and their complete prices (`fetch_universe`).
-    fn universe_prices(&self, market: Market, start: Date, end: Date, progress: Progress) -> Result<UniversePrices>;
+    /// The download stops before its next batch once `cancelled` returns true.
+    fn universe_prices(
+        &self,
+        market: Market,
+        start: Date,
+        end: Date,
+        progress: Progress,
+        cancelled: Cancelled,
+    ) -> Result<UniversePrices>;
     /// Yahoo adjusted prices; `end` is exclusive (`data.download_prices`).
     fn prices(&self, tickers: &[String], start: Date, end: Date) -> Result<Frame>;
     /// SPY and QQQ on exactly these dates (`data.download_benchmarks`).
@@ -76,9 +97,19 @@ impl Default for Live {
 }
 
 impl Sources for Live {
-    fn universe_prices(&self, market: Market, start: Date, end: Date, progress: Progress) -> Result<UniversePrices> {
+    fn universe_prices(
+        &self,
+        market: Market,
+        start: Date,
+        end: Date,
+        progress: Progress,
+        cancelled: Cancelled,
+    ) -> Result<UniversePrices> {
         let snapshot = self.members.get_or_try(market, || fetch_members(market).map(Arc::new))?;
-        download_universe_prices(&snapshot, start, end, progress)
+        if cancelled() {
+            return Err(cancelled_error());
+        }
+        download_universe_prices(&snapshot, start, end, progress, cancelled)
     }
 
     fn prices(&self, tickers: &[String], start: Date, end: Date) -> Result<Frame> {
@@ -117,15 +148,31 @@ pub fn fetch_members(market: Market) -> Result<UniverseSnapshot> {
     }
 }
 
+/// A batch download that fails, before it reaches the network, once the build is cancelled.
+pub fn cancellable<'a>(
+    cancelled: Cancelled<'a>,
+    mut download: impl FnMut(&[String], Date, Date, bool) -> Result<Frame> + 'a,
+) -> impl FnMut(&[String], Date, Date, bool) -> Result<Frame> + 'a {
+    move |symbols, start, end, allow_incomplete| {
+        if cancelled() {
+            return Err(cancelled_error());
+        }
+        download(symbols, start, end, allow_incomplete)
+    }
+}
+
 /// `universe::download_universe_prices(snapshot, start, end, progress)`, as [`UniversePrices`].
-/// `progress` receives `(completed, total, message)`.
+/// `progress` receives `(completed, total, message)`. A cancelled build stops the
+/// download at its next batch of symbols.
 pub fn download_universe_prices(
     snapshot: &UniverseSnapshot,
     start: Date,
     end: Date,
     progress: Progress,
+    cancelled: Cancelled,
 ) -> Result<UniversePrices> {
-    let loaded = universe::download_universe_prices(snapshot, start, end, Some(progress))?;
+    let mut download = cancellable(cancelled, data::download_adjusted_close);
+    let loaded = universe::download_universe_prices_with(snapshot, start, end, Some(progress), &mut download)?;
     Ok(UniversePrices {
         prices: loaded.prices,
         coverage: loaded.coverage,
@@ -149,4 +196,47 @@ pub fn fetch_company_profile(symbol: &str) -> CompanyProfile {
 pub fn load_qqq_volatility_reference() -> Result<QqqReference> {
     let reference = risk_reference::load_qqq_volatility_reference(None)?;
     Ok(QqqReference { volatility: reference.volatility, last_return_date: reference.last_return_date })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use efficient_frontier::universe::{Member, UniverseSnapshot};
+
+    use super::*;
+
+    /// Complete prices on ten business days for the requested symbols.
+    fn prices(symbols: &[String]) -> Frame {
+        let start = Date::from_ymd_opt(2024, 1, 1).unwrap();
+        let dates: Vec<Date> = (0..10).map(|day| start + chrono::Days::new(day)).collect();
+        let columns =
+            symbols.iter().map(|symbol| (symbol.clone(), (0..10).map(|i| 100.0 + i as f64).collect())).collect();
+        Frame::from_columns(dates, columns)
+    }
+
+    #[test]
+    fn a_cancelled_universe_download_stops_at_the_next_batch() {
+        let members: Vec<Member> = (0..60)
+            .map(|i| Member { symbol: format!("S{i:02}"), name: format!("Stock {i}"), industry: "Unknown".into() })
+            .collect();
+        let snapshot = UniverseSnapshot::new(members, "https://example.com", "2026-10-01", "2026-10-30T09:00:00+00:00");
+        let start = Date::from_ymd_opt(2024, 1, 1).unwrap();
+        let end = Date::from_ymd_opt(2024, 2, 1).unwrap();
+        let calls = Cell::new(0);
+        // The benchmark download and the first batch run; then the user cancels.
+        let cancelled = || calls.get() >= 2;
+        let mut download = cancellable(&cancelled, |symbols: &[String], _, _, _| {
+            calls.set(calls.get() + 1);
+            Ok(prices(symbols))
+        });
+        let error = universe::download_universe_prices_with(&snapshot, start, end, None, &mut download).unwrap_err();
+        assert_eq!(error.message(), CANCELLED);
+        assert!(error.is_runtime());
+        assert_eq!(calls.get(), 2, "batches 2 and 3 of 25 symbols were never requested");
+        let never = || false;
+        let mut download = cancellable(&never, |symbols: &[String], _, _, _| Ok(prices(symbols)));
+        let loaded = universe::download_universe_prices_with(&snapshot, start, end, None, &mut download).unwrap();
+        assert_eq!(loaded.prices.ncols(), 60);
+    }
 }

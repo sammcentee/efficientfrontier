@@ -1,14 +1,16 @@
 //! HTTP routes: pages, form posts, JSON for the browser script, downloads and assets.
 //!
 //! Form posts answer with "303 See Other" to `/`, so the browser shows the new
-//! state with a fresh page, as a Streamlit rerun does.
+//! state with a fresh page, as a Streamlit rerun does. Requests that another
+//! site makes with this browser are refused, as Streamlit's XSRF protection does.
 
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{DefaultBodyLimit, Extension, Form, Multipart, Request, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, HOST, SET_COOKIE};
-use axum::http::{HeaderValue, StatusCode};
+use axum::body::Bytes;
+use axum::extract::{DefaultBodyLimit, Extension, Form, Multipart, Query, Request, State};
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, HOST, ORIGIN, SET_COOKIE};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Json, Redirect, Response};
 use axum::routing::{get, post};
@@ -17,15 +19,20 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::assets;
-use crate::build;
+use crate::build::{self, Applied};
 use crate::guard::guard;
-use crate::render::{self, drawer::drawer, format::number, table::frame};
+use crate::render::html::{Alert, alert_plain};
+use crate::render::{self, drawer::drawer, table::frame_json};
 use crate::session::{Session, SessionRef, View, cookie_id, lock, set_cookie};
 use crate::setup::{Draft, Setup, Upload, differs, read_draft, resolve};
 use crate::state::AppState;
 
 /// The largest accepted upload, Streamlit's default `server.maxUploadSize` of 200 MB.
 pub const UPLOAD_LIMIT: usize = 200 * 1024 * 1024;
+/// The drawer's file inputs.
+const FILE_FIELDS: [&str; 2] = ["prices_upload", "benchmark_upload"];
+/// The answer to a page that asks for a study that is no longer applied.
+pub const OLDER_STUDY: &str = "This page shows an older study. Reload the page.";
 
 /// The session of the current request.
 #[derive(Clone)]
@@ -42,23 +49,29 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/preview", post(preview))
         .route("/api/draft", post(draft_differs))
         .route("/api/job", get(job))
+        .route("/api/prices", get(prices_table))
         .route("/export", get(export))
         .route("/download/prices.csv", get(prices_csv))
-        .route("/fragment/prices", get(prices_fragment))
         .layer(DefaultBodyLimit::max(UPLOAD_LIMIT))
         .route_layer(middleware::from_fn_with_state(state.clone(), with_session));
     Router::new()
         .route("/assets/{*path}", get(assets::serve))
         .merge(app)
+        .layer(middleware::from_fn(same_site_only))
         .layer(middleware::from_fn(local_host))
         .with_state(state)
 }
 
 /// Find the browser's session by cookie, or create one with `init_state`'s defaults.
+///
+/// Only a page load or a browser script's read creates a session. A post
+/// without a known session (another site's form, or a page from before a
+/// restart) goes to the start page and changes nothing.
 async fn with_session(State(state): State<Arc<AppState>>, mut request: Request, next: Next) -> Response {
     let existing = cookie_id(request.headers()).and_then(|id| state.sessions.get(&id));
     let (handle, new_id) = match existing {
         Some(handle) => (handle, None),
+        None if !is_read(request.method()) => return Redirect::to("/").into_response(),
         None => {
             let creator = state.clone();
             // The QQQ reference can wait on the network, so create the session off the async workers.
@@ -94,6 +107,40 @@ fn is_local_host(host: &str) -> bool {
         None => host.split(':').next().unwrap_or_default(),
     };
     matches!(name, "localhost" | "127.0.0.1" | "::1")
+}
+
+/// GET and HEAD only read; every other method can change the study.
+fn is_read(method: &Method) -> bool {
+    method == Method::GET || method == Method::HEAD
+}
+
+/// Refuse requests that another site makes with this browser.
+async fn same_site_only(request: Request, next: Next) -> Response {
+    if !from_this_site(request.method(), request.headers()) {
+        return (StatusCode::FORBIDDEN, "Portfolio Lab refuses requests that other sites make.").into_response();
+    }
+    next.run(request).await
+}
+
+/// The cross-site policy, from the browser's `Origin` and `Sec-Fetch-*` headers.
+///
+/// A read (GET or HEAD) from another site passes only as a top-level navigation,
+/// such as a link. Any other request passes only when `Origin` is this server's
+/// own origin and `Sec-Fetch-Site` is `same-origin` or `none`. A request without
+/// these headers, such as one from curl or a test, passes.
+fn from_this_site(method: &Method, headers: &HeaderMap) -> bool {
+    let header = |name: &str| headers.get(name).map(|value| value.to_str().unwrap_or("\u{0}"));
+    let site = header("sec-fetch-site");
+    if is_read(method) {
+        return !matches!(site, Some("cross-site" | "same-site")) || header("sec-fetch-mode") == Some("navigate");
+    }
+    if let Some(origin) = header(ORIGIN.as_str()) {
+        let own = header(HOST.as_str()).map(|host| format!("http://{host}"));
+        if !own.is_some_and(|own| own.eq_ignore_ascii_case(origin)) {
+            return false;
+        }
+    }
+    site.is_none_or(|site| matches!(site, "same-origin" | "none"))
 }
 
 /// Run blocking or CPU-heavy work off the async workers. A panic becomes `Err`.
@@ -139,25 +186,50 @@ async fn drawer_fragment(
     }
 }
 
-/// The fields and files of a multipart form. A file input without a file is ignored.
-async fn read_form(mut multipart: Multipart) -> Result<Draft, String> {
-    let mut draft = Draft::default();
+/// The fields and file parts of a multipart form, before the files are hashed.
+struct Posted {
+    fields: Vec<(String, String)>,
+    /// (field name, file name, bytes). A file input without a file is left out.
+    files: Vec<(String, String, Bytes)>,
+}
+
+impl Posted {
+    /// The draft of the form. Hashing the files takes time, so call this off the async workers.
+    fn into_draft(self) -> Draft {
+        let mut draft = Draft::default();
+        draft.fields.extend(self.fields);
+        for (name, file_name, bytes) in self.files {
+            draft.uploads.insert(name, Upload::new(file_name, bytes));
+        }
+        draft
+    }
+}
+
+/// Read a multipart form. The file bytes stay in the request's buffers.
+async fn read_form(mut multipart: Multipart) -> Result<Posted, String> {
+    let mut posted = Posted { fields: Vec::new(), files: Vec::new() };
     while let Some(field) = multipart.next_field().await.map_err(|error| error.body_text())? {
         let name = field.name().unwrap_or_default().to_string();
         match field.file_name().map(str::to_string) {
             Some(file_name) => {
                 let bytes = field.bytes().await.map_err(|error| error.body_text())?;
                 if !file_name.is_empty() {
-                    draft.uploads.insert(name, Upload::new(file_name, bytes.to_vec()));
+                    posted.files.push((name, file_name, bytes));
                 }
             }
             None => {
                 let text = field.text().await.map_err(|error| error.body_text())?;
-                draft.fields.insert(name, text);
+                posted.fields.push((name, text));
             }
         }
     }
-    Ok(draft)
+    Ok(posted)
+}
+
+/// Read a multipart form and hash its files off the async workers.
+async fn read_draft_form(multipart: Multipart) -> Result<Draft, String> {
+    let posted = read_form(multipart).await?;
+    if posted.files.is_empty() { Ok(posted.into_draft()) } else { blocking(move || posted.into_draft()).await }
 }
 
 /// Apply the landing page's two limits to the setup.
@@ -180,7 +252,7 @@ async fn start_build(
     Extension(CurrentSession(handle)): Extension<CurrentSession>,
     multipart: Multipart,
 ) -> Response {
-    let draft = match read_form(multipart).await {
+    let draft = match read_draft_form(multipart).await {
         Ok(draft) => draft,
         Err(message) => return failure(StatusCode::BAD_REQUEST, "The form could not be read.", &message),
     };
@@ -197,7 +269,7 @@ async fn start_build(
     Redirect::to("/").into_response()
 }
 
-/// `POST /cancel`: stop waiting for the running build; its result is discarded.
+/// `POST /cancel`: stop the running build; its result is discarded.
 async fn cancel(Extension(CurrentSession(handle)): Extension<CurrentSession>) -> Redirect {
     if let Some(job) = lock(&handle).job.take() {
         job.cancel();
@@ -245,15 +317,28 @@ async fn preview(
 }
 
 /// `POST /api/draft`: whether the drawer's draft differs from the applied result.
+///
+/// The browser hashes a chosen file once and sends `<field>_name` and
+/// `<field>_sha256` instead of the file, so a draft check never uploads it.
 async fn draft_differs(
     State(state): State<Arc<AppState>>,
     Extension(CurrentSession(handle)): Extension<CurrentSession>,
     multipart: Multipart,
 ) -> Response {
-    let draft = match read_form(multipart).await {
+    let mut draft = match read_draft_form(multipart).await {
         Ok(draft) => draft,
         Err(message) => return (StatusCode::BAD_REQUEST, message).into_response(),
     };
+    for field in FILE_FIELDS {
+        if draft.uploads.contains_key(field) {
+            continue;
+        }
+        let name = draft.field(&format!("{field}_name")).unwrap_or_default().to_string();
+        let identity = draft.field(&format!("{field}_sha256")).and_then(|digest| Upload::identity(name, digest));
+        if let Some(upload) = identity {
+            draft.uploads.insert(field.to_string(), upload);
+        }
+    }
     let session = lock(&handle);
     let pending = session.applied.as_ref().is_some_and(|applied| {
         let plan = resolve(&read_draft(&draft, &session.setup), state.today());
@@ -280,11 +365,43 @@ async fn job(Extension(CurrentSession(handle)): Extension<CurrentSession>) -> Re
     ([(CACHE_CONTROL, HeaderValue::from_static("no-store"))], Json(body)).into_response()
 }
 
-/// `GET /export`: the report zip of the applied study, computed only when asked for.
-async fn export(Extension(CurrentSession(handle)): Extension<CurrentSession>) -> Response {
-    let applied = lock(&handle).applied.clone().filter(|applied| applied.is_current());
-    let Some(applied) = applied else {
-        return failure(StatusCode::NOT_FOUND, "Nothing to export.", "Build a portfolio first.");
+/// The `result` that a page puts in the URLs of its study's downloads.
+#[derive(Deserialize)]
+struct ResultQuery {
+    result: Option<u64>,
+}
+
+/// Why a download cannot serve the page that asked for it.
+enum Mismatch {
+    /// The session has no result.
+    Missing,
+    /// The page shows another result than the applied one.
+    Older,
+}
+
+/// The applied result that the page shows, if it is still applied.
+fn shown_result(handle: &SessionRef, query: &ResultQuery) -> Result<Arc<Applied>, Mismatch> {
+    let applied = lock(handle).applied.clone().ok_or(Mismatch::Missing)?;
+    if query.result == Some(applied.id) { Ok(applied) } else { Err(Mismatch::Older) }
+}
+
+/// The message page for a download that cannot serve its page.
+fn mismatch_page(mismatch: Mismatch, title: &str) -> Response {
+    match mismatch {
+        Mismatch::Missing => failure(StatusCode::NOT_FOUND, title, "Build a portfolio first."),
+        Mismatch::Older => failure(StatusCode::CONFLICT, "This study has changed.", OLDER_STUDY),
+    }
+}
+
+/// `GET /export?result=<id>`: the report zip of the applied study, computed only when asked for.
+async fn export(
+    Extension(CurrentSession(handle)): Extension<CurrentSession>,
+    Query(query): Query<ResultQuery>,
+) -> Response {
+    let applied = match shown_result(&handle, &query) {
+        Ok(applied) if applied.is_current() => applied,
+        Ok(_) => return mismatch_page(Mismatch::Missing, "Nothing to export."),
+        Err(mismatch) => return mismatch_page(mismatch, "Nothing to export."),
     };
     let zip = blocking(move || {
         selection_report_zip(
@@ -310,10 +427,14 @@ async fn export(Extension(CurrentSession(handle)): Extension<CurrentSession>) ->
     }
 }
 
-/// `GET /download/prices.csv`: the input prices (`csv_text(prices, index_label="Date")`).
-async fn prices_csv(Extension(CurrentSession(handle)): Extension<CurrentSession>) -> Response {
-    let Some(applied) = lock(&handle).applied.clone() else {
-        return failure(StatusCode::NOT_FOUND, "No prices yet.", "Build a portfolio first.");
+/// `GET /download/prices.csv?result=<id>`: the input prices (`csv_text(prices, index_label="Date")`).
+async fn prices_csv(
+    Extension(CurrentSession(handle)): Extension<CurrentSession>,
+    Query(query): Query<ResultQuery>,
+) -> Response {
+    let applied = match shown_result(&handle, &query) {
+        Ok(applied) => applied,
+        Err(mismatch) => return mismatch_page(mismatch, "No prices yet."),
     };
     match blocking(move || applied.prices.to_csv("Date")).await {
         Ok(text) => (
@@ -328,14 +449,32 @@ async fn prices_csv(Extension(CurrentSession(handle)): Extension<CurrentSession>
     }
 }
 
-/// `GET /fragment/prices`: the input prices table, loaded when its expander opens.
-async fn prices_fragment(Extension(CurrentSession(handle)): Extension<CurrentSession>) -> Response {
-    let Some(applied) = lock(&handle).applied.clone() else {
-        return StatusCode::NOT_FOUND.into_response();
+/// `GET /api/prices?result=<id>`: the input prices as JSON for the browser's
+/// table, which shows only the visible rows. A mismatch answers with an HTML
+/// message for the expander.
+async fn prices_table(
+    Extension(CurrentSession(handle)): Extension<CurrentSession>,
+    Query(query): Query<ResultQuery>,
+) -> Response {
+    let message = |status: StatusCode, text: &str| {
+        (status, [(CACHE_CONTROL, HeaderValue::from_static("no-store"))], Html(alert_plain(Alert::Error, text)))
+            .into_response()
     };
-    match blocking(move || frame(&applied.prices, "Date", &number).html()).await {
-        Ok(html) => page(StatusCode::OK, html),
-        Err(message) => page(StatusCode::INTERNAL_SERVER_ERROR, render::html::failed(&message)),
+    let applied = match shown_result(&handle, &query) {
+        Ok(applied) => applied,
+        Err(Mismatch::Missing) => return message(StatusCode::NOT_FOUND, "Build a portfolio first."),
+        Err(Mismatch::Older) => return message(StatusCode::CONFLICT, OLDER_STUDY),
+    };
+    match blocking(move || frame_json(&applied.prices, "Date")).await {
+        Ok(json) => (
+            [
+                (CONTENT_TYPE, HeaderValue::from_static("application/json")),
+                (CACHE_CONTROL, HeaderValue::from_static("no-store")),
+            ],
+            json,
+        )
+            .into_response(),
+        Err(text) => message(StatusCode::INTERNAL_SERVER_ERROR, &text),
     }
 }
 
@@ -351,5 +490,31 @@ mod tests {
         for host in ["example.com", "evil.localhost.example:8501", "192.168.1.5:8501", "[::2]:8501"] {
             assert!(!is_local_host(host), "{host}");
         }
+    }
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        pairs.iter().map(|(name, value)| (name.parse().unwrap(), value.parse().unwrap())).collect()
+    }
+
+    #[test]
+    fn the_cross_site_policy_follows_origin_and_fetch_metadata() {
+        let own = [("host", "127.0.0.1:8501")];
+        let post = |extra: &[(&str, &str)]| from_this_site(&Method::POST, &headers(&[&own[..], extra].concat()));
+        let get = |extra: &[(&str, &str)]| from_this_site(&Method::GET, &headers(&[&own[..], extra].concat()));
+        assert!(post(&[]), "curl and tests send neither header");
+        assert!(post(&[("origin", "http://127.0.0.1:8501"), ("sec-fetch-site", "same-origin")]));
+        assert!(post(&[("origin", "HTTP://127.0.0.1:8501")]));
+        assert!(post(&[("sec-fetch-site", "none")]));
+        assert!(!post(&[("origin", "https://example.com")]));
+        assert!(!post(&[("origin", "http://localhost:8501")]), "another origin of this computer");
+        assert!(!post(&[("origin", "null")]));
+        assert!(!post(&[("sec-fetch-site", "cross-site")]));
+        assert!(!post(&[("sec-fetch-site", "same-site")]));
+        assert!(!from_this_site(&Method::POST, &headers(&[("origin", "http://127.0.0.1:8501")])), "no host to compare");
+        assert!(get(&[]));
+        assert!(get(&[("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "navigate")]), "a link from another site");
+        assert!(!get(&[("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "no-cors")]), "an image or script");
+        assert!(!get(&[("sec-fetch-site", "same-site"), ("sec-fetch-mode", "cors")]), "a page on another port");
+        assert!(get(&[("sec-fetch-site", "same-origin"), ("sec-fetch-mode", "cors")]));
     }
 }

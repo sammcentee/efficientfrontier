@@ -105,6 +105,11 @@
 
   // ---------------------------------------------------------------- settings drawer
 
+  /** Lowercase hexadecimal text of a digest. */
+  function hex(buffer) {
+    return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
   let openedAt = 0;
   let returnFocus = null;
   let opening = false;
@@ -147,6 +152,7 @@
 
   function setupDrawer(form) {
     const differs = form.querySelector("#pl-differs");
+    const digests = new Map();
     let draftTimer = 0;
     let draftRequest = 0;
 
@@ -168,10 +174,27 @@
       }
     }
 
+    /** The draft, with each chosen file as its name and digest instead of its bytes. */
+    async function draftBody() {
+      const body = new FormData(form);
+      if (!window.crypto?.subtle) return body; // The server hashes the file instead.
+      for (const input of form.querySelectorAll('input[type="file"]')) {
+        body.delete(input.name);
+        const identity = input.disabled ? null : await digests.get(input);
+        if (identity) {
+          body.append(`${input.name}_name`, identity.name);
+          body.append(`${input.name}_sha256`, identity.sha256);
+        }
+      }
+      return body;
+    }
+
     async function checkDraft() {
       const request = ++draftRequest;
       try {
-        const response = await fetch(form.dataset.draft, { method: "POST", body: new FormData(form), ...same });
+        const body = await draftBody();
+        if (request !== draftRequest) return;
+        const response = await fetch(form.dataset.draft, { method: "POST", body, ...same });
         const result = await response.json();
         if (request === draftRequest) differs.hidden = !result.differs;
       } catch {
@@ -182,6 +205,23 @@
     function scheduleDraft() {
       clearTimeout(draftTimer);
       draftTimer = setTimeout(checkDraft, 200);
+    }
+
+    /** Hash a newly chosen file once; draft checks then send only its name and digest. */
+    function rememberDigest(input) {
+      const file = input.files && input.files[0];
+      if (!file || !window.crypto?.subtle) {
+        digests.delete(input);
+        return;
+      }
+      digests.set(
+        input,
+        file
+          .arrayBuffer()
+          .then((buffer) => crypto.subtle.digest("SHA-256", buffer))
+          .then((hash) => ({ name: file.name, sha256: hex(hash) }))
+          .catch(() => null),
+      );
     }
 
     function showFile(input) {
@@ -202,7 +242,10 @@
       if (target.dataset.mirror) {
         form.querySelector(`input[type="hidden"][name="${target.dataset.mirror}"]`).value = String(target.checked);
       }
-      if (target.type === "file") showFile(target);
+      if (target.type === "file") {
+        showFile(target);
+        rememberDigest(target);
+      }
       sync();
       scheduleDraft();
     });
@@ -397,6 +440,83 @@
 
   // ---------------------------------------------------------------- lazy tables
 
+  const ROW_HEIGHT = 33; // Matches .pl-vtable rows in app.css.
+  const INDEX_WIDTH = 120; // The date column.
+  const COLUMN_WIDTH = 96; // Every price column.
+  const OVERSCAN = 8;
+  const COLUMN_OVERSCAN = 3;
+  const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" };
+  const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (character) => ESCAPES[character]);
+
+  /** A table that keeps only the visible rows and columns in the page, so a long
+   *  price history of hundreds of stocks opens and scrolls without freezing it.
+   *  Rows and columns have fixed sizes; empty spacers stand for the rest. The
+   *  server sends the cells already formatted. */
+  function virtualTable(slot, data) {
+    const count = data.rows.length;
+    const total = data.columns.length;
+    const box = document.createElement("div");
+    box.className = "pl-table-wrap pl-vtable";
+    box.tabIndex = 0;
+    box.setAttribute("role", "region");
+    box.setAttribute("aria-label", "Input prices");
+    box.innerHTML =
+      `<table class="pl-table" aria-rowcount="${count + 1}" aria-colcount="${total + 1}" ` +
+      `style="width:${INDEX_WIDTH + COLUMN_WIDTH * total}px"><colgroup></colgroup><thead></thead><tbody></tbody></table>`;
+    const [columns, head, body] = ["colgroup", "thead", "tbody"].map((tag) => box.querySelector(tag));
+    const gap = '<td class="pl-vgap" aria-hidden="true"></td>';
+    let shown = "";
+    function draw() {
+      const top = Math.max(0, box.scrollTop - ROW_HEIGHT); // The header is one row high.
+      const first = Math.max(0, Math.floor(top / ROW_HEIGHT) - OVERSCAN);
+      const last = Math.min(count, Math.ceil((top + box.clientHeight) / ROW_HEIGHT) + OVERSCAN);
+      const from = Math.max(0, Math.floor(box.scrollLeft / COLUMN_WIDTH) - COLUMN_OVERSCAN);
+      const to = Math.min(total, Math.ceil((box.scrollLeft + box.clientWidth - INDEX_WIDTH) / COLUMN_WIDTH) + COLUMN_OVERSCAN);
+      if (`${first}:${last}:${from}:${to}` === shown) return;
+      shown = `${first}:${last}:${from}:${to}`;
+      const width = (pixels) => `<col style="width:${pixels}px">`;
+      columns.innerHTML =
+        width(INDEX_WIDTH) + width(from * COLUMN_WIDTH) + width(COLUMN_WIDTH).repeat(to - from) + width((total - to) * COLUMN_WIDTH);
+      const headers = data.columns
+        .slice(from, to)
+        .map((name, k) => `<th scope="col" class="pl-r" aria-colindex="${from + k + 2}" title="${escapeHtml(name)}">${escapeHtml(name)}</th>`);
+      head.innerHTML =
+        `<tr aria-rowindex="1"><th scope="col" aria-colindex="1">${escapeHtml(data.index_label)}</th>` +
+        `<th class="pl-vgap" aria-hidden="true"></th>${headers.join("")}<th class="pl-vgap" aria-hidden="true"></th></tr>`;
+      const span = to - from + 3;
+      const spacer = (height) =>
+        height > 0 ? `<tr class="pl-vspacer" aria-hidden="true" style="height:${height}px"><td colspan="${span}"></td></tr>` : "";
+      const rows = [spacer(first * ROW_HEIGHT)];
+      for (let i = first; i < last; i++) {
+        const cells = data.rows[i]
+          .slice(from, to)
+          .map((value, k) => `<td class="pl-r" aria-colindex="${from + k + 2}">${escapeHtml(value)}</td>`);
+        rows.push(
+          `<tr aria-rowindex="${i + 2}"><th scope="row" aria-colindex="1">${escapeHtml(data.index[i])}</th>${gap}${cells.join("")}${gap}</tr>`,
+        );
+      }
+      rows.push(spacer((count - last) * ROW_HEIGHT));
+      body.innerHTML = rows.join("");
+    }
+    let pending = 0;
+    box.addEventListener(
+      "scroll",
+      () => {
+        if (!pending) {
+          pending = requestAnimationFrame(() => {
+            pending = 0;
+            draw();
+          });
+        }
+      },
+      { passive: true },
+    );
+    slot.replaceChildren(box);
+    // Give the box its full height first, so the first draw fills it.
+    body.innerHTML = `<tr class="pl-vspacer" style="height:${count * ROW_HEIGHT}px"><td></td></tr>`;
+    draw();
+  }
+
   document.addEventListener(
     "toggle",
     async (event) => {
@@ -406,7 +526,9 @@
       const slot = details.querySelector("[data-lazy]");
       try {
         const response = await fetch(details.dataset.src, same);
-        slot.innerHTML = await response.text();
+        // A failed request answers with a short message, such as "This page shows an older study."
+        if (response.ok) virtualTable(slot, await response.json());
+        else slot.innerHTML = await response.text();
       } catch {
         slot.textContent = "The table could not be loaded. Reload the page and try again.";
       }
