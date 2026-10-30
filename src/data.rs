@@ -1,12 +1,13 @@
 //! Explicit, complete price observations for portfolio research.
 
 use std::collections::HashSet;
+use std::io::{Cursor, Read};
 use std::path::Path;
 
-use chrono::{DateTime, NaiveDateTime};
+use chrono::{DateTime, Days, NaiveDateTime};
 
 use crate::error::Result;
-use crate::frame::{Date, Frame};
+use crate::frame::{Date, Frame, iso};
 use crate::value_error;
 
 pub const BENCHMARK_SYMBOLS: [&str; 2] = ["SPY", "QQQ"];
@@ -352,8 +353,31 @@ pub fn demo_prices() -> Frame {
 ///
 /// Columns follow the requested symbol order and can contain NaN. `end` is exclusive.
 pub fn download_adjusted_close(tickers: &[String], start: Date, end: Date, allow_incomplete: bool) -> Result<Frame> {
-    let _ = (tickers, start, end, allow_incomplete);
-    todo!("network: Yahoo adjusted closes")
+    let symbols = parse_tickers(&tickers.join(" "));
+    if symbols.is_empty() {
+        return Err(value_error!("Enter at least one ticker."));
+    }
+    if start >= end {
+        return Err(value_error!("Choose valid start and end dates, with the start before the end."));
+    }
+    // Like yfinance, a failed symbol has no rows, so even a network failure arrives here as missing prices.
+    let prices = crate::net::yahoo_adjusted_closes(&symbols, start, end);
+    if prices.nrows() == 0 {
+        return Err(value_error!("Yahoo returned no prices. Check the tickers and date range, or upload a CSV."));
+    }
+    let missing: Vec<&str> = symbols
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| prices.values.column(*j).iter().all(|value| value.is_nan()))
+        .map(|(_, symbol)| symbol.as_str())
+        .collect();
+    if !missing.is_empty() && !allow_incomplete {
+        return Err(value_error!(
+            "Yahoo returned no prices for: {}. Check these symbols and their available history, or upload a CSV.",
+            missing.join(", ")
+        ));
+    }
+    Ok(prices)
 }
 
 /// Fetch Yahoo adjusted close prices; an unavailable asset is an error.
@@ -366,14 +390,85 @@ pub fn download_prices(tickers: &[String], start: Date, end: Date) -> Result<Fra
 /// The selection excludes extra market dates. A missing requested date is an error.
 /// This permits weekly or monthly samples without interpolation or date changes.
 pub fn download_benchmarks(expected_dates: &[Date]) -> Result<Frame> {
-    let _ = expected_dates;
-    todo!("network: Yahoo SPY and QQQ on exact dates")
+    validate_benchmark_dates(expected_dates)?;
+    let symbols = BENCHMARK_SYMBOLS.map(String::from);
+    let (first, last) = (expected_dates[0], expected_dates[expected_dates.len() - 1]);
+    let prices = download_adjusted_close(&symbols, first, last + Days::new(1), false)?;
+    let missing: Vec<&Date> = expected_dates.iter().filter(|date| prices.index.binary_search(date).is_err()).collect();
+    if !missing.is_empty() {
+        let dates: Vec<String> = missing.iter().take(3).map(|date| iso(**date)).collect();
+        return Err(value_error!(
+            "Yahoo benchmarks are missing {} requested dates, including: {}.",
+            missing.len(),
+            dates.join(", ")
+        ));
+    }
+    let rows: Vec<Vec<f64>> = expected_dates
+        .iter()
+        .map(|date| prices.row(prices.index.binary_search(date).expect("every expected date is present")))
+        .collect();
+    validate_benchmark_prices(&Frame::from_rows(expected_dates.to_vec(), prices.columns.clone(), &rows), expected_dates)
 }
 
+/// The historical list, bundled so that binaries work from any directory.
+const ORIGINAL_HOLDINGS: &[u8] = include_bytes!("../spy_holdings.ods");
+const TABLE_NAMESPACE: &str = "urn:oasis:names:tc:opendocument:xmlns:table:1.0";
+
 /// Read the historical list in `spy_holdings.ods`, optionally with known current Yahoo symbols.
+///
+/// `None` reads the bundled copy of the repository file.
 pub fn original_tickers(path: Option<&Path>, current_symbols: bool) -> Result<Vec<String>> {
-    let _ = (path, current_symbols);
-    todo!("read spy_holdings.ods")
+    let unreadable = || value_error!("The original spy_holdings.ods ticker list could not be read.");
+    let cells = match path {
+        Some(path) => ods_first_cells(&std::fs::read(path).map_err(|_| unreadable())?),
+        None => ods_first_cells(ORIGINAL_HOLDINGS),
+    }
+    .ok_or_else(unreadable)?;
+    let symbols = cells.get(1..).unwrap_or_default();
+    if cells.first().map(String::as_str) != Some("Tickers")
+        || !symbols.iter().all(|ticker| !ticker.is_empty() && ticker.chars().all(|c| c.is_ascii_uppercase()))
+    {
+        return Err(value_error!("The original holdings file must have a Tickers column containing stock symbols."));
+    }
+    let mut tickers: Vec<String> = Vec::new();
+    for ticker in symbols {
+        if !tickers.contains(ticker) {
+            tickers.push(ticker.clone());
+        }
+    }
+    if tickers.is_empty() {
+        return Err(value_error!("The original holdings file contains no tickers."));
+    }
+    if current_symbols {
+        // Marsh changed its NYSE symbol on 2026-01-14; the ODS stays historical.
+        // Source: https://www.marsh.com/en/corp/about/news/marsh-mclennan-to-change-nyse-symbol-to-mrsh.html
+        for ticker in &mut tickers {
+            if ticker == "MMC" {
+                *ticker = "MRSH".into();
+            }
+        }
+    }
+    Ok(tickers)
+}
+
+/// The nonblank text of the first cell in each table row of an ODS file.
+fn ods_first_cells(content: &[u8]) -> Option<Vec<String>> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(content)).ok()?;
+    let mut xml = String::new();
+    archive.by_name("content.xml").ok()?.read_to_string(&mut xml).ok()?;
+    let document = roxmltree::Document::parse(&xml).ok()?;
+    let mut cells = Vec::new();
+    for row in document.descendants().filter(|node| node.has_tag_name((TABLE_NAMESPACE, "table-row"))) {
+        if let Some(cell) = row.children().find(|node| node.has_tag_name((TABLE_NAMESPACE, "table-cell"))) {
+            let text: String =
+                cell.descendants().filter(|node| node.is_text()).filter_map(|node| node.text()).collect();
+            let value = crate::net::py_strip(&text);
+            if !value.is_empty() {
+                cells.push(value.to_string());
+            }
+        }
+    }
+    Some(cells)
 }
 
 #[cfg(test)]
