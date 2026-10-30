@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::io::{Cursor, Read};
 use std::path::Path;
 
-use chrono::{DateTime, Days, NaiveDateTime};
+use chrono::{DateTime, Datelike, Days, NaiveDateTime};
 
 use crate::error::Result;
 use crate::frame::{Date, Frame, iso};
@@ -58,53 +58,118 @@ pub fn stale_price_notes(prices: &Frame) -> Vec<String> {
     notes
 }
 
-/// One parsed date format. `Zoned` keeps the local wall time of an offset timestamp.
-#[derive(Clone, Copy)]
+/// One date layout. `Zoned` keeps the local wall time of an offset timestamp.
+#[derive(Clone, Debug)]
 enum DateFormat {
-    Date(&'static str),
-    DateTime(&'static str),
+    Date(String),
+    DateTime(String),
     Zoned,
     Month,
+    Year,
 }
 
-const DATE_FORMATS: [DateFormat; 12] = [
-    DateFormat::Date("%Y-%m-%d"),
-    DateFormat::DateTime("%Y-%m-%d %H:%M:%S"),
-    DateFormat::DateTime("%Y-%m-%d %H:%M"),
-    DateFormat::DateTime("%Y-%m-%dT%H:%M:%S"),
-    DateFormat::DateTime("%Y-%m-%d %H:%M:%S%.f"),
-    DateFormat::Zoned,
-    DateFormat::Date("%Y/%m/%d"),
-    DateFormat::Date("%m/%d/%Y"),
-    DateFormat::Date("%d/%m/%Y"),
-    DateFormat::Date("%Y%m%d"),
-    DateFormat::Date("%b %d, %Y"),
-    DateFormat::Month,
+/// Date layouts in pandas' order of preference: ISO first, then month-first
+/// before day-first for numeric dates, then month names.
+const DATE_PATTERNS: [&str; 26] = [
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%Y.%m.%d",
+    "%Y%m%d",
+    "%m/%d/%Y",
+    "%d/%m/%Y",
+    "%m/%d/%y",
+    "%d/%m/%y",
+    "%m-%d-%Y",
+    "%d-%m-%Y",
+    "%m-%d-%y",
+    "%d-%m-%y",
+    "%m.%d.%Y",
+    "%d.%m.%Y",
+    "%d-%b-%Y",
+    "%d-%b-%y",
+    "%d %b %Y",
+    "%d %B %Y",
+    "%b %d %Y",
+    "%B %d %Y",
+    "%b %d, %Y",
+    "%B %d, %Y",
+    "%d-%B-%Y",
+    "%b-%d-%Y",
+    "%Y-%b-%d",
+    "%d %b %y",
 ];
 
-fn parse_with(value: &str, format: DateFormat) -> Option<Date> {
+/// Time layouts after a date, such as Excel's `1/13/2020 0:00`.
+const TIME_PATTERNS: [&str; 9] = [
+    " %H:%M:%S",
+    " %H:%M",
+    "T%H:%M:%S",
+    "T%H:%M",
+    " %H:%M:%S%.f",
+    "T%H:%M:%S%.f",
+    " %I:%M %p",
+    " %I:%M:%S %p",
+    " %I %p",
+];
+
+static DATE_FORMATS: std::sync::LazyLock<Vec<DateFormat>> = std::sync::LazyLock::new(|| {
+    let mut formats: Vec<DateFormat> = Vec::new();
+    for date in DATE_PATTERNS {
+        formats.push(DateFormat::Date(date.to_string()));
+        formats.extend(TIME_PATTERNS.iter().map(|time| DateFormat::DateTime(format!("{date}{time}"))));
+        if date == "%Y-%m-%d" {
+            formats.push(DateFormat::Zoned);
+        }
+    }
+    formats.push(DateFormat::Month);
+    formats.push(DateFormat::Year);
+    formats
+});
+
+/// The date of `value` in one layout, and its UTC offset in seconds for a zoned timestamp.
+fn parse_with(value: &str, format: &DateFormat) -> Option<(Date, Option<i32>)> {
+    // chrono's %Y also reads two digits; leave those to the %y layouts.
+    let full_year = |pattern: &str, date: Date| !pattern.contains("%Y") || date.year() >= 1000;
     match format {
-        DateFormat::Date(pattern) => Date::parse_from_str(value, pattern).ok(),
-        DateFormat::DateTime(pattern) => NaiveDateTime::parse_from_str(value, pattern).ok().map(|stamp| stamp.date()),
+        DateFormat::Date(pattern) => {
+            Date::parse_from_str(value, pattern).ok().filter(|date| full_year(pattern, *date)).map(|date| (date, None))
+        }
+        DateFormat::DateTime(pattern) => NaiveDateTime::parse_from_str(value, pattern)
+            .ok()
+            .map(|stamp| stamp.date())
+            .filter(|date| full_year(pattern, *date))
+            .map(|date| (date, None)),
         DateFormat::Zoned => DateTime::parse_from_rfc3339(value)
             .or_else(|_| DateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%:z"))
+            .or_else(|_| DateTime::parse_from_str(value, "%Y-%m-%dT%H:%M%:z"))
             .ok()
-            .map(|stamp| stamp.naive_local().date()),
-        DateFormat::Month => Date::parse_from_str(&format!("{value}-01"), "%Y-%m-%d").ok(),
+            .map(|stamp| (stamp.naive_local().date(), Some(stamp.offset().local_minus_utc()))),
+        DateFormat::Month => Date::parse_from_str(&format!("{value}-01"), "%Y-%m-%d").ok().map(|date| (date, None)),
+        DateFormat::Year => (value.len() == 4 && value.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| Date::from_ymd_opt(value.parse().ok()?, 1, 1))
+            .flatten()
+            .map(|date| (date, None)),
     }
 }
 
-/// Parse dates as pandas does: infer one format from the first value, then
+/// Parse dates as pandas does: infer one layout from the first value, then
 /// apply it to every row. Times are dropped and offsets keep their local date.
+/// Mixed UTC offsets are invalid, as in pandas.
 pub fn parse_price_dates(values: &[String]) -> Result<Vec<Date>> {
     let values: Vec<&str> = values.iter().map(|value| value.trim()).collect();
     let present: Vec<&str> = values.iter().copied().filter(|value| !value.is_empty()).collect();
     let invalid = || value_error!("Every row must have a valid date.");
     let mut dates = Vec::with_capacity(values.len());
     if let Some(first) = present.first() {
-        let format = DATE_FORMATS.iter().find(|format| parse_with(first, **format).is_some()).ok_or_else(invalid)?;
+        let format = DATE_FORMATS.iter().find(|format| parse_with(first, format).is_some()).ok_or_else(invalid)?;
+        let mut offsets = HashSet::new();
         for value in &present {
-            dates.push(parse_with(value, *format).ok_or_else(invalid)?);
+            let (date, offset) = parse_with(value, format).ok_or_else(invalid)?;
+            offsets.insert(offset);
+            dates.push(date);
+        }
+        if offsets.len() > 1 {
+            return Err(invalid());
         }
     }
     if present.len() != values.len() {
@@ -196,6 +261,27 @@ pub fn validate_prices(prices: &Frame) -> Result<Frame> {
     finish_prices(prices.index.clone(), columns, (0..prices.nrows()).map(|i| prices.row(i)).collect())
 }
 
+/// Python's `str.casefold()` for header comparisons: lower case plus the full
+/// case foldings that change length or differ from lower case.
+pub(crate) fn casefold(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    for character in text.to_lowercase().chars() {
+        match character {
+            'ß' => folded.push_str("ss"),
+            'ς' => folded.push('σ'),
+            'ﬀ' => folded.push_str("ff"),
+            'ﬁ' => folded.push_str("fi"),
+            'ﬂ' => folded.push_str("fl"),
+            'ﬃ' => folded.push_str("ffi"),
+            'ﬄ' => folded.push_str("ffl"),
+            'ﬅ' | 'ﬆ' => folded.push_str("st"),
+            'ŉ' => folded.push_str("ʼn"),
+            other => folded.push(other),
+        }
+    }
+    folded
+}
+
 /// Read CSV text as Python's `csv.reader` does: a blank line is an empty row,
 /// and a malformed quote is an error.
 pub fn read_csv_rows(text: &str) -> std::result::Result<Vec<Vec<String>>, String> {
@@ -217,6 +303,10 @@ pub fn read_csv_rows(text: &str) -> std::result::Result<Vec<Vec<String>>, String
         let crlf = c == '\r' && chars.peek() == Some(&'\n');
         if crlf {
             chars.next();
+        }
+        // Python reads lines that end at "\n", so a carriage return outside quotes must end the line.
+        if c == '\r' && !crlf && chars.peek().is_some() && !matches!(state, State::InQuoted) {
+            return Err("new-line character seen in unquoted field".into());
         }
         match state {
             State::StartRecord | State::StartField if newline => {
@@ -293,10 +383,10 @@ pub fn load_csv(content: &[u8]) -> Result<Frame> {
         return Err(unreadable());
     }
     let headers: Vec<String> = rows.remove(0).iter().map(|header| header.trim().to_string()).collect();
-    if headers.is_empty() || headers[0].to_lowercase() != "date" {
+    if headers.is_empty() || casefold(&headers[0]) != "date" {
         return Err(value_error!("The first CSV column must be named Date."));
     }
-    let folded: HashSet<String> = headers.iter().map(|header| header.to_lowercase()).collect();
+    let folded: HashSet<String> = headers.iter().map(|header| casefold(header)).collect();
     if headers.iter().any(String::is_empty) || folded.len() != headers.len() {
         return Err(value_error!("CSV column headers must be nonempty and unique; duplicate headers are invalid."));
     }
@@ -528,6 +618,32 @@ mod tests {
             Date::from_ymd_opt(2020, 1, 2).unwrap()
         );
         assert!(parse_price_dates(&values(&["2020-01-02", "2020-01-03 05:00"])).is_err());
+        let day = |y, m, d| Date::from_ymd_opt(y, m, d).unwrap();
+        for (first, second) in [
+            ("13-Jan-2020", "14-Jan-2020"),
+            ("13-Jan-20", "14-Jan-20"),
+            ("13-01-2020", "14-01-2020"),
+            ("13/01/2020 00:00:00", "14/01/2020 00:00:00"),
+            ("1/13/2020 0:00", "1/14/2020 0:00"),
+            ("01/13/2020 12:00 AM", "01/14/2020 12:00 AM"),
+            ("2020-01-13T00:00", "2020-01-14T00:00"),
+            ("2020.01.13", "2020.01.14"),
+            ("13 Jan 2020", "14 Jan 2020"),
+            ("Jan 13 2020", "Jan 14 2020"),
+            ("1/13/20", "1/14/20"),
+            ("January 13, 2020", "January 14, 2020"),
+        ] {
+            assert_eq!(
+                parse_price_dates(&values(&[first, second])).unwrap(),
+                [day(2020, 1, 13), day(2020, 1, 14)],
+                "{first}"
+            );
+        }
+        // pandas reads ambiguous numeric dates month first, and a bare year as 1 January.
+        assert_eq!(parse_price_dates(&values(&["01-02-2020", "01-03-2020"])).unwrap()[0], day(2020, 1, 2));
+        assert_eq!(parse_price_dates(&values(&["02.01.2020"])).unwrap()[0], day(2020, 2, 1));
+        assert_eq!(parse_price_dates(&values(&["2020", "2021"])).unwrap()[1], day(2021, 1, 1));
+        assert!(parse_price_dates(&values(&["2020-01-02T10:30:00+01:00", "2020-01-03T10:30:00+02:00"])).is_err());
         assert_eq!(
             parse_price_dates(&values(&["2020-01-02", ""])).unwrap_err().message(),
             "Every row must have a valid date; blank dates are not allowed."
@@ -551,6 +667,9 @@ mod tests {
         assert_eq!(read_csv_rows("a,\"b,\"\"c\"\"\"\n\nd").unwrap(), vec![vec!["a", "b,\"c\""], vec![], vec!["d"]]);
         assert!(read_csv_rows("\"a\"b").is_err());
         assert!(read_csv_rows("\"a").is_err());
+        assert!(read_csv_rows("Date,A\r2020-01-01,1\r").is_err());
+        assert!(read_csv_rows("Date,A\r\n2020-01-01,1\r").is_ok());
+        assert_eq!(casefold("STRASSE"), casefold("straße"));
         assert_eq!(read_csv_rows("\"a\rb\",\"c\r\nd\"\n").unwrap(), vec![vec!["a\rb", "c\r\nd"]]);
     }
 }
