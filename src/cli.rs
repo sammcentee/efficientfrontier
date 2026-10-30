@@ -9,13 +9,18 @@ use std::path::{Path, PathBuf};
 
 use clap::{ArgGroup, Parser};
 
-use crate::data;
+use crate::backtest::{self, BacktestStudy};
+use crate::benchmarks::{self, BenchmarkComparison};
+use crate::core::{self, Analysis};
 use crate::error::Result;
+use crate::evidence::{self, EvidenceAnalysis};
 use crate::frame::{Cell, Date, Frame, Table};
+use crate::profiles::{self, ProfileAnalysis};
 use crate::pyfmt::{self, Dict, Json};
 use crate::selection::{self, SelectionOptions};
 use crate::selection_report::{selection_metrics_frame, selection_report_zip};
 use crate::value_error;
+use crate::{data, historical, membership};
 
 /// The command-line options. Help texts follow the Python release.
 #[derive(Clone, Debug, Parser)]
@@ -577,16 +582,429 @@ fn records(table: &Table) -> Json {
     )
 }
 
-/// Historical-membership mode (filled in after the historical and report merges).
-fn historical_cli(args: &Args, settings: &Settings, out: &mut dyn Write) -> Result<i32> {
-    let _ = (args, settings, out);
-    todo!("historical mode")
+/// A nonnegative count from the command line. Negative values become zero, which
+/// the model rejects with the same message as Python does for any invalid count.
+fn count(value: i64) -> usize {
+    usize::try_from(value).unwrap_or(0)
 }
 
-/// The legacy classic analysis, backtests, benchmarks and evidence (filled in after the legacy merges).
+/// Historical-membership mode: rolling-window portfolios with dated rosters.
+fn historical_cli(args: &Args, settings: &Settings, out: &mut dyn Write) -> Result<i32> {
+    if args.tickers.is_some() || args.original_holdings || args.nasdaq100 {
+        return Err(value_error!(
+            "Historical membership uses supplied --csv prices or --historical-demo; automatic price downloads are unavailable."
+        ));
+    }
+    if args.benchmark_csv.is_some() || args.download_benchmarks {
+        return Err(value_error!("Historical membership does not support market benchmark comparisons."));
+    }
+    let (prices, membership, source) = if args.historical_demo {
+        if args.csv.is_some() || args.membership_end.is_some() {
+            return Err(value_error!(
+                "--historical-demo supplies both prices and membership; omit --csv and --membership-end."
+            ));
+        }
+        let (prices, membership) = historical::historical_demo();
+        (prices, membership, "Historical membership demo · synthetic".to_string())
+    } else {
+        let Some(csv) = &args.csv else {
+            return Err(value_error!(
+                "Historical membership requires --csv with adjusted prices for stable security identities."
+            ));
+        };
+        let membership = if let Some(path) = &args.membership_csv {
+            let Some(end) = &args.membership_end else {
+                return Err(value_error!(
+                    "--membership-csv requires --membership-end to declare the final covered date."
+                ));
+            };
+            membership::load_membership_csv_path(path, end.as_str(), Some(&format!("CSV: {}", file_name(path))))?
+        } else {
+            if args.membership_end.is_some() {
+                return Err(value_error!("--membership-end applies only to --membership-csv."));
+            }
+            membership::bundled_membership()
+        };
+        (historical::load_historical_prices_path(csv)?, membership, format!("CSV: {}", file_name(csv)))
+    };
+    let mut result = historical::run_historical_backtests(
+        &prices,
+        &membership,
+        &historical::HistoricalOptions {
+            train_fraction: settings.train_fraction,
+            rolling_window: Some(args.rolling_window.map_or(126, count)),
+            rebalance_every: count(args.rebalance_every.unwrap_or(21)),
+            risk_free_rate: settings.risk_free_rate,
+            max_weight: settings.max_weight,
+            shrinkage: settings.shrinkage,
+            cost_bps: args.cost_bps,
+            periods_per_year: settings.periods_per_year,
+        },
+    )?;
+    let currency = args.currency.trim().to_uppercase();
+    result.study.settings.update(&crate::dict! {
+        "source" => source.as_str(),
+        "price_currency" => currency.as_str(),
+        "currency_assumption" => "All prices must share the declared currency. No currency conversion occurs.",
+    });
+    let files = historical_report_files(&prices, &membership, &result)?;
+    write_report_bundle(&historical_report_bundle(&files)?, &args.output)?;
+    writeln!(out, "Source: {source}")?;
+    writeln!(out, "Declared price currency: {currency} (no currency conversion)")?;
+    writeln!(
+        out,
+        "Membership coverage: {} to {}",
+        crate::frame::iso(membership.coverage_start()),
+        crate::frame::iso(membership.coverage_end())
+    )?;
+    for warning in &result.study.warnings {
+        writeln!(out, "Note: {warning}")?;
+    }
+    writeln!(out, "\nHistorical membership · rolling-window portfolios after trading costs:")?;
+    writeln!(out, "{}", console_table(&result.study.metrics, 4))?;
+    writeln!(out, "Eligibility decisions: {}", absolute(&args.output.join("coverage.csv")).display())?;
+    writeln!(out, "Report: {}", absolute(&args.output.join("report.html")).display())?;
+    Ok(0)
+}
+
+/// `historical_report.build_historical_report` (wired in after the report merge).
+fn historical_report_files(
+    prices: &Frame,
+    membership: &membership::MembershipHistory,
+    study: &historical::HistoricalStudy,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    let _ = (prices, membership, study);
+    todo!("historical report: wire in after the report merge")
+}
+
+/// `historical_report.historical_report_zip` (wired in after the report merge).
+fn historical_report_bundle(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+    let _ = files;
+    todo!("historical report: wire in after the report merge")
+}
+
+/// The legacy report ZIP, `presentation.report_zip` (wired in after the report merge).
+fn legacy_report_zip(
+    analysis: &Analysis,
+    prices: &Frame,
+    metadata: &Dict,
+    study: Option<&BacktestStudy>,
+    latest_profiles: Option<&ProfileAnalysis>,
+    benchmarks: Option<&BenchmarkComparison>,
+    evidence: Option<&EvidenceAnalysis>,
+) -> Result<Vec<u8>> {
+    let _ = (analysis, prices, metadata, study, latest_profiles, benchmarks, evidence);
+    todo!("legacy report: wire in after the report merge")
+}
+
+/// `benchmark_report.default_evidence_strategy` (wired in after the report merge).
+fn default_evidence_strategy(evidence: &EvidenceAnalysis) -> Option<String> {
+    let _ = evidence;
+    todo!("evidence default: wire in after the report merge")
+}
+
+/// Holdout metrics as the Python DataFrame: index `portfolio`, one column per measure.
+fn holdout_table(analysis: &Analysis) -> Table {
+    let names: Vec<&String> = analysis.holdout_metrics.keys().collect();
+    let mut table = Table::labelled(Some("portfolio"), &names);
+    for (k, field) in crate::metrics::PERFORMANCE_FIELDS.iter().enumerate() {
+        table.push(*field, analysis.holdout_metrics.values().map(|m| Cell::Float(m.fields()[k].1)).collect());
+    }
+    table
+}
+
+/// The legacy classic analysis, backtests, benchmarks and evidence.
 fn legacy_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, out: &mut dyn Write) -> Result<i32> {
-    let _ = (args, settings, sources, out);
-    todo!("legacy mode")
+    let currency = args.currency.trim().to_uppercase();
+    let synthetic = args.csv.is_none() && args.tickers.is_none() && !args.original_holdings && !args.nasdaq100;
+    if synthetic && (args.benchmark_csv.is_some() || args.download_benchmarks) {
+        return Err(value_error!(
+            "Synthetic demo data cannot use real market benchmarks. Select --csv or --tickers first."
+        ));
+    }
+    let end_text = args.end.clone().unwrap_or_else(today);
+    let mut universe = None;
+    let (prices, source) = if args.nasdaq100 {
+        let loaded = load_universe(false, &args.start, &end_text)?;
+        if loaded.prices.ncols() < 2 {
+            let requested = loaded.coverage.nrows();
+            let included = loaded.prices.ncols();
+            return Err(value_error!(
+                "Only {included} of {requested} Nasdaq-100 securities have complete prices. \
+                 At least two are required. {} securities were excluded.",
+                requested - included
+            ));
+        }
+        let prices = loaded.prices.clone();
+        universe = Some(loaded);
+        (prices, "Nasdaq-100 · Yahoo Finance".to_string())
+    } else if let Some(path) = &args.csv {
+        (data::load_csv_path(path)?, format!("CSV: {}", file_name(path)))
+    } else if args.tickers.is_some() || args.original_holdings {
+        let tickers = if args.original_holdings {
+            sources.original_tickers()?
+        } else {
+            data::parse_tickers(args.tickers.as_deref().unwrap_or_default())
+        };
+        let (start, end) = (parse_date(&args.start)?, parse_date(&end_text)?);
+        (sources.download_prices(&tickers, start, end)?, "Yahoo Finance".to_string())
+    } else {
+        (sources.demo_prices(), "Demo · synthetic".to_string())
+    };
+    let analysis = core::analyze(
+        &prices,
+        &core::AnalyzeOptions {
+            train_fraction: settings.train_fraction,
+            risk_free_rate: settings.risk_free_rate,
+            max_weight: settings.max_weight,
+            shrinkage: settings.shrinkage,
+            periods_per_year: settings.periods_per_year,
+            ..Default::default()
+        },
+    )?;
+    let latest_profiles = if prices.nrows() >= 7 {
+        Some(profiles::build_profiles(
+            &prices,
+            &profiles::ProfileOptions {
+                risk_free_rate: settings.risk_free_rate,
+                max_weight: settings.max_weight,
+                shrinkage: settings.shrinkage,
+                periods_per_year: settings.periods_per_year,
+                return_objective: profiles::ReturnObjective::HistoricalMean,
+                ..Default::default()
+            },
+        )?)
+    } else {
+        None
+    };
+    let train = analysis.train_returns.nrows() as i64;
+    let profile_backtests = train.min(args.rolling_window.unwrap_or(train)) >= 6;
+    let mut study = if args.backtests {
+        Some(backtest::run_backtests(
+            &prices,
+            &backtest::BacktestOptions {
+                train_fraction: settings.train_fraction,
+                risk_free_rate: settings.risk_free_rate,
+                max_weight: settings.max_weight,
+                shrinkage: settings.shrinkage,
+                rebalance_every: count(args.rebalance_every.unwrap_or(21)),
+                rolling_window: args.rolling_window.map(count),
+                cost_bps: args.cost_bps,
+                periods_per_year: settings.periods_per_year,
+                include_profiles: profile_backtests,
+            },
+        )?)
+    } else {
+        None
+    };
+    if let Some(study) = study.as_mut().filter(|_| !profile_backtests) {
+        study.warnings.push(
+            "Risk-profile backtests need at least six returns in both the initial and rolling fit windows. \
+             Only the original targets are shown."
+                .to_string(),
+        );
+    }
+    let mut metadata = universe.as_ref().map_or_else(Dict::new, |loaded| loaded.metadata.clone());
+    metadata.insert("source", source.as_str());
+    metadata.insert("price_currency", currency.as_str());
+    metadata.insert(
+        "currency_assumption",
+        format!(
+            "The user declares all asset prices in {currency}. No currency conversion occurs. \
+             USD benchmark ETFs require the same currency basis."
+        ),
+    );
+    for (key, value) in settings.entries() {
+        metadata.insert(key, value);
+    }
+    if let Some(loaded) = &universe {
+        metadata.insert("universe_coverage", records(&loaded.coverage));
+    }
+    if latest_profiles.is_none() {
+        metadata.insert(
+            "latest_profiles_note",
+            "Latest profiles need at least seven prices for three windows with two returns each.",
+        );
+    }
+    if source == "Yahoo Finance" || args.nasdaq100 {
+        metadata.insert("requested_start", args.start.as_str());
+        metadata.insert("requested_end_exclusive", end_text.as_str());
+    }
+    let mut benchmarks = None;
+    let mut evidence = None;
+    if args.no_benchmarks {
+        metadata.insert("benchmarks_note", "Market benchmarks are disabled by --no-benchmarks.");
+    } else if synthetic {
+        metadata.insert("benchmarks_note", "Synthetic demo data has no real market benchmark comparison.");
+    } else if currency != "USD" {
+        metadata.insert(
+            "benchmarks_note",
+            format!(
+                "Market benchmarks require USD prices. The declared currency is {currency}, and no currency conversion occurs."
+            ),
+        );
+    } else {
+        let attempt = (|| -> Result<Option<BenchmarkComparison>> {
+            let chosen = if let Some(path) = &args.benchmark_csv {
+                metadata.insert("benchmark_source", format!("CSV: {}", file_name(path)));
+                Some(data::load_csv_path(path)?)
+            } else if args.download_benchmarks {
+                metadata.insert("benchmark_source", "Yahoo Finance");
+                Some(sources.download_benchmarks(&prices.index)?)
+            } else if let Some(loaded) = &universe {
+                metadata.insert("benchmark_source", "Yahoo Finance · Nasdaq-100 download");
+                Some(loaded.benchmarks.clone())
+            } else if let Some(columns) = prices.select(&data::BENCHMARK_SYMBOLS) {
+                metadata.insert("benchmark_source", format!("Asset columns: {}", data::BENCHMARK_SYMBOLS.join(", ")));
+                Some(columns)
+            } else if source == "Yahoo Finance" {
+                metadata.insert("benchmark_source", "Yahoo Finance");
+                Some(sources.download_benchmarks(&prices.index)?)
+            } else {
+                metadata.insert(
+                    "benchmarks_note",
+                    "CSV analysis stays offline. Supply --benchmark-csv or --download-benchmarks, or include SPY and QQQ price columns.",
+                );
+                None
+            };
+            let Some(frame) = chosen else { return Ok(None) };
+            let frame = data::validate_benchmark_prices(&frame, &prices.index)?;
+            Ok(Some(benchmarks::compare_benchmarks(
+                &frame,
+                &prices,
+                &analysis,
+                study.as_ref(),
+                latest_profiles.as_ref(),
+                args.risk_free_rate,
+            )?))
+        })();
+        match attempt {
+            Ok(comparison) => benchmarks = comparison,
+            Err(error) => {
+                metadata.insert("benchmarks_note", format!("Market benchmarks are unavailable: {error}"));
+            }
+        }
+    }
+    if let Some(comparison) = &benchmarks {
+        let (strategy_equity, benchmark_equity) = match (&study, &comparison.backtest_equity) {
+            (Some(study), Some(backtest)) => (&study.equity, backtest),
+            _ => (&analysis.equity, &comparison.holdout_equity),
+        };
+        let options = evidence::EvidenceOptions {
+            risk_free_rate: args.risk_free_rate,
+            periods_per_year: args.periods_per_year,
+            delayed_entry: study.is_some(),
+        };
+        match evidence::analyze_evidence(strategy_equity, benchmark_equity, &options) {
+            Ok(result) => evidence = Some(result),
+            Err(error) => {
+                metadata.insert("evidence_note", format!("Historical evidence is unavailable: {error}"));
+            }
+        }
+    }
+    let bundle = legacy_report_zip(
+        &analysis,
+        &prices,
+        &metadata,
+        study.as_ref(),
+        latest_profiles.as_ref(),
+        benchmarks.as_ref(),
+        evidence.as_ref(),
+    )?;
+    write_report_bundle(&bundle, &args.output)?;
+
+    writeln!(out, "Source: {source}")?;
+    writeln!(out, "Declared price currency: {currency} (no currency conversion)")?;
+    if let Some(loaded) = &universe {
+        let (included, requested) = (prices.ncols(), loaded.coverage.nrows());
+        let text = |key: &str| metadata.get(key).map(Json::py_str).unwrap_or_default();
+        writeln!(
+            out,
+            "Nasdaq-100 coverage: {included} of {requested} securities included; {} excluded.",
+            requested - included
+        )?;
+        writeln!(out, "Membership source date: {}", text("universe_source_date"))?;
+        writeln!(out, "Membership source: {}", text("universe_source_url"))?;
+        writeln!(out, "Note: {}", text("universe_limitation"))?;
+        writeln!(out, "Coverage: {}", absolute(&args.output.join("universe_coverage.csv")).display())?;
+    }
+    if let Some(profiles) = &latest_profiles {
+        writeln!(
+            out,
+            "\nLatest model holdings as of {} (historical mean frontier; full-history fit, not an out-of-sample result):",
+            profiles.as_of
+        )?;
+        writeln!(out, "{}", console_table(&profiles.summary, 4))?;
+        for (name, portfolio) in &profiles.portfolios {
+            let leaders: Vec<String> = portfolio
+                .weights
+                .descending_order()
+                .into_iter()
+                .take(5)
+                .map(|i| {
+                    format!("{} {}", portfolio.weights.labels[i], pyfmt::format(portfolio.weights.values[i], ".2%"))
+                })
+                .collect();
+            writeln!(out, "{name} largest allocations: {}", leaders.join(", "))?;
+        }
+        for warning in &profiles.warnings {
+            writeln!(out, "Note: {warning}")?;
+        }
+    } else if let Some(note) = metadata.get("latest_profiles_note") {
+        writeln!(out, "Note: {}", note.py_str())?;
+    }
+    for warning in &analysis.warnings {
+        writeln!(out, "Note: {warning}")?;
+    }
+    writeln!(out, "\nOriginal chronological holdout:")?;
+    writeln!(out, "{}", console_table(&holdout_table(&analysis), 4))?;
+    if let Some(study) = &study {
+        for warning in &study.warnings {
+            writeln!(out, "Note: {warning}")?;
+        }
+        writeln!(out, "\nBacktest comparison (after the selected trading costs):")?;
+        writeln!(out, "{}", console_table(&study.metrics, 4))?;
+        writeln!(out, "Findings: {}", absolute(&args.output.join("findings.md")).display())?;
+    }
+    if let Some(comparison) = &benchmarks {
+        let source = metadata.get("benchmark_source").map(Json::py_str).unwrap_or_default();
+        writeln!(out, "\nMarket benchmarks ({source}; matched dates and entry rules):")?;
+        let table = match (&study, &comparison.backtest_metrics) {
+            (Some(_), Some(metrics)) => metrics,
+            _ => &comparison.holdout_metrics,
+        };
+        writeln!(out, "{}", console_table(&table.select(&["total_return", "cagr", "volatility", "max_drawdown"]), 4))?;
+    }
+    if let Some(result) = &evidence {
+        if let Some(selected) = default_evidence_strategy(result) {
+            writeln!(out, "\nHistorical evidence for {selected} (fixed display choice, not the best result):")?;
+            let rows: Vec<usize> = (0..result.summary.nrows())
+                .filter(|i| result.summary.index[0][*i].as_str() == Some(&selected))
+                .collect();
+            let mut table = result.summary.take_rows(&rows);
+            table.index.remove(0);
+            table.index_names.remove(0);
+            let columns = [
+                "annual_advantage",
+                "advantage_ci_low",
+                "advantage_ci_high",
+                "alpha",
+                "alpha_pvalue_adjusted",
+                "status",
+            ];
+            writeln!(out, "{}", console_table(&table.select(&columns), 4))?;
+        }
+        for warning in &result.warnings {
+            writeln!(out, "Note: {warning}")?;
+        }
+    }
+    for note in ["benchmarks_note", "evidence_note"] {
+        if let Some(value) = metadata.get(note) {
+            writeln!(out, "Note: {}", value.py_str())?;
+        }
+    }
+    writeln!(out, "Report: {}", absolute(&args.output.join("report.html")).display())?;
+    Ok(0)
 }
 
 /// Run the CLI with parsed arguments. Returns the process exit code.
