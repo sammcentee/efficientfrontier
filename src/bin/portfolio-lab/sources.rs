@@ -1,16 +1,14 @@
 //! The only module that calls the network data functions.
 //!
-//! The universe, company-profile and QQQ-reference modules of the library are
-//! being written in parallel. Every call to them is in this file: [`Live`] uses
-//! the four placeholder functions at the end, and the network merge replaces
-//! only those bodies and the [`UniverseSnapshot`] placeholder. The rest of the
-//! app sees the [`Sources`] trait, so tests supply their own data instead of
-//! the network, as the Python tests patch these functions.
+//! Every call to the library's universe, company-profile and QQQ-reference
+//! modules is in this file. The rest of the app sees the [`Sources`] trait, so
+//! tests supply their own data instead of the network, as the Python tests
+//! patch these functions.
 
-use efficient_frontier::data;
 use efficient_frontier::error::Result;
 use efficient_frontier::frame::{Date, Frame, Table};
 use efficient_frontier::pyfmt::Dict;
+use efficient_frontier::{companies, data, risk_reference, universe};
 use std::sync::Arc;
 
 use crate::cache::{Cache, ONE_HOUR};
@@ -104,20 +102,19 @@ impl Sources for Live {
     }
 }
 
-// ----------------------------------------------------------------------------- network merge
-// The four functions below and `UniverseSnapshot` are placeholders for the
-// library's `universe`, `companies` and `risk_reference` modules.
+// ----------------------------------------------------------------------------- network functions
+// The library's `universe`, `companies` and `risk_reference` modules, in the
+// shapes that the app uses.
 
-/// A provider member list (`universe.UniverseSnapshot`). The merge replaces this
-/// placeholder with the library type, for example with `pub use`.
-#[derive(Clone, Debug)]
-pub struct UniverseSnapshot;
+pub use efficient_frontier::universe::UniverseSnapshot;
 
 /// The current members: `universe::fetch_sp500_nasdaq100()` for [`Market::Combined`],
 /// else `universe::fetch_nasdaq100()`.
 pub fn fetch_members(market: Market) -> Result<UniverseSnapshot> {
-    let _ = market;
-    todo!("network merge: universe::fetch_sp500_nasdaq100 and universe::fetch_nasdaq100")
+    match market {
+        Market::Combined => universe::fetch_sp500_nasdaq100(),
+        _ => universe::fetch_nasdaq100(),
+    }
 }
 
 /// `universe::download_universe_prices(snapshot, start, end, progress)`, as [`UniversePrices`].
@@ -128,17 +125,28 @@ pub fn download_universe_prices(
     end: Date,
     progress: Progress,
 ) -> Result<UniversePrices> {
-    let _ = (snapshot, start, end, progress);
-    todo!("network merge: universe::download_universe_prices")
+    let loaded = universe::download_universe_prices(snapshot, start, end, Some(progress))?;
+    Ok(UniversePrices {
+        prices: loaded.prices,
+        coverage: loaded.coverage,
+        benchmarks: Some(loaded.benchmarks),
+        metadata: loaded.metadata,
+    })
 }
 
 /// `companies::fetch_company_profile(symbol)`: empty fields when unavailable.
 pub fn fetch_company_profile(symbol: &str) -> CompanyProfile {
-    let _ = symbol;
-    todo!("network merge: companies::fetch_company_profile")
+    companies::fetch_company_profile(symbol)
+        .map(|company| CompanyProfile {
+            name: company.name,
+            description: company.description,
+            source_url: company.source_url,
+        })
+        .unwrap_or_default()
 }
 
 /// `risk_reference::load_qqq_volatility_reference()`: QQQ's volatility and its last return date.
 pub fn load_qqq_volatility_reference() -> Result<QqqReference> {
-    todo!("network merge: risk_reference::load_qqq_volatility_reference")
+    let reference = risk_reference::load_qqq_volatility_reference(None)?;
+    Ok(QqqReference { volatility: reference.volatility, last_return_date: reference.last_return_date })
 }
