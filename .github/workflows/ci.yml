@@ -22,7 +22,7 @@ jobs:
           rustup toolchain install stable --profile minimal --component clippy,rustfmt
           rustup default stable
       - name: Check formatting
-        run: cargo fmt --check
+        run: cargo fmt --all --check
       - name: Lint
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Run tests
@@ -38,3 +38,83 @@ jobs:
           test -s "$RUNNER_TEMP/efficientfrontier-risk-demo/report.html"
           test -s "$RUNNER_TEMP/efficientfrontier-risk-demo/metadata.json"
           test -s "$RUNNER_TEMP/efficientfrontier-risk-demo/test/metrics.csv"
+
+  desktop:
+    name: desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Install the Linux window libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev webkit2gtk-driver xvfb xdotool
+      - name: Lint
+        run: cargo clippy --locked -p portfolio-lab --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo test --locked -p portfolio-lab
+      - name: Build the programs
+        run: cargo build --locked --release -p portfolio-lab -p efficient-frontier
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked --version 2.0.6
+      - name: Install Microsoft Edge Driver for WebView2
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = (Get-ItemProperty $key).pv
+          Write-Output "WebView2 $version"
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
+          Expand-Archive "$env:RUNNER_TEMP\edgedriver.zip" -DestinationPath "$env:RUNNER_TEMP\edgedriver"
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:RUNNER_TEMP\edgedriver"
+      - name: Test the window
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a cargo test --locked -p portfolio-lab --test window -- --ignored
+          else
+            cargo test --locked -p portfolio-lab --test window -- --ignored
+          fi
+      - name: Build the AppImage
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: |
+          cargo install tauri-cli --locked --version 2.11.5
+          cargo tauri build --bundles appimage
+      - name: Start the AppImage
+        if: runner.os == 'Linux'
+        run: |
+          image=$(ls target/release/bundle/appimage/*.AppImage)
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a "$image" &
+          sleep 20
+          pgrep -f portfolio-lab
+          pkill -f portfolio-lab
+      - name: Collect the programs
+        run: |
+          mkdir dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/release/portfolio-lab.exe "dist/Portfolio Lab.exe"
+            cp target/release/efficient-frontier.exe dist/
+          else
+            cp target/release/bundle/appimage/*.AppImage dist/
+            tar -czf dist/portfolio-lab-linux-x86_64.tar.gz -C target/release portfolio-lab efficient-frontier
+          fi
+          ls -la dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: portfolio-lab-${{ runner.os }}
+          path: dist/
+          if-no-files-found: error

@@ -6,15 +6,30 @@ The default universe combines the stocks held by SPY with current Nasdaq-100 con
 
 ## Setup
 
-Install the Rust toolchain with [rustup](https://rustup.rs). Rust also needs a C compiler and linker. The table gives the tools for each system. Then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
+Portfolio Lab is a desktop app. It opens in its own window and needs no browser, Python, or Docker. The pages come from inside the program, so the app opens no network port.
+
+### Ready-made programs
+
+CI builds the programs for each change. Open the latest successful [CI run](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml), then download an artifact under **Artifacts**. GitHub asks you to sign in for artifacts and keeps them for 90 days.
+
+| System | Artifact | Start the app |
+| --- | --- | --- |
+| Windows 10 or 11, 64-bit | `portfolio-lab-Windows` | Extract the ZIP. Double-click `Portfolio Lab.exe`. |
+| Linux, 64-bit | `portfolio-lab-Linux` | Extract the ZIP. Make the `.AppImage` file executable, then open it. |
+
+Each artifact also contains the command-line program `efficient-frontier`. The Windows app uses the Microsoft Edge WebView2 Runtime, which Windows 11 includes. The programs have no code signature, so Windows SmartScreen can show a warning for a downloaded file. Select **More info**, then **Run anyway**. The AppImage contains its window libraries. The `portfolio-lab-linux-x86_64.tar.gz` file contains the plain Linux programs, which need WebKitGTK 4.1 on the system.
+
+### Build from source
+
+Install the Rust toolchain with [rustup](https://rustup.rs). Rust also needs a C compiler and linker, and Linux needs the WebKitGTK 4.1 files for the window. The table gives the tools for each system. Then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
 
 | System | Install first | Start the app |
 | --- | --- | --- |
 | Windows | Microsoft C++ build tools with "Desktop development with C++". The rustup installer offers them. | Open `Start Portfolio Lab.bat`. |
 | macOS | Xcode Command Line Tools. Run `xcode-select --install`. | Open `Start Portfolio Lab.command`. |
-| Linux or WSL | A C compiler and linker, for example the `build-essential` or `base-devel` package. | Run `bash run.sh` from the project folder. |
+| Linux | A C compiler and WebKitGTK 4.1. Debian or Ubuntu: `sudo apt install build-essential libwebkit2gtk-4.1-dev`. Arch: `sudo pacman -S --needed base-devel webkit2gtk-4.1`. | Run `bash run.sh` from the project folder. |
 
-The first start compiles the app. It needs internet access and takes a few minutes. Later starts are fast. The app opens at **http://localhost:8501**. Keep the launcher open and press **Ctrl+C** there to stop it. Demo and CSV studies work offline after the first build.
+The first start compiles the app. It needs internet access and takes a few minutes. Later starts are fast. Close the window to stop the app. Demo and CSV studies work offline after the first build.
 
 For a Git checkout:
 
@@ -32,7 +47,7 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 2. Set **Annual volatility budget** and **Holding limit** in the two number fields. The holding limit defaults to 10%.
 3. Select **Build portfolio**.
 4. Inspect the latest stock holdings and their fitted frontier. Then compare in-sample and out-of-sample results, and the later replay with SPY and QQQ.
-5. Select **Export** for the offline report and exact input/result CSVs.
+5. Select **Export**, then choose where to save the offline report and exact input/result CSVs.
 
 The app starts the volatility budget at QQQ's latest one-year annualized volatility, with its price date shown. This reference is separate from the stock fit window. Your edits take precedence. If the reference is unavailable, the app labels its 20% manual fallback.
 
@@ -79,7 +94,7 @@ The test status describes coverage, realized risk, and comparison results. It is
 
 ## Command line
 
-Run the app's model without a browser:
+Run the app's model without the window:
 
 ```bash
 # Offline demo

@@ -4,14 +4,17 @@ Original project code and documentation are licensed under the [MIT License](LIC
 
 ## Rust dependencies
 
-Cargo downloads these direct dependencies from crates.io when it builds the application. `Cargo.lock` pins every version. Their source code is not vendored in this repository. Licenses and notices remain available in each crate and its upstream project.
+Cargo downloads these direct dependencies of the library, the CLI, and the desktop app from crates.io when it builds them. `Cargo.lock` pins every version. Their source code is not vendored in this repository. Licenses and notices remain available in each crate and its upstream project.
 
 | Dependency | Upstream license | Project |
 | --- | --- | --- |
 | Clarabel | Apache-2.0 | [oxfordcontrol/Clarabel.rs](https://github.com/oxfordcontrol/Clarabel.rs) |
 | nalgebra | Apache-2.0 | [dimforge/nalgebra](https://github.com/dimforge/nalgebra) |
+| Tauri (`tauri`, `tauri-build`) | Apache-2.0 OR MIT | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
+| Tauri dialog and opener plugins | Apache-2.0 OR MIT | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
 | axum | MIT | [tokio-rs/axum](https://github.com/tokio-rs/axum) |
 | Tokio | MIT | [tokio-rs/tokio](https://github.com/tokio-rs/tokio) |
+| tower | MIT | [tower-rs/tower](https://github.com/tower-rs/tower) |
 | ureq | MIT OR Apache-2.0 | [algesten/ureq](https://github.com/algesten/ureq) |
 | chrono and chrono-tz | MIT OR Apache-2.0 | [chronotope/chrono](https://github.com/chronotope/chrono), [chronotope/chrono-tz](https://github.com/chronotope/chrono-tz) |
 | clap | MIT OR Apache-2.0 | [clap-rs/clap](https://github.com/clap-rs/clap) |
@@ -21,9 +24,15 @@ Cargo downloads these direct dependencies from crates.io when it builds the appl
 | roxmltree | MIT OR Apache-2.0 | [RazrFalcon/roxmltree](https://github.com/RazrFalcon/roxmltree) |
 | sha2 | MIT OR Apache-2.0 | [RustCrypto/hashes](https://github.com/RustCrypto/hashes) |
 | libm | MIT | [rust-lang/compiler-builtins](https://github.com/rust-lang/compiler-builtins) |
-| tempfile and tower (tests only) | MIT OR Apache-2.0; MIT | [Stebalien/tempfile](https://github.com/Stebalien/tempfile), [tower-rs/tower](https://github.com/tower-rs/tower) |
+| tempfile (tests only) | MIT OR Apache-2.0 | [Stebalien/tempfile](https://github.com/Stebalien/tempfile) |
 
 This list covers direct dependencies, not the complete set of transitive crates. Run `cargo tree` for the full set. Preserve the crates' own notices when you redistribute a compiled binary.
+
+## System web views
+
+The desktop app shows its pages in the web view of the operating system. On Windows, this is the Microsoft Edge WebView2 Runtime, a part of Windows 11 under Microsoft's terms. The `.exe` does not contain it. On Linux, the plain program uses the WebKitGTK and GTK libraries of the system and does not contain them.
+
+The Linux AppImage contains WebKitGTK, GTK, and other libraries from the Ubuntu 24.04 packages of the CI build. These libraries keep their own licenses, mostly the LGPL. Ubuntu publishes the source packages of these versions at [packages.ubuntu.com](https://packages.ubuntu.com/noble/). You can replace the libraries in an extracted AppImage (`--appimage-extract`).
 
 ## Plotly.js in the app and exported reports
 

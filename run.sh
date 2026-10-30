@@ -8,6 +8,6 @@ if ! command -v cargo >/dev/null 2>&1; then
   echo "Portfolio Lab needs the Rust toolchain. Install it from https://rustup.rs, then run this launcher again."
   exit 1
 fi
-echo "Portfolio Lab - starting your local dashboard"
+echo "Portfolio Lab - starting the desktop app"
 echo "The first start compiles the app. It needs internet and can take a few minutes."
-exec cargo run --release --locked --bin portfolio-lab -- "$@"
+exec cargo run --release --locked -p portfolio-lab -- "$@"

@@ -4,7 +4,7 @@ Project code and documentation use the [MIT License](LICENSE). Contribute only m
 
 ## Development setup
 
-Install the Rust toolchain with [rustup](https://rustup.rs). The [README setup](README.md#setup) gives the C compiler and linker for each system. `Cargo.toml` sets the minimum Rust version. Start from a branch of `main`:
+Install the Rust toolchain with [rustup](https://rustup.rs). The [README setup](README.md#build-from-source) gives the C compiler, the linker, and the Linux window libraries for each system. `Cargo.toml` sets the minimum Rust version. Start from a branch of `main`:
 
 ```bash
 git switch main
@@ -13,22 +13,26 @@ git switch -c your-change
 cargo build
 ```
 
-The library crate `efficient_frontier` is in `src/`. The `efficient-frontier` CLI starts in `src/main.rs` and uses `src/cli.rs`. The local web app `portfolio-lab` is in `src/bin/portfolio-lab/`. `assets/` contains the front-end files, the exact demo prices, and the bundled Nasdaq-100 membership data.
+The library crate `efficient_frontier` is in `src/`. The `efficient-frontier` CLI starts in `src/main.rs` and uses `src/cli.rs`. The desktop app `portfolio-lab` is a second workspace member in `desktop/`. Tauri shows its pages in a native window. The routes in `desktop/src/routes.rs` make the pages, and `desktop/src/bridge.rs` gives them the window's requests without a network port. `assets/` contains the front-end files, the exact demo prices, and the bundled Nasdaq-100 membership data. `desktop/icons/icon.svg` is the source of the app icons.
 
-To start the app without an automatic browser launch:
+To start the desktop app from source:
 
 ```bash
-bash run.sh --headless
+cargo run --release -p portfolio-lab
 ```
 
 ## Checks
 
 ```bash
-cargo fmt --check
+cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo clippy -p portfolio-lab --all-targets -- -D warnings
+cargo test -p portfolio-lab
 cargo run --release --bin efficient-frontier -- --target-volatility .20 --max-weight .20 --output results/check
 ```
+
+At the root, `cargo` builds and tests only the library and the CLI, so these steps do not need the window libraries. The `-p portfolio-lab` steps build the desktop app.
 
 The final command runs the app's model with synthetic data and exports an offline report. The CLI without `--target-volatility` runs the separate legacy analysis.
 
@@ -36,6 +40,14 @@ The default tests do not use the network. Fakes give recorded or synthetic repli
 
 ```bash
 cargo test --test network_live -- --ignored
+```
+
+An end-to-end test drives the app's window through WebDriver. It needs a release build, [`tauri-driver`](https://crates.io/crates/tauri-driver), and the system's WebDriver: `WebKitWebDriver` on Linux, or Microsoft Edge Driver for the installed WebView2 version on Windows. On Linux, run it on a virtual screen with `xvfb-run`. On Linux the test also saves files through the Save dialog with `xdotool`.
+
+```bash
+cargo build --release -p portfolio-lab
+cargo install tauri-driver --locked
+env -u WAYLAND_DISPLAY xvfb-run -a cargo test -p portfolio-lab --test window -- --ignored
 ```
 
 For calculation changes, add a case with a known mathematical answer or a regression that demonstrates the error. Use fakes in place of network calls in the default tests. Verify that later prices cannot change earlier allocations. Document financial assumptions in the [method reference](docs/BACKTESTING.md).
@@ -48,6 +60,6 @@ The Rust version converts each number in CSV text to the nearest floating-point 
 
 ## Pull requests
 
-Keep changes focused and open pull requests against `main`. Describe the problem, resulting behavior, and checks. CI runs the format check, clippy, and the tests on `ubuntu-latest`. It also exports synthetic reports for the app model and the retained legacy tools.
+Keep changes focused and open pull requests against `main`. Describe the problem, resulting behavior, and checks. CI runs the format check, clippy, and the tests on `ubuntu-latest`. It also exports synthetic reports for the app model and the retained legacy tools. A second job builds and tests the desktop app on Ubuntu and Windows, runs the window test, and keeps the programs as artifacts.
 
 Use synthetic data in examples and bug reports. Keep credentials, personal holdings, downloaded datasets, and generated reports out of commits. Use ignored `data/` or `private/` folders for local inputs.
