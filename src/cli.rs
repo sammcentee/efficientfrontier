@@ -78,34 +78,35 @@ pub struct Args {
     /// Yahoo end date, exclusive; defaults to today
     #[arg(long)]
     pub end: Option<String>,
-    #[arg(long, default_value_t = 0.7)]
+    // As in argparse, numeric options take negative values such as -0.01 or -.01.
+    #[arg(long, default_value_t = 0.7, allow_hyphen_values = true)]
     pub train_fraction: f64,
     /// Annual decimal, e.g. .02
-    #[arg(long, default_value_t = 0.02)]
+    #[arg(long, default_value_t = 0.02, allow_hyphen_values = true)]
     pub risk_free_rate: f64,
     /// Per-asset cap as a decimal; default .10 with --target-volatility, otherwise 1 (no additional cap)
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub max_weight: Option<f64>,
     /// Run single-portfolio selection with an annual volatility target as a decimal, e.g. .20 for 20 percent; omit a source flag to use the offline demo
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub target_volatility: Option<f64>,
     /// Covariance shrinkage toward zero correlations: 0 uses sample covariance; 1 keeps only individual variances. Default 0 with --target-volatility, otherwise .1
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub shrinkage: Option<f64>,
     /// Observations per year: 252 trading days, 365 calendar days, 52 weeks, or 12 months; no resampling
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub periods_per_year: Option<f64>,
     /// Compare buy-and-hold, fixed rebalancing, expanding and rolling windows
     #[arg(long)]
     pub backtests: bool,
     /// Legacy backtest trading interval in observations; default 21. Not used by the buy-and-hold stock model
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub rebalance_every: Option<i64>,
     /// Rolling estimation returns; default is 126 for historical membership, otherwise the initial training length
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub rolling_window: Option<i64>,
     /// Backtest fee per unit of bought or sold notional, in basis points
-    #[arg(long, default_value_t = 10.0)]
+    #[arg(long, default_value_t = 10.0, allow_hyphen_values = true)]
     pub cost_bps: f64,
     #[arg(long, default_value = "results/latest")]
     pub output: PathBuf,
@@ -133,7 +134,7 @@ impl Settings {
     }
 }
 
-/// Every network download of the CLI. Tests replace these with offline fakes.
+/// Every network download of the CLI, and the evidence analysis. Tests replace these with offline fakes.
 pub trait Sources {
     /// `fetch_sp500_nasdaq100()` or `fetch_nasdaq100()`, then `download_universe_prices`.
     fn universe(&mut self, sp500_nasdaq100: bool, start: Date, end: Date) -> Result<universe::UniversePrices>;
@@ -141,6 +142,16 @@ pub trait Sources {
     fn download_benchmarks(&mut self, dates: &[Date]) -> Result<Frame>;
     fn original_tickers(&mut self) -> Result<Vec<String>>;
     fn demo_prices(&mut self) -> Frame;
+    /// The historical evidence analysis. A test replaces it with a failure, as the
+    /// Python tests monkeypatch `analyze_evidence`.
+    fn analyze_evidence(
+        &mut self,
+        strategy_equity: &Frame,
+        benchmark_equity: &Frame,
+        options: &evidence::EvidenceOptions,
+    ) -> Result<evidence::EvidenceAnalysis> {
+        evidence::analyze_evidence(strategy_equity, benchmark_equity, options)
+    }
 }
 
 /// The real downloads.
@@ -902,7 +913,7 @@ fn legacy_cli(args: &Args, settings: &Settings, sources: &mut dyn Sources, out: 
             periods_per_year: settings.periods_per_year,
             delayed_entry: study.is_some(),
         };
-        match evidence::analyze_evidence(strategy_equity, benchmark_equity, &options) {
+        match sources.analyze_evidence(strategy_equity, benchmark_equity, &options) {
             Ok(result) => evidence = Some(result),
             Err(error) => {
                 metadata.insert("evidence_note", format!("Historical evidence is unavailable: {error}"));
