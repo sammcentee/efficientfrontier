@@ -42,7 +42,7 @@ The default tests do not use the network. Fakes give recorded or synthetic repli
 cargo test --test network_live -- --ignored
 ```
 
-An end-to-end test drives the app's window through WebDriver. It needs a release build, [`tauri-driver`](https://crates.io/crates/tauri-driver), and the system's WebDriver: `WebKitWebDriver` on Linux, or Microsoft Edge Driver for the installed WebView2 version on Windows. Debian and Ubuntu supply `WebKitWebDriver` in `webkit2gtk-driver`, and Arch in `webkitgtk-6.0`. On Linux, run the test on a virtual screen with `xvfb-run` and `GDK_BACKEND=x11`, so that no window opens on the desktop, also under WSLg. On Linux the test also saves files through the Save dialog with `xdotool`.
+An end-to-end test drives the app's window through WebDriver. It needs a release build and the system's WebDriver. On Linux, [`tauri-driver`](https://crates.io/crates/tauri-driver) starts `WebKitWebDriver`, which Debian and Ubuntu supply in `webkit2gtk-driver`, and Arch in `webkitgtk-6.0`. On Windows, the test starts the app with WebView2's remote debugging port and connects Microsoft Edge Driver to it. Put `msedgedriver.exe` for the installed WebView2 version on `PATH`. On Linux, run the test on a virtual screen with `xvfb-run` and `GDK_BACKEND=x11`, so that no window opens on the desktop, also under WSLg. On Linux the test also saves files through the Save dialog with `xdotool`.
 
 ```bash
 cargo build --release -p portfolio-lab

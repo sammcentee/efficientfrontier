@@ -1,5 +1,23 @@
 # Validation record
 
+## Desktop app: 30 October 2026
+
+Portfolio Lab is now a desktop app. Tauri 2.11 shows the same pages in a native window: WebView2 on Windows and WebKitGTK on Linux. A custom `app` protocol gives the window's requests to the existing routes inside the program, so the app opens no network port. Export and **Download prices.csv** open a native Save dialog. Links to other sites open in the default browser. The browser version and its port options are removed.
+
+**516 tests passed:** 414 for the library and the CLI, and 102 for the desktop app. The desktop tests include nine tests of the protocol bridge and one test that sends a demo build and its export through the bridge to the real routes. `cargo clippy --all-targets -- -D warnings` passed for both packages.
+
+A new end-to-end test drives the release build through WebDriver (`desktop/tests/window.rs`). On Arch Linux with WebKitGTK 2.54.2, it ran on a virtual screen (Xvfb) and passed in 9 seconds. The test checks these steps:
+
+- The start page shows its title and typeset equations.
+- **S** opens Settings, the Demo market is selected, and **Ctrl+Enter** builds the study. The overview shows three charts and no error.
+- **4** and **1** switch between Data & method and the Portfolio view.
+- **Download prices.csv** and **E** (Export) open GTK's Save dialog. The saved CSV starts with `Date,`. The saved ZIP has more than 20 files, including `report.html`.
+- A study of an uploaded CSV file builds without an error.
+
+The test found one fault. WebKitGTK does not send the files of a form to a custom protocol. The page broke, and no request reached the app. The settings drawer now encodes a form with a chosen file and sends the bytes with `fetch`. A form without files keeps the normal submit. A manual run on the virtual screen used GTK's own file dialog: the whole 124,091-byte upload reached the app, and the app read the file.
+
+WebDriver cannot show the native file dialog, so the automated test chooses the file through WebDriver. The Windows Save dialog is not automated. macOS was not tested. The programs have no code signature, so Windows SmartScreen can warn about a downloaded copy.
+
 ## Rust rewrite: 30 October 2026
 
 **506 tests passed** with Rust 1.99.1. `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` also passed. By default, `cargo test` skips eight live network tests. All eight passed against Yahoo Finance, Nasdaq, and State Street with `cargo test --test network_live -- --ignored`.

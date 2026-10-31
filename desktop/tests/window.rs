@@ -1,9 +1,10 @@
 //! The app's window, driven through WebDriver from the start page to a saved report.
 //!
-//! `tauri-driver` opens the window and drives its web view with the system's
-//! WebDriver: WebKitWebDriver on Linux, Microsoft Edge Driver on Windows. The
-//! test is ignored by default, because it needs a release build, these drivers
-//! and a screen. On Linux, give it a virtual screen, not the desktop. Without
+//! On Linux, `tauri-driver` starts WebKitWebDriver, which opens the window. On
+//! Windows, the test starts the app with WebView2's remote debugging port, and
+//! Microsoft Edge Driver attaches to it, as Microsoft documents for WebView2
+//! apps. The test is ignored by default, because it needs a release build,
+//! these drivers and a screen. On Linux, give it a virtual screen, not the desktop. Without
 //! `GDK_BACKEND=x11`, GTK can still open the window on a Wayland desktop, such
 //! as WSLg:
 //!
@@ -28,13 +29,15 @@ const ENTER: &str = "\u{E007}";
 const ELEMENT: &str = "element-6066-11e4-a52e-4f735466cecf";
 /// The longest wait for one step, such as a build of the demo study.
 const STEP: Duration = Duration::from_secs(120);
+/// WebView2's remote debugging port for Microsoft Edge Driver on Windows.
+const DEBUG_PORT: u16 = 9222;
 
 #[test]
-#[ignore = "opens the app's window: needs a release build, tauri-driver and a screen"]
+#[ignore = "opens the app's window: needs a release build, a WebDriver and a screen"]
 fn the_window_builds_studies_and_saves_files() {
     let app = app();
     let files = tempfile::tempdir().expect("a temporary folder");
-    let _driver = Driver::start();
+    let _driver = Driver::start(&app, &files.path().join("webview2"));
     let window = Window::open(&app);
 
     window.wait("the start page", "return ['landing', 'error'].includes(document.body.dataset.page)");
@@ -112,30 +115,48 @@ fn wait_until(what: &str, limit: Duration, mut ready: impl FnMut() -> bool) {
     }
 }
 
-/// `tauri-driver`, stopped when the test ends.
-struct Driver(Child);
+/// The WebDriver server, and on Windows the app, stopped when the test ends.
+struct Driver(Vec<Child>);
 
 impl Driver {
-    fn start() -> Self {
-        let child = Command::new("tauri-driver")
-            .stdout(Stdio::null())
-            .spawn()
-            .expect("tauri-driver on PATH: cargo install tauri-driver --locked");
-        let driver = Driver(child);
-        wait_until("tauri-driver", Duration::from_secs(30), || command("GET", "/status", None).is_ok());
+    /// On Windows, `profile` is a new WebView2 profile, so the test leaves the app's own profile alone.
+    fn start(app: &Path, profile: &Path) -> Self {
+        let children = if cfg!(windows) {
+            let app = Command::new(app)
+                .env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", format!("--remote-debugging-port={DEBUG_PORT}"))
+                .env("WEBVIEW2_USER_DATA_FOLDER", profile)
+                .spawn()
+                .expect("the app");
+            let driver = Command::new("msedgedriver")
+                .arg("--port=4444")
+                .stdout(Stdio::null())
+                .spawn()
+                .expect("Microsoft Edge Driver (msedgedriver) on PATH");
+            vec![app, driver]
+        } else {
+            let driver = Command::new("tauri-driver")
+                .stdout(Stdio::null())
+                .spawn()
+                .expect("tauri-driver on PATH: cargo install tauri-driver --locked");
+            vec![driver]
+        };
+        let driver = Driver(children);
+        wait_until("the WebDriver server", Duration::from_secs(30), || command("GET", "/status", None).is_ok());
         driver
     }
 }
 
 impl Drop for Driver {
     fn drop(&mut self) {
-        // On Linux, SIGTERM lets tauri-driver stop WebKitWebDriver. On Windows, a job object stops the driver.
-        if cfg!(unix) {
-            let _ = Command::new("kill").arg("-TERM").arg(self.0.id().to_string()).status();
-        } else {
-            let _ = self.0.kill();
+        for child in self.0.iter_mut().rev() {
+            // SIGTERM lets tauri-driver stop WebKitWebDriver.
+            if cfg!(unix) {
+                let _ = Command::new("kill").arg("-TERM").arg(child.id().to_string()).status();
+            } else {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
         }
-        let _ = self.0.wait();
     }
 }
 
@@ -162,7 +183,14 @@ struct Window {
 
 impl Window {
     fn open(app: &Path) -> Self {
-        let capabilities = json!({ "capabilities": { "alwaysMatch": { "tauri:options": { "application": app } } } });
+        let options = if cfg!(windows) {
+            let version = format!("http://127.0.0.1:{DEBUG_PORT}/json/version");
+            wait_until("the app's WebView2", STEP, || ureq::get(&version).call().is_ok());
+            json!({ "browserName": "webview2", "ms:edgeOptions": { "debuggerAddress": format!("127.0.0.1:{DEBUG_PORT}") } })
+        } else {
+            json!({ "tauri:options": { "application": app } })
+        };
+        let capabilities = json!({ "capabilities": { "alwaysMatch": options } });
         let value = command("POST", "/session", Some(capabilities)).expect("a WebDriver session");
         Window { session: value["sessionId"].as_str().expect("a session id").to_string() }
     }
