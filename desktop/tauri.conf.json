@@ -10,7 +10,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage"],
     "publisher": "sammcentee",
     "copyright": "Copyright (c) 2026 sammcentee",
     "category": "Finance",

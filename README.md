@@ -15,9 +15,9 @@ CI builds the programs for each change. Open the latest successful [CI run](http
 | System | Artifact | Start the app |
 | --- | --- | --- |
 | Windows 10 or 11, 64-bit | `portfolio-lab-Windows` | Extract the ZIP. Double-click `Portfolio Lab.exe`. |
-| Linux, 64-bit | `portfolio-lab-Linux` | Extract the ZIP. Make the `.AppImage` file executable, then open it. |
+| Linux, 64-bit, with WebKitGTK 4.1 | `portfolio-lab-Linux` | Extract the ZIP, then `portfolio-lab-linux-x86_64.tar.gz`. Run `./portfolio-lab`. |
 
-Each artifact also contains the command-line program `efficient-frontier`. The Windows app uses the Microsoft Edge WebView2 Runtime, which Windows 11 includes. The programs have no code signature, so Windows SmartScreen can show a warning for a downloaded file. Select **More info**, then **Run anyway**. The AppImage contains its window libraries. The `portfolio-lab-linux-x86_64.tar.gz` file contains the plain Linux programs, which need WebKitGTK 4.1 on the system.
+Each artifact also contains the command-line program `efficient-frontier`. The Windows app uses the Microsoft Edge WebView2 Runtime, which Windows 11 includes. The Linux app uses the system's WebKitGTK 4.1: on Debian or Ubuntu, install `libwebkit2gtk-4.1-0`; on Arch, install `webkit2gtk-4.1`. The programs have no code signature, so Windows SmartScreen can show a warning for a downloaded file. Select **More info**, then **Run anyway**.
 
 ### Build from source
 

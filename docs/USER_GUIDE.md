@@ -20,7 +20,6 @@ The app opens its own window. The window's web view (WebView2 on Windows, WebKit
 | --- | --- |
 | Windows SmartScreen says that it prevented an unrecognized app from starting | The programs have no code signature. Select **More info**, then **Run anyway**. |
 | Windows says that the WebView2 Runtime is missing | Install the Evergreen WebView2 Runtime from Microsoft. Windows 11 includes it. |
-| The AppImage does not start | Make the file executable with `chmod +x`. If the system has no FUSE 2, start it with `--appimage-extract-and-run`. |
 | The launcher says that Portfolio Lab needs the Rust toolchain | Install Rust from https://rustup.rs. Then open the launcher again. |
 | The first build stopped during a download | Check your internet connection. Then open the launcher again. |
 | The build reports that the linker `cc` or `link.exe` is not found | Install the C compiler and linker for your system, as above. Then open the launcher again. |

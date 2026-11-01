@@ -113,20 +113,6 @@ jobs:
           else
             cargo test --locked -p portfolio-lab --test window -- --ignored
           fi
-      - name: Build the AppImage
-        if: runner.os == 'Linux'
-        working-directory: desktop
-        run: |
-          cargo install tauri-cli --locked --version 2.11.5
-          cargo tauri build --bundles appimage
-      - name: Start the AppImage
-        if: runner.os == 'Linux'
-        run: |
-          image=$(ls target/release/bundle/appimage/*.AppImage)
-          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a "$image" &
-          sleep 20
-          pgrep -f portfolio-lab
-          pkill -f portfolio-lab
       - name: Collect the programs
         run: |
           mkdir dist
@@ -134,7 +120,6 @@ jobs:
             cp target/release/portfolio-lab.exe "dist/Portfolio Lab.exe"
             cp target/release/efficient-frontier.exe dist/
           else
-            cp target/release/bundle/appimage/*.AppImage dist/
             tar -czf dist/portfolio-lab-linux-x86_64.tar.gz -C target/release portfolio-lab efficient-frontier
           fi
           ls -la dist

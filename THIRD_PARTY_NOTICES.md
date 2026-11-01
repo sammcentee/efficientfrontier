@@ -30,9 +30,7 @@ This list covers direct dependencies, not the complete set of transitive crates.
 
 ## System web views
 
-The desktop app shows its pages in the web view of the operating system. On Windows, this is the Microsoft Edge WebView2 Runtime, a part of Windows 11 under Microsoft's terms. The `.exe` does not contain it. On Linux, the plain program uses the WebKitGTK and GTK libraries of the system and does not contain them.
-
-The Linux AppImage contains WebKitGTK, GTK, and other libraries from the Ubuntu 24.04 packages of the CI build. These libraries keep their own licenses, mostly the LGPL. Ubuntu publishes the source packages of these versions at [packages.ubuntu.com](https://packages.ubuntu.com/noble/). You can replace the libraries in an extracted AppImage (`--appimage-extract`).
+The desktop app shows its pages in the web view of the operating system. On Windows, this is the Microsoft Edge WebView2 Runtime, a part of Windows 11 under Microsoft's terms. The `.exe` does not contain it. On Linux, the program uses the WebKitGTK and GTK libraries of the system and does not contain them.
 
 ## Plotly.js in the app and exported reports
 

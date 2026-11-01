@@ -16,6 +16,8 @@ A new end-to-end test drives the release build through WebDriver (`desktop/tests
 
 The test found one fault. WebKitGTK does not send the files of a form to a custom protocol. The page broke, and no request reached the app. The settings drawer now encodes a form with a chosen file and sends the bytes with `fetch`. A form without files keeps the normal submit. A manual run on the virtual screen used GTK's own file dialog: the whole 124,091-byte upload reached the app, and the app read the file.
 
+A first CI build also made an AppImage. On the virtual screen in WSL, which has no GPU device, the AppImage's bundled WebKit stopped with "Could not create default EGL display" and the window stayed blank. No computer with a GPU was available for a second check. The Linux programs therefore use the system's WebKitGTK, and the AppImage is removed.
+
 WebDriver cannot show the native file dialog, so the automated test chooses the file through WebDriver. The Windows Save dialog is not automated. macOS was not tested. The programs have no code signature, so Windows SmartScreen can warn about a downloaded copy.
 
 ## Rust rewrite: 30 October 2026
