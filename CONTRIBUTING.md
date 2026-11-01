@@ -42,12 +42,22 @@ The default tests do not use the network. Fakes give recorded or synthetic repli
 cargo test --test network_live -- --ignored
 ```
 
-An end-to-end test drives the app's window through WebDriver. It needs a release build and the system's WebDriver. On Linux, [`tauri-driver`](https://crates.io/crates/tauri-driver) starts `WebKitWebDriver`, which Debian and Ubuntu supply in `webkit2gtk-driver`, and Arch in `webkitgtk-6.0`. On Windows, the test starts the app with WebView2's remote debugging port and connects Microsoft Edge Driver to it. Put `msedgedriver.exe` for the installed WebView2 version on `PATH`. On Linux, run the test on a virtual screen with `xvfb-run` and `GDK_BACKEND=x11`, so that no window opens on the desktop, also under WSLg. On Linux the test also saves files through the Save dialog with `xdotool`.
+An end-to-end test drives the app's window through WebDriver. It needs a release build and the system's WebDriver. On Linux, [`tauri-driver`](https://crates.io/crates/tauri-driver) starts `WebKitWebDriver`, which Debian and Ubuntu supply in `webkit2gtk-driver`, and Arch in `webkitgtk-6.0`. On Windows, the test starts the app and connects Microsoft Edge Driver to WebView2's remote debugging port. Put `msedgedriver.exe` for the installed WebView2 version on `PATH`. On Linux, run the test on a virtual screen with `xvfb-run` and `GDK_BACKEND=x11`, so that no window opens on the desktop, also under WSLg. On Linux the test also saves files through the Save dialog with `xdotool`.
 
 ```bash
 cargo build --release -p portfolio-lab
 cargo install tauri-driver --locked
 env -u WAYLAND_DISPLAY GDK_BACKEND=x11 xvfb-run -a cargo test -p portfolio-lab --test window -- --ignored
+```
+
+On Windows, WebView2 155 ignored the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable and the same policy under `HKCU`. Only a machine policy opened the port. In an administrator terminal, add the policy before the test and delete it after the test. While the policy exists, other programs on the computer can control the app through the port.
+
+```powershell
+$policy = 'HKLM\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+reg add $policy /v portfolio-lab.exe /t REG_SZ /d '--remote-debugging-port=9222' /f
+cargo build --release -p portfolio-lab
+cargo test -p portfolio-lab --test window -- --ignored
+reg delete $policy /v portfolio-lab.exe /f
 ```
 
 For calculation changes, add a case with a known mathematical answer or a regression that demonstrates the error. Use fakes in place of network calls in the default tests. Verify that later prices cannot change earlier allocations. Document financial assumptions in the [method reference](docs/BACKTESTING.md).

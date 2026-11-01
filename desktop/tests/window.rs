@@ -1,10 +1,11 @@
 //! The app's window, driven through WebDriver from the start page to a saved report.
 //!
 //! On Linux, `tauri-driver` starts WebKitWebDriver, which opens the window. On
-//! Windows, the test starts the app with WebView2's remote debugging port, and
-//! Microsoft Edge Driver attaches to it, as Microsoft documents for WebView2
-//! apps. The test is ignored by default, because it needs a release build,
-//! these drivers and a screen. On Linux, give it a virtual screen, not the desktop. Without
+//! Windows, the test starts the app, and Microsoft Edge Driver attaches to
+//! WebView2's remote debugging port, as Microsoft documents for WebView2 apps.
+//! A machine policy opens this port (see CONTRIBUTING.md). The test is ignored
+//! by default, because it needs a release build, these drivers and a screen.
+//! On Linux, give it a virtual screen, not the desktop. Without
 //! `GDK_BACKEND=x11`, GTK can still open the window on a Wayland desktop, such
 //! as WSLg:
 //!
@@ -29,7 +30,7 @@ const ENTER: &str = "\u{E007}";
 const ELEMENT: &str = "element-6066-11e4-a52e-4f735466cecf";
 /// The longest wait for one step, such as a build of the demo study.
 const STEP: Duration = Duration::from_secs(120);
-/// WebView2's remote debugging port for Microsoft Edge Driver on Windows.
+/// WebView2's remote debugging port for Microsoft Edge Driver on Windows. The machine policy sets it.
 const DEBUG_PORT: u16 = 9222;
 
 #[test]
@@ -122,11 +123,7 @@ impl Driver {
     /// On Windows, `profile` is a new WebView2 profile, so the test leaves the app's own profile alone.
     fn start(app: &Path, profile: &Path) -> Self {
         let children = if cfg!(windows) {
-            let app = Command::new(app)
-                .env("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", format!("--remote-debugging-port={DEBUG_PORT}"))
-                .env("WEBVIEW2_USER_DATA_FOLDER", profile)
-                .spawn()
-                .expect("the app");
+            let app = Command::new(app).env("WEBVIEW2_USER_DATA_FOLDER", profile).spawn().expect("the app");
             let driver = Command::new("msedgedriver")
                 .arg("--port=4444")
                 .stdout(Stdio::null())

@@ -72,7 +72,7 @@ jobs:
       - name: Install tauri-driver
         if: runner.os == 'Linux'
         run: cargo install tauri-driver --locked --version 2.0.6
-      - name: Install Microsoft Edge Driver for WebView2
+      - name: Set up Microsoft Edge Driver for WebView2
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -82,30 +82,8 @@ jobs:
           Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
           Expand-Archive "$env:RUNNER_TEMP\edgedriver.zip" -DestinationPath "$env:RUNNER_TEMP\edgedriver"
           Add-Content -Path $env:GITHUB_PATH -Value "$env:RUNNER_TEMP\edgedriver"
-      - name: Start the app
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # The app's WebView2 reports its pages on a remote debugging port.
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
-          $env:WEBVIEW2_USER_DATA_FOLDER = "$env:RUNNER_TEMP\webview2-start"
-          $app = Start-Process -FilePath target\release\portfolio-lab.exe -PassThru `
-            -RedirectStandardOutput "$env:RUNNER_TEMP\app-out.txt" -RedirectStandardError "$env:RUNNER_TEMP\app-err.txt"
-          $page = $null
-          foreach ($second in 1..90) {
-            Start-Sleep -Seconds 1
-            if ($app.HasExited) { break }
-            try {
-              $pages = Invoke-RestMethod -Uri http://127.0.0.1:9333/json -TimeoutSec 2
-              $page = $pages | Where-Object { $_.url -like 'http://app.localhost/*' -and $_.title } | Select-Object -First 1
-              if ($page) { break }
-            } catch {}
-          }
-          Write-Output "Exited: $($app.HasExited) $(if ($app.HasExited) { $app.ExitCode })"
-          Get-Content "$env:RUNNER_TEMP\app-err.txt" -ErrorAction SilentlyContinue
-          if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
-          if (-not $page) { throw 'The app did not show its start page.' }
-          Write-Output "Page: $($page.url) | $($page.title)"
+          # WebView2 ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, so a machine policy opens the app's debugging port.
+          reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments' /v portfolio-lab.exe /t REG_SZ /d '--remote-debugging-port=9222' /f
       - name: Test the window
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
