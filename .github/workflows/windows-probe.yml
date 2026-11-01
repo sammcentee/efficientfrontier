@@ -29,91 +29,62 @@ jobs:
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'probe'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $app = (Resolve-Path target\release\portfolio-lab.exe).Path
-          $symbols = (Resolve-Path target\release).Path
-          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
-          $start = Get-Date
+          $policy = 'SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
 
-          function Save-Screen([string] $file) {
+          function Show-Browser {
+            Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } |
+              ForEach-Object { "Browser $($_.ProcessId): $($_.CommandLine)" }
+          }
+          function Test-Port([int] $port) {
             try {
-              $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
-              $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
-              [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-              $bitmap.Save($file)
-              "Screenshot: $file"
-            } catch { "No screenshot: $_" }
+              $pages = Invoke-RestMethod "http://127.0.0.1:$port/json/list" -TimeoutSec 5
+              "Port ${port}: " + (($pages | ForEach-Object { "$($_.type) $($_.url) | $($_.title)" }) -join '; ')
+            } catch { "Port ${port}: closed" }
           }
-
-          function Show-State([int[]] $ports) {
-            Get-Process | Where-Object MainWindowTitle | ForEach-Object { "Window: $($_.ProcessName) $($_.Id) session $($_.SessionId): $($_.MainWindowTitle)" }
-            $views = @(Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe' OR Name = 'msedge.exe'")
-            "Web view and Edge processes: $($views.Count)"
-            $views | Where-Object { $_.CommandLine -notmatch '--type=' } | ForEach-Object { "Browser $($_.ProcessId) (parent $($_.ParentProcessId)): $($_.CommandLine)" }
-            $ids = $views.ProcessId
-            Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess } |
-              ForEach-Object { "Listens: $($_.LocalAddress):$($_.LocalPort) pid $($_.OwningProcess)" }
-            foreach ($port in $ports) {
-              try {
-                $pages = Invoke-RestMethod "http://127.0.0.1:$port/json/list" -TimeoutSec 5
-                "Port ${port}: $(@($pages).Count) targets"
-                $pages | ForEach-Object { "  $($_.type) $($_.url) | $($_.title)" }
-              } catch { "Port ${port}: $($_.Exception.Message)" }
-            }
-          }
-
           function Stop-All {
-            Get-Process portfolio-lab, msedgewebview2, msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Get-Process portfolio-lab, msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 3
           }
 
-          "Shell: session $((Get-Process -Id $PID).SessionId), user $env:USERNAME, interactive $([Environment]::UserInteractive)"
-          qwinsta 2>&1
-          "Screen: $([System.Windows.Forms.SystemInformation]::VirtualScreen)"
-          "WebView2: $((Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}').pv)"
-          "cdb: $(Test-Path $cdb)  PDB: $(Test-Path target\release\portfolio_lab.pdb)"
-          Get-ChildItem 'HKLM:\SOFTWARE\Policies\Microsoft\Edge', 'HKCU:\SOFTWARE\Policies\Microsoft\Edge' -Recurse -ErrorAction SilentlyContinue |
-            ForEach-Object { "Policy key: $($_.Name): $($_.Property -join ', ')" }
+          "`n=== environment variable with a harmless switch ==="
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--force-device-scale-factor=1.25'
+          Start-Process -FilePath $app
+          Remove-Item env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+          Start-Sleep -Seconds 20
+          Show-Browser
+          Stop-All
 
-          $variants = [ordered]@{
-            'plain' = @{}
-            'port' = @{ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333' }
-            'port-folder' = @{ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9334'; WEBVIEW2_USER_DATA_FOLDER = "$out\webview2" }
-          }
-          foreach ($name in $variants.Keys) {
-            "`n=== $name ==="
-            $settings = $variants[$name]
-            foreach ($key in $settings.Keys) { Set-Item "env:$key" $settings[$key] }
-            $process = Start-Process -FilePath $app -PassThru -RedirectStandardOutput "$out\$name-out.txt" -RedirectStandardError "$out\$name-err.txt"
-            foreach ($key in $settings.Keys) { Remove-Item "env:$key" }
-            Start-Sleep -Seconds 30
-            $process.Refresh()
-            "App $($process.Id): exited $($process.HasExited), session $($process.SessionId), window '$($process.MainWindowTitle)', responding $($process.Responding), threads $($process.Threads.Count)"
-            Show-State 9333, 9334
-            Get-ChildItem -Path "$out\webview2", "$env:LOCALAPPDATA\io.github.sammcentee.portfolio-lab" -Recurse -Filter DevToolsActivePort -ErrorAction SilentlyContinue |
-              ForEach-Object { "DevToolsActivePort: $($_.FullName)" }
-            Save-Screen "$out\$name.png"
-            if (-not $process.HasExited -and (Test-Path $cdb)) {
-              $debugger = Start-Process -FilePath $cdb -ArgumentList "-pv -p $($process.Id) -y `"$symbols`" -c `"~*k 25; qd`"" `
-                -NoNewWindow -PassThru -RedirectStandardOutput "$out\$name-stacks.txt"
-              $debugger | Wait-Process -Timeout 90 -ErrorAction SilentlyContinue
-              "Stacks: $name-stacks.txt"
-            }
-            Get-Content "$out\$name-err.txt" -ErrorAction SilentlyContinue | Select-Object -First 30
+          foreach ($case in @(
+              @{ Root = 'HKLM'; Name = 'portfolio-lab.exe'; Port = 9333 },
+              @{ Root = 'HKLM'; Name = '*'; Port = 9334 },
+              @{ Root = 'HKCU'; Name = 'portfolio-lab.exe'; Port = 9336 })) {
+            "`n=== policy $($case.Root) '$($case.Name)' ==="
+            reg add "$($case.Root)\$policy" /v $case.Name /t REG_SZ /d "--remote-debugging-port=$($case.Port)" /f
+            reg query "$($case.Root)\$policy"
+            Start-Process -FilePath $app
+            Start-Sleep -Seconds 20
+            Show-Browser
+            Test-Port $case.Port
+            reg delete "$($case.Root)\$policy" /f
             Stop-All
           }
 
-          "`n=== edge ==="
-          $edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-          Start-Process -FilePath $edge -ArgumentList '--remote-debugging-port=9335', "--user-data-dir=$out\edge", '--no-first-run', 'about:blank'
-          Start-Sleep -Seconds 15
-          Show-State 9335
-          Save-Screen "$out\edge.png"
+          "`n=== UI Automation ==="
+          Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+          $process = Start-Process -FilePath $app -PassThru
+          Start-Sleep -Seconds 20
+          $element = [System.Windows.Automation.AutomationElement]
+          $window = $element::RootElement.FindFirst('Children', [System.Windows.Automation.PropertyCondition]::new($element::ProcessIdProperty, $process.Id))
+          "Window: $($window.Current.Name)"
+          foreach ($pass in 1, 2) {
+            $names = @($window.FindAll('Descendants', [System.Windows.Automation.Condition]::TrueCondition) |
+              ForEach-Object { "$($_.Current.ControlType.ProgrammaticName) $($_.Current.Name)" } | Where-Object { $_ -notmatch ' $' })
+            "Pass ${pass}: $($names.Count) named elements"
+            $names | Select-Object -First 30 | ForEach-Object { "  $_" }
+            Start-Sleep -Seconds 3
+          }
           Stop-All
-
-          "`n=== Application log ==="
-          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Level = 1, 2, 3; StartTime = $start } -MaxEvents 30 -ErrorAction SilentlyContinue |
-            ForEach-Object { "$($_.TimeCreated) $($_.ProviderName) $($_.Id): $((($_.Message -split "`n") | Select-Object -First 4) -join ' ')" }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
