@@ -4,7 +4,7 @@ Project code and documentation use the [MIT License](LICENSE). Contribute only m
 
 ## Development setup
 
-Install the Rust toolchain with [rustup](https://rustup.rs). The [README setup](README.md#build-from-source) gives the C compiler, the linker, and the Linux window libraries for each system. `Cargo.toml` sets the minimum Rust version. Start from a branch of `main`:
+Install Rust 1.90 or newer with [rustup](https://rustup.rs). The [README setup](README.md#build-from-source) gives the C compiler, the linker, and the Linux window libraries for each system. `Cargo.toml` sets the minimum Rust version. Start from a branch of `main`:
 
 ```bash
 git switch main
@@ -33,6 +33,8 @@ cargo run --release --bin efficient-frontier -- --target-volatility .20 --max-we
 ```
 
 At the root, `cargo` builds and tests only the library and the CLI, so these steps do not need the window libraries. The `-p portfolio-lab` steps build the desktop app.
+
+CI also checks the whole workspace with Rust 1.90. The Windows target in `.cargo/config.toml` links the C runtime into both programs. CI inspects their DLL dependencies to verify that they need no separate Visual C++ runtime installation.
 
 The final command runs the app's model with synthetic data and exports an offline report. The CLI without `--target-volatility` runs the separate legacy analysis.
 

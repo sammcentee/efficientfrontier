@@ -63,12 +63,32 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev webkit2gtk-driver xvfb xdotool
+      - name: Check the minimum Rust version
+        if: runner.os == 'Linux'
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 check --locked --workspace --all-targets
       - name: Lint
         run: cargo clippy --locked -p portfolio-lab --all-targets -- -D warnings
       - name: Run tests
         run: cargo test --locked -p portfolio-lab
       - name: Build the programs
         run: cargo build --locked --release -p portfolio-lab -p efficient-frontier
+      - name: Check the Windows runtime dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath
+          $dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName | Select-Object -Last 1).FullName
+          foreach ($program in 'portfolio-lab.exe', 'efficient-frontier.exe') {
+            $imports = & $dumpbin /DEPENDENTS "target\release\$program"
+            if ($LASTEXITCODE -ne 0) { throw "Could not inspect $program" }
+            if ($imports -match '(?i)(VCRUNTIME\d+|MSVCP\d+)[\w.]*\.dll') {
+              throw "$program requires a separate Visual C++ runtime: $imports"
+            }
+          }
+          & .\target\release\efficient-frontier.exe --help
+          if ($LASTEXITCODE -ne 0) { throw 'The Windows CLI could not start' }
       - name: Install tauri-driver
         if: runner.os == 'Linux'
         run: cargo install tauri-driver --locked --version 2.0.6

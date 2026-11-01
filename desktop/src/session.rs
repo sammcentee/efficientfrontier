@@ -2,8 +2,9 @@
 //!
 //! This replaces `st.session_state`. The state lives in memory. Every tab of one
 //! browser shares the cookie, so it shares the study, and a reload keeps it.
-//! As Streamlit drops disconnected sessions, the store removes a session after
-//! a day without requests, and the least recently used one when it is full.
+//! The desktop keeps its study for the lifetime of the window, including idle
+//! time. A store with explicit limits can expire idle sessions or remove the
+//! least recently used session when it is full.
 
 use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
@@ -26,7 +27,8 @@ use crate::sources::QqqReference;
 pub const COOKIE_NAME: &str = "pl_session";
 /// The most sessions that the server keeps.
 pub const MAX_SESSIONS: usize = 32;
-/// A session without requests for this long is removed.
+/// The former desktop idle limit, also used by tests of explicit expiry.
+#[cfg(test)]
 pub const IDLE_LIMIT: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The two result pages.
@@ -96,22 +98,30 @@ struct Entry {
     last_used: Instant,
 }
 
-/// Every session by cookie value, with a size limit and an idle limit.
+/// Every session by cookie value, with a size limit and an optional idle limit.
 pub struct Sessions {
     map: Mutex<HashMap<String, Entry>>,
     capacity: usize,
-    idle_limit: Duration,
+    idle_limit: Option<Duration>,
+    #[cfg(test)]
+    clock: Mutex<Option<Instant>>,
 }
 
 impl Default for Sessions {
     fn default() -> Self {
-        Self::new(MAX_SESSIONS, IDLE_LIMIT)
+        Self::new(MAX_SESSIONS, None)
     }
 }
 
 impl Sessions {
-    pub fn new(capacity: usize, idle_limit: Duration) -> Self {
-        Self { map: Mutex::new(HashMap::new()), capacity: capacity.max(1), idle_limit }
+    pub fn new(capacity: usize, idle_limit: Option<Duration>) -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+            capacity: capacity.max(1),
+            idle_limit,
+            #[cfg(test)]
+            clock: Mutex::new(None),
+        }
     }
 
     /// The session of a cookie, which counts as a use of it.
@@ -120,7 +130,7 @@ impl Sessions {
             let mut map = lock(&self.map);
             let retired = self.remove_idle(&mut map);
             let found = map.get_mut(id).map(|entry| {
-                entry.last_used = Instant::now();
+                entry.last_used = self.now();
                 entry.session.clone()
             });
             (found, retired)
@@ -144,7 +154,7 @@ impl Sessions {
                     None => break,
                 }
             }
-            map.insert(id.clone(), Entry { session: handle.clone(), last_used: Instant::now() });
+            map.insert(id.clone(), Entry { session: handle.clone(), last_used: self.now() });
             retired
         };
         retire(retired);
@@ -157,10 +167,26 @@ impl Sessions {
         lock(&self.map).len()
     }
 
+    #[cfg(test)]
+    pub fn advance_clock(&self, elapsed: Duration) {
+        let mut clock = lock(&self.clock);
+        *clock = Some(clock.unwrap_or_else(Instant::now) + elapsed);
+    }
+
+    fn now(&self) -> Instant {
+        #[cfg(test)]
+        if let Some(now) = *lock(&self.clock) {
+            return now;
+        }
+        Instant::now()
+    }
+
     fn remove_idle(&self, map: &mut HashMap<String, Entry>) -> Vec<SessionRef> {
+        let Some(idle_limit) = self.idle_limit else { return Vec::new() };
+        let now = self.now();
         let idle: Vec<String> = map
             .iter()
-            .filter(|(_, entry)| entry.last_used.elapsed() >= self.idle_limit)
+            .filter(|(_, entry)| now.duration_since(entry.last_used) >= idle_limit)
             .map(|(key, _)| key.clone())
             .collect();
         idle.iter().filter_map(|key| map.remove(key)).map(|entry| entry.session).collect()
@@ -251,7 +277,7 @@ mod tests {
     #[test]
     fn a_full_store_removes_the_least_recently_used_session_and_cancels_its_build() {
         let pause = || std::thread::sleep(Duration::from_millis(5));
-        let sessions = Sessions::new(2, IDLE_LIMIT);
+        let sessions = Sessions::new(2, Some(IDLE_LIMIT));
         let (first, first_handle) = sessions.insert(session());
         let job = crate::build::Job::new();
         lock(&first_handle).job = Some(job.clone());
@@ -274,12 +300,24 @@ mod tests {
 
     #[test]
     fn idle_sessions_are_removed() {
-        let sessions = Sessions::new(MAX_SESSIONS, Duration::from_millis(40));
+        let sessions = Sessions::new(MAX_SESSIONS, Some(IDLE_LIMIT));
         let (id, _) = sessions.insert(session());
         assert!(sessions.get(&id).is_some());
-        std::thread::sleep(Duration::from_millis(60));
+        sessions.advance_clock(IDLE_LIMIT);
         assert!(sessions.get(&id).is_none());
         assert_eq!(sessions.count(), 0);
+    }
+
+    #[test]
+    fn default_desktop_session_survives_long_idle() {
+        let sessions = Sessions::default();
+        let (id, handle) = sessions.insert(session());
+        let job = crate::build::Job::new();
+        lock(&handle).job = Some(job.clone());
+        sessions.advance_clock(IDLE_LIMIT + Duration::from_secs(1));
+        assert!(Arc::ptr_eq(&sessions.get(&id).expect("the desktop session survives"), &handle));
+        assert!(!job.is_cancelled(), "idle time does not cancel the desktop's build");
+        assert_eq!(sessions.count(), 1);
     }
 
     #[test]

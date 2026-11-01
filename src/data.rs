@@ -64,7 +64,7 @@ enum DateFormat {
     Date(String),
     DateTime(String),
     Zoned,
-    Month,
+    Month(String),
     Year,
 }
 
@@ -121,7 +121,10 @@ static DATE_FORMATS: std::sync::LazyLock<Vec<DateFormat>> = std::sync::LazyLock:
             formats.push(DateFormat::Zoned);
         }
     }
-    formats.push(DateFormat::Month);
+    formats.extend(
+        ["%Y-%m", "%m/%Y", "%m-%Y", "%b %Y", "%b-%Y", "%B %Y", "%Y/%m"]
+            .map(|pattern| DateFormat::Month(pattern.to_string())),
+    );
     formats.push(DateFormat::Year);
     formats
 });
@@ -144,7 +147,10 @@ fn parse_with(value: &str, format: &DateFormat) -> Option<(Date, Option<i32>)> {
             .or_else(|_| DateTime::parse_from_str(value, "%Y-%m-%dT%H:%M%:z"))
             .ok()
             .map(|stamp| (stamp.naive_local().date(), Some(stamp.offset().local_minus_utc()))),
-        DateFormat::Month => Date::parse_from_str(&format!("{value}-01"), "%Y-%m-%d").ok().map(|date| (date, None)),
+        DateFormat::Month(pattern) => Date::parse_from_str(&format!("{value}-01"), &format!("{pattern}-%d"))
+            .ok()
+            .filter(|date| full_year(pattern, *date))
+            .map(|date| (date, None)),
         DateFormat::Year => (value.len() == 4 && value.bytes().all(|byte| byte.is_ascii_digit()))
             .then(|| Date::from_ymd_opt(value.parse().ok()?, 1, 1))
             .flatten()
@@ -600,6 +606,87 @@ mod tests {
             load_csv(negative.as_bytes()).unwrap_err().message(),
             "All prices must be finite and strictly positive."
         );
+    }
+
+    #[test]
+    fn csv_loading_preserves_monthly_dates_and_prices() {
+        let expected = Frame::from_rows(
+            (1..=5).map(|month| Date::from_ymd_opt(2020, month, 1).unwrap()).collect(),
+            vec!["AAA".into(), "BBB".into()],
+            &(1..=5).map(|month| vec![100.0 + month as f64, 200.0 + month as f64]).collect::<Vec<_>>(),
+        );
+        for pattern in ["%m/%Y", "%-m/%Y", "%m-%Y", "%b %Y", "%b-%Y", "%B %Y", "%Y/%m", "%Y-%m"] {
+            let mut csv = String::from("Date,AAA,BBB\n");
+            for month in [3, 1, 5, 2, 4] {
+                let date = Date::from_ymd_opt(2020, month, 1).unwrap();
+                csv.push_str(&format!("{},{},{}\n", date.format(pattern), 100 + month, 200 + month));
+            }
+            assert_eq!(load_csv(csv.as_bytes()).unwrap(), expected, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn csv_loading_rejects_invalid_or_mixed_monthly_dates() {
+        for (first, invalid) in [
+            ("01/2020", "13/2020"),
+            ("1/2020", "0/2020"),
+            ("01-2020", "13-2020"),
+            ("Jan 2020", "Jax 2020"),
+            ("Jan-2020", "Foo-2020"),
+            ("January 2020", "Januarx 2020"),
+            ("2020/01", "2020/13"),
+            ("2020-01", "2020-00"),
+            ("01/2020", "02-2020"),
+            ("01-2020", "02/2020"),
+            ("Jan 2020", "Feb-2020"),
+            ("Jan-2020", "Feb 2020"),
+            ("2020/01", "2020-02"),
+            ("2020-01", "2020/02"),
+            ("2020-01", "2020-02-01"),
+            ("2020-01-01", "2020-02"),
+            ("2020-01-01", "2020-02-30"),
+        ] {
+            let csv = format!("Date,A\n{first},100\n{invalid},101\n");
+            assert_eq!(
+                load_csv(csv.as_bytes()).unwrap_err().message(),
+                "Every row must have a valid date.",
+                "{first}, {invalid}"
+            );
+        }
+        let csv = b"Date,A\n,100\nJan 2020,101\nFeb-2020,102\n";
+        assert_eq!(load_csv(csv).unwrap_err().message(), "Every row must have a valid date.");
+        let csv = b"Date,A\n,100\nJan 2020,101\nFeb 2020,102\n";
+        assert_eq!(
+            load_csv(csv).unwrap_err().message(),
+            "Every row must have a valid date; blank dates are not allowed."
+        );
+    }
+
+    #[test]
+    fn csv_loading_retains_existing_date_formats() {
+        let expected = Frame::from_rows(
+            (13..=17).map(|day| Date::from_ymd_opt(2020, 1, day).unwrap()).collect(),
+            vec!["A".into()],
+            &(13..=17).map(|day| vec![100.0 + day as f64]).collect::<Vec<_>>(),
+        );
+        for pattern in [
+            "%Y-%m-%d",
+            "%Y/%m/%d",
+            "%Y%m%d",
+            "%m/%d/%Y",
+            "%d/%m/%Y",
+            "%d-%b-%Y",
+            "%B %d, %Y",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S-05:00",
+        ] {
+            let mut csv = String::from("Date,A\n");
+            for day in [15, 13, 17, 14, 16] {
+                let date = Date::from_ymd_opt(2020, 1, day).unwrap().and_hms_opt(23, 30, 0).unwrap();
+                csv.push_str(&format!("\"{}\",{}\n", date.format(pattern), 100 + day));
+            }
+            assert_eq!(load_csv(csv.as_bytes()).unwrap(), expected, "{pattern}");
+        }
     }
 
     #[test]

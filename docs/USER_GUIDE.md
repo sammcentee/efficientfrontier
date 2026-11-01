@@ -187,7 +187,16 @@ cargo run --release --bin efficient-frontier -- --csv data/prices.csv \
 cargo run --release --bin efficient-frontier -- --help
 ```
 
-You can also build the CLI one time with `cargo build --release`. Then run `./target/release/efficient-frontier` with the same flags. On Windows, the program is `target\release\efficient-frontier.exe`. `cargo install --path .` puts `efficient-frontier` and `portfolio-lab` in `~/.cargo/bin`. The `reproduce_command` in `metadata.json` starts with `efficient-frontier`.
+You can also build the CLI one time with `cargo build --release`. Then run `./target/release/efficient-frontier` with the same flags. On Windows, the program is `target\release\efficient-frontier.exe`. The `reproduce_command` in `metadata.json` starts with `efficient-frontier`.
+
+To install both programs in `~/.cargo/bin`, run these commands from the repository root:
+
+```bash
+cargo install --path . --locked
+cargo install --path desktop --locked
+```
+
+The first command installs `efficient-frontier`. The second installs `portfolio-lab` and needs the window libraries from the [setup instructions](../README.md#build-from-source).
 
 Use `--target-volatility` to run the app's stock model from the CLI. The CLI also accepts explicit test assumptions for reproduction. `--train-fraction .7` and `--cost-bps 10` match the app. The stock model always buys once and holds. The CLI rejects `--rebalance-every` with `--target-volatility`. That option belongs to the separate legacy `--backtests` tools.
 

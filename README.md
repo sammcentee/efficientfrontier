@@ -21,7 +21,7 @@ Each artifact also contains the command-line program `efficient-frontier`. The W
 
 ### Build from source
 
-Install the Rust toolchain with [rustup](https://rustup.rs). Rust also needs a C compiler and linker, and Linux needs the WebKitGTK 4.1 files for the window. The table gives the tools for each system. Then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
+Install Rust 1.90 or newer with [rustup](https://rustup.rs). Rust also needs a C compiler and linker, and Linux needs the WebKitGTK 4.1 files for the window. The table gives the tools for each system. Then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
 
 | System | Install first | Start the app |
 | --- | --- | --- |
