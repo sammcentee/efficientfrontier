@@ -18,6 +18,8 @@ The test found one fault. WebKitGTK does not send the files of a form to a custo
 
 A first CI build also made an AppImage. On the virtual screen in WSL, which has no GPU device, the AppImage's bundled WebKit stopped with "Could not create default EGL display" and the window stayed blank. No computer with a GPU was available for a second check. The Linux programs therefore use the system's WebKitGTK, and the AppImage is removed.
 
+On the GitHub `windows-2025` runner with WebView2 155.0.4283.62, the release build opened its window and showed the start page with the typeset equations. A screenshot confirmed this. At first, the window test could not reach the page. WebView2 ignored the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable, also for a harmless switch. It also ignored the same policy under `HKCU`. A machine policy under `HKLM` opened the remote debugging port, and the port showed the start page. CI now adds this policy before the window test.
+
 WebDriver cannot show the native file dialog, so the automated test chooses the file through WebDriver. The Windows Save dialog is not automated. macOS was not tested. The programs have no code signature, so Windows SmartScreen can warn about a downloaded copy.
 
 ## Rust rewrite: 30 October 2026

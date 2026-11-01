@@ -1,4 +1,4 @@
-# Temporary: finds out why the app's WebView2 gives no remote debugging port on the Windows runner.
+# Temporary: runs the window test on Windows without the other CI steps.
 name: Windows probe
 
 on:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   probe:
     runs-on: windows-2025
-    timeout-minutes: 40
+    timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -24,72 +24,17 @@ jobs:
       - name: Build the app
         shell: bash
         run: cargo build --locked --release -p portfolio-lab
-      - name: Probe the app
+      - name: Set up Microsoft Edge Driver for WebView2
         shell: pwsh
         run: |
-          $out = Join-Path $env:RUNNER_TEMP 'probe'
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $app = (Resolve-Path target\release\portfolio-lab.exe).Path
-          $policy = 'SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-
-          function Show-Browser {
-            Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } |
-              ForEach-Object { "Browser $($_.ProcessId): $($_.CommandLine)" }
-          }
-          function Test-Port([int] $port) {
-            try {
-              $pages = Invoke-RestMethod "http://127.0.0.1:$port/json/list" -TimeoutSec 5
-              "Port ${port}: " + (($pages | ForEach-Object { "$($_.type) $($_.url) | $($_.title)" }) -join '; ')
-            } catch { "Port ${port}: closed" }
-          }
-          function Stop-All {
-            Get-Process portfolio-lab, msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 3
-          }
-
-          "`n=== environment variable with a harmless switch ==="
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--force-device-scale-factor=1.25'
-          Start-Process -FilePath $app
-          Remove-Item env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
-          Start-Sleep -Seconds 20
-          Show-Browser
-          Stop-All
-
-          foreach ($case in @(
-              @{ Root = 'HKLM'; Name = 'portfolio-lab.exe'; Port = 9333 },
-              @{ Root = 'HKLM'; Name = '*'; Port = 9334 },
-              @{ Root = 'HKCU'; Name = 'portfolio-lab.exe'; Port = 9336 })) {
-            "`n=== policy $($case.Root) '$($case.Name)' ==="
-            reg add "$($case.Root)\$policy" /v $case.Name /t REG_SZ /d "--remote-debugging-port=$($case.Port)" /f
-            reg query "$($case.Root)\$policy"
-            Start-Process -FilePath $app
-            Start-Sleep -Seconds 20
-            Show-Browser
-            Test-Port $case.Port
-            reg delete "$($case.Root)\$policy" /f
-            Stop-All
-          }
-
-          "`n=== UI Automation ==="
-          Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-          $process = Start-Process -FilePath $app -PassThru
-          Start-Sleep -Seconds 20
-          $element = [System.Windows.Automation.AutomationElement]
-          $window = $element::RootElement.FindFirst('Children', [System.Windows.Automation.PropertyCondition]::new($element::ProcessIdProperty, $process.Id))
-          "Window: $($window.Current.Name)"
-          foreach ($pass in 1, 2) {
-            $names = @($window.FindAll('Descendants', [System.Windows.Automation.Condition]::TrueCondition) |
-              ForEach-Object { "$($_.Current.ControlType.ProgrammaticName) $($_.Current.Name)" } | Where-Object { $_ -notmatch ' $' })
-            "Pass ${pass}: $($names.Count) named elements"
-            $names | Select-Object -First 30 | ForEach-Object { "  $_" }
-            Start-Sleep -Seconds 3
-          }
-          Stop-All
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: windows-probe
-          path: |
-            ${{ runner.temp }}/probe/*.png
-            ${{ runner.temp }}/probe/*.txt
-          if-no-files-found: warn
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = (Get-ItemProperty $key).pv
+          Write-Output "WebView2 $version"
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
+          Expand-Archive "$env:RUNNER_TEMP\edgedriver.zip" -DestinationPath "$env:RUNNER_TEMP\edgedriver"
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:RUNNER_TEMP\edgedriver"
+          # WebView2 ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, so a machine policy opens the app's debugging port.
+          reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments' /v portfolio-lab.exe /t REG_SZ /d '--remote-debugging-port=9222' /f
+      - name: Test the window
+        shell: bash
+        run: cargo test --locked -p portfolio-lab --test window -- --ignored
