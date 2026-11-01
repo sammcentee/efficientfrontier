@@ -23,19 +23,82 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 const DRIVER: &str = "http://127.0.0.1:4444";
-/// The WebDriver key codes of Control and Enter.
+/// The WebDriver key codes of Control, Enter, Shift and Tab.
 const CONTROL: &str = "\u{E009}";
 const ENTER: &str = "\u{E007}";
+const SHIFT: &str = "\u{E008}";
+const TAB: &str = "\u{E004}";
 /// The WebDriver name of an element reference.
 const ELEMENT: &str = "element-6066-11e4-a52e-4f735466cecf";
 /// The longest wait for one step, such as a build of the demo study.
 const STEP: Duration = Duration::from_secs(120);
 /// WebView2's remote debugging port for Microsoft Edge Driver on Windows. The machine policy sets it.
 const DEBUG_PORT: u16 = 9222;
+/// Both window tests use the same WebDriver port.
+static DRIVER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+#[ignore = "opens the app's window: needs a release build, a WebDriver and a screen"]
+fn settings_drawer_keeps_keyboard_focus() {
+    let _lock = DRIVER_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let app = app();
+    let files = tempfile::tempdir().expect("a temporary folder");
+    let _driver = Driver::start(&app, &files.path().join("webview2"));
+    let window = Window::open(&app);
+    window.wait("the start page", "return document.querySelector('#landing_controls') !== null");
+    window.script(
+        "document.querySelector('[data-open-setup]').focus();
+         window.plSubmissions = [];
+         document.addEventListener('submit', event => {
+             event.preventDefault();
+             window.plSubmissions.push(event.target.id);
+         }, true);",
+    );
+
+    window.press(&["s"]);
+    window.wait("initial drawer focus", "return document.activeElement.matches('.pl-drawer')");
+    window.press(&[SHIFT, TAB]);
+    let initial_reverse = window.script("return document.activeElement.id");
+    window.press(&[SHIFT, TAB]);
+    window.press(&[ENTER]);
+    assert_eq!(
+        window.script("return window.plSubmissions"),
+        json!([]),
+        "the drawer submitted a background form after initial reverse focus {initial_reverse}"
+    );
+    assert_eq!(initial_reverse, json!("drawer_build"), "initial Shift+Tab must focus the last drawer control");
+    assert_eq!(
+        window.script(
+            "return !document.querySelector('.pl-drawer') && document.activeElement.matches('[data-open-setup]')"
+        ),
+        json!(true),
+        "Cancel must close the drawer and return focus to Settings"
+    );
+
+    window.press(&["s"]);
+    window.wait("initial drawer focus", "return document.activeElement.matches('.pl-drawer')");
+    window.press(&[TAB]);
+    assert_eq!(window.script("return document.activeElement.matches('[data-close]')"), json!(true));
+    window.press(&[SHIFT, TAB]);
+    assert_eq!(window.script("return document.activeElement.id"), json!("drawer_build"));
+    window.press(&[TAB]);
+    assert_eq!(window.script("return document.activeElement.matches('[data-close]')"), json!(true));
+    window.press(&[ENTER]);
+    assert_eq!(
+        window.script(
+            "return !document.querySelector('.pl-drawer') && document.activeElement.matches('[data-open-setup]')"
+        ),
+        json!(true),
+        "Close must return focus to Settings"
+    );
+    assert_eq!(window.script("return window.plSubmissions"), json!([]));
+    window.close();
+}
 
 #[test]
 #[ignore = "opens the app's window: needs a release build, a WebDriver and a screen"]
 fn the_window_builds_studies_and_saves_files() {
+    let _lock = DRIVER_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let app = app();
     let files = tempfile::tempdir().expect("a temporary folder");
     let _driver = Driver::start(&app, &files.path().join("webview2"));

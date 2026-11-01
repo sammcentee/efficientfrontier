@@ -1713,6 +1713,39 @@ async fn each_browser_keeps_its_own_study() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn default_desktop_session_survives_long_idle_with_its_study_csv_and_settings() {
+    let prices = market_prices();
+    let benchmarks = benchmark_prices(&prices.index);
+    let mut app = csv_app(&prices, Some(&benchmarks)).await;
+    let original = app.applied();
+    let setup = app.session().setup;
+    let cookie = app.cookie.clone().unwrap();
+    app.state.sessions.advance_clock(IDLE_LIMIT + Duration::from_secs(1));
+    let preview = app.form("/api/preview", &[("target_vol", "25"), ("cap", "30")]).await;
+    assert_eq!(preview.status, StatusCode::NO_CONTENT);
+    assert!(!preview.headers.contains_key(header::SET_COOKIE));
+    let session = app.session();
+    assert_eq!((session.setup.target_vol, session.setup.cap), (25.0, 30.0));
+    assert!(Arc::ptr_eq(session.applied.as_ref().unwrap(), &original));
+    assert_eq!(session.setup.prices_file.as_ref().unwrap().bytes.as_ref(), csv(&prices));
+    assert_eq!(session.setup.benchmark_file.as_ref().unwrap().bytes.as_ref(), csv(&benchmarks));
+
+    app.state.sessions.advance_clock(IDLE_LIMIT + Duration::from_secs(1));
+    let page = app.get("/").await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(!page.headers.contains_key(header::SET_COOKIE));
+    assert!(page.body.contains(r#"data-page="overview""#));
+    assert_eq!(app.cookie.as_deref(), Some(cookie.as_str()));
+    assert_eq!(app.state.sessions.count(), 1);
+    let drawer = app.drawer().await;
+    assert!(drawer.contains("Using portfolio.csv. Upload a file to replace it."));
+    assert!(drawer.contains("Using benchmarks.csv. Upload a file to replace it."));
+    assert_eq!(app.session().setup.prices_file, setup.prices_file);
+    assert_eq!(app.session().setup.benchmark_file, setup.benchmark_file);
+    assert!(app.fake.downloads().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn assets_are_served_and_other_hosts_are_refused() {
     let mut app = TestApp::new(Fake::default());
     let page = app.page().await;
@@ -1876,7 +1909,7 @@ async fn a_post_without_a_known_session_creates_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_session_store_removes_the_least_recently_used_browser() {
-    let mut first = TestApp::with(Fake::default(), |state| state.sessions = Sessions::new(2, IDLE_LIMIT));
+    let mut first = TestApp::with(Fake::default(), |state| state.sessions = Sessions::new(2, Some(IDLE_LIMIT)));
     let share = |app: &TestApp| TestApp {
         router: app.router.clone(),
         state: app.state.clone(),

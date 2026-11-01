@@ -290,19 +290,15 @@
 
   /** Keep Tab inside the open drawer. */
   drawerRoot.addEventListener("keydown", (event) => {
-    if (event.key !== "Tab") return;
+    if (event.key !== "Tab" && event.code !== "Tab") return;
     const focusable = [...drawerRoot.querySelectorAll("a[href], button, input, select, textarea, summary, [tabindex]")].filter(
       (element) => !element.disabled && element.tabIndex >= 0 && element.offsetParent !== null,
     );
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
+    const index = focusable.indexOf(document.activeElement);
+    if (index < 0 || (event.shiftKey ? index === 0 : index === focusable.length - 1)) {
       event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
+      const target = event.shiftKey ? focusable[focusable.length - 1] : focusable[0];
+      target?.focus();
     }
   });
 

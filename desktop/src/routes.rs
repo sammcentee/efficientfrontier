@@ -27,12 +27,17 @@ use crate::session::{Session, SessionRef, View, cookie_id, lock, set_cookie};
 use crate::setup::{Draft, Setup, Upload, differs, read_draft, resolve};
 use crate::state::AppState;
 
-/// The largest accepted upload, Streamlit's default `server.maxUploadSize` of 200 MB.
+/// The limit per CSV file, Streamlit's default `server.maxUploadSize` of 200 MB.
 pub const UPLOAD_LIMIT: usize = 200 * 1024 * 1024;
 /// The drawer's file inputs.
 const FILE_FIELDS: [&str; 2] = ["prices_upload", "benchmark_upload"];
 /// The answer to a page that asks for a study that is no longer applied.
 pub const OLDER_STUDY: &str = "This page shows an older study. Reload the page.";
+
+fn multipart_body_limit(file_limit: usize) -> usize {
+    // Both CSV files, plus the drawer fields and multipart headers.
+    FILE_FIELDS.len() * file_limit + 64 * 1024
+}
 
 /// The session of the current request.
 #[derive(Clone)]
@@ -52,7 +57,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/prices", get(prices_table))
         .route("/export", get(export))
         .route("/download/prices.csv", get(prices_csv))
-        .layer(DefaultBodyLimit::max(UPLOAD_LIMIT))
+        .layer(DefaultBodyLimit::max(multipart_body_limit(UPLOAD_LIMIT)))
         .route_layer(middleware::from_fn_with_state(state.clone(), with_session));
     Router::new()
         .route("/assets/{*path}", get(assets::serve))
@@ -206,13 +211,16 @@ impl Posted {
 }
 
 /// Read a multipart form. The file bytes stay in the request's buffers.
-async fn read_form(mut multipart: Multipart) -> Result<Posted, String> {
+async fn read_form(mut multipart: Multipart, file_limit: usize) -> Result<Posted, String> {
     let mut posted = Posted { fields: Vec::new(), files: Vec::new() };
     while let Some(field) = multipart.next_field().await.map_err(|error| error.body_text())? {
         let name = field.name().unwrap_or_default().to_string();
         match field.file_name().map(str::to_string) {
             Some(file_name) => {
                 let bytes = field.bytes().await.map_err(|error| error.body_text())?;
+                if bytes.len() > file_limit {
+                    return Err(format!("File {file_name} exceeds the per-file limit of {file_limit} bytes."));
+                }
                 if !file_name.is_empty() {
                     posted.files.push((name, file_name, bytes));
                 }
@@ -228,7 +236,7 @@ async fn read_form(mut multipart: Multipart) -> Result<Posted, String> {
 
 /// Read a multipart form and hash its files off the async workers.
 async fn read_draft_form(multipart: Multipart) -> Result<Draft, String> {
-    let posted = read_form(multipart).await?;
+    let posted = read_form(multipart, UPLOAD_LIMIT).await?;
     if posted.files.is_empty() { Ok(posted.into_draft()) } else { blocking(move || posted.into_draft()).await }
 }
 
@@ -481,6 +489,72 @@ async fn prices_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::{Body, to_bytes};
+    use tower::ServiceExt;
+
+    const TEST_FILE_LIMIT: usize = 16;
+
+    async fn upload_form(prices: usize, benchmark: usize) -> (StatusCode, String) {
+        let app = Router::new()
+            .route(
+                "/",
+                post(|multipart: Multipart| async {
+                    match read_form(multipart, TEST_FILE_LIMIT).await {
+                        Ok(posted) => Json(json!({
+                            "fields": posted.fields,
+                            "lengths": posted.files.iter().map(|(_, _, bytes)| bytes.len()).collect::<Vec<_>>(),
+                        }))
+                        .into_response(),
+                        Err(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+                    }
+                }),
+            )
+            .layer(DefaultBodyLimit::max(multipart_body_limit(TEST_FILE_LIMIT)));
+        let mut body = String::from("--test\r\nContent-Disposition: form-data; name=\"market\"\r\n\r\nUpload CSV\r\n");
+        for (field, length) in [("prices_upload", prices), ("benchmark_upload", benchmark)] {
+            body.push_str(&format!(
+                "--test\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{field}.csv\"\r\nContent-Type: text/csv\r\n\r\n{}\r\n",
+                "x".repeat(length)
+            ));
+        }
+        body.push_str("--test--\r\n");
+        let request = axum::http::Request::builder()
+            .method(Method::POST)
+            .uri("/")
+            .header(CONTENT_TYPE, "multipart/form-data; boundary=test")
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn csv_uploads_accept_both_files_at_each_file_limit_with_form_overhead() {
+        for (prices, benchmark) in [(0, 0), (TEST_FILE_LIMIT - 1, TEST_FILE_LIMIT), (TEST_FILE_LIMIT, TEST_FILE_LIMIT)]
+        {
+            let (status, body) = upload_form(prices, benchmark).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            let posted: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(posted["lengths"], json!([prices, benchmark]));
+            assert_eq!(posted["fields"], json!([["market", "Upload CSV"]]));
+        }
+        assert_eq!(UPLOAD_LIMIT, 200 * 1024 * 1024);
+        assert_eq!(multipart_body_limit(UPLOAD_LIMIT), 2 * UPLOAD_LIMIT + 64 * 1024);
+    }
+
+    #[tokio::test]
+    async fn csv_uploads_reject_either_file_one_byte_over_its_limit() {
+        for (prices, benchmark, field) in
+            [(TEST_FILE_LIMIT + 1, 0, "prices_upload"), (0, TEST_FILE_LIMIT + 1, "benchmark_upload")]
+        {
+            let (status, body) = upload_form(prices, benchmark).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert!(body.contains(&format!("{field}.csv")), "{body}");
+            assert!(body.contains("per-file limit of 16 bytes"), "{body}");
+        }
+    }
 
     #[test]
     fn only_local_host_names_pass() {
