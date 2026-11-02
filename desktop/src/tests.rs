@@ -28,6 +28,60 @@ use crate::setup::{Market, hex};
 use crate::sources::{Cancelled, CompanyProfile, Progress, QqqReference, Sources, UniversePrices, cancelled_error};
 use crate::state::AppState;
 
+// Run with --release to check the optimizer-sensitive RUSTSEC-2024-0429 regression.
+#[cfg(target_os = "linux")]
+mod glib_variant_str_iter {
+    use glib::variant::ToVariant;
+
+    const VALUES: [&str; 6] = ["", "alpha", "Éire", "日本語", "omega", "end"];
+
+    #[test]
+    fn forward() {
+        let variant = VALUES.to_variant();
+        assert_eq!(variant.array_iter_str().unwrap().collect::<Vec<_>>(), VALUES);
+
+        let mut iter = variant.array_iter_str().unwrap();
+        assert_eq!(iter.nth(2), Some("Éire"));
+        assert_eq!(iter.next(), Some("日本語"));
+        assert_eq!(iter.last(), Some("end"));
+    }
+
+    #[test]
+    fn backward() {
+        let variant = VALUES.to_variant();
+        assert_eq!(
+            variant.array_iter_str().unwrap().rev().collect::<Vec<_>>(),
+            VALUES.into_iter().rev().collect::<Vec<_>>()
+        );
+
+        let mut iter = variant.array_iter_str().unwrap();
+        assert_eq!(iter.nth_back(2), Some("日本語"));
+        assert_eq!(iter.next_back(), Some("Éire"));
+        assert_eq!(iter.last(), Some("alpha"));
+    }
+
+    #[test]
+    fn mixed_and_empty() {
+        let variant = VALUES.to_variant();
+        let mut iter = variant.array_iter_str().unwrap();
+        assert_eq!(iter.len(), 6);
+        assert_eq!(iter.next(), Some(""));
+        assert_eq!(iter.next_back(), Some("end"));
+        assert_eq!(iter.nth(1), Some("Éire"));
+        assert_eq!(iter.nth_back(1), Some("日本語"));
+        assert_eq!(iter.len(), 0);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+        assert_eq!(iter.last(), None);
+
+        let empty = Vec::<&str>::new().to_variant();
+        let mut iter = empty.array_iter_str().unwrap();
+        assert_eq!(iter.len(), 0);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+    }
+}
+
 // ----------------------------------------------------------------------------- fixtures
 
 fn day(text: &str) -> Date {
