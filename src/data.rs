@@ -70,7 +70,8 @@ enum DateFormat {
 
 /// Date layouts in pandas' order of preference: ISO first, then month-first
 /// before day-first for numeric dates, then month names.
-const DATE_PATTERNS: [&str; 26] = [
+/// Chrono's `%B` accepts full and short month names, so May cannot select a short-only layout.
+const DATE_PATTERNS: [&str; 22] = [
     "%Y-%m-%d",
     "%Y/%m/%d",
     "%Y.%m.%d",
@@ -85,18 +86,14 @@ const DATE_PATTERNS: [&str; 26] = [
     "%d-%m-%y",
     "%m.%d.%Y",
     "%d.%m.%Y",
-    "%d-%b-%Y",
-    "%d-%b-%y",
-    "%d %b %Y",
-    "%d %B %Y",
-    "%b %d %Y",
-    "%B %d %Y",
-    "%b %d, %Y",
-    "%B %d, %Y",
     "%d-%B-%Y",
-    "%b-%d-%Y",
-    "%Y-%b-%d",
-    "%d %b %y",
+    "%d-%B-%y",
+    "%d %B %Y",
+    "%B %d %Y",
+    "%B %d, %Y",
+    "%B-%d-%Y",
+    "%Y-%B-%d",
+    "%d %B %y",
 ];
 
 /// Time layouts after a date, such as Excel's `1/13/2020 0:00`.
@@ -122,8 +119,7 @@ static DATE_FORMATS: std::sync::LazyLock<Vec<DateFormat>> = std::sync::LazyLock:
         }
     }
     formats.extend(
-        ["%Y-%m", "%m/%Y", "%m-%Y", "%b %Y", "%b-%Y", "%B %Y", "%Y/%m"]
-            .map(|pattern| DateFormat::Month(pattern.to_string())),
+        ["%Y-%m", "%m/%Y", "%m-%Y", "%B %Y", "%B-%Y", "%Y/%m"].map(|pattern| DateFormat::Month(pattern.to_string())),
     );
     formats.push(DateFormat::Year);
     formats
@@ -610,18 +606,76 @@ mod tests {
 
     #[test]
     fn csv_loading_preserves_monthly_dates_and_prices() {
-        let expected = Frame::from_rows(
-            (1..=5).map(|month| Date::from_ymd_opt(2020, month, 1).unwrap()).collect(),
-            vec!["AAA".into(), "BBB".into()],
-            &(1..=5).map(|month| vec![100.0 + month as f64, 200.0 + month as f64]).collect::<Vec<_>>(),
-        );
-        for pattern in ["%m/%Y", "%-m/%Y", "%m-%Y", "%b %Y", "%b-%Y", "%B %Y", "%Y/%m", "%Y-%m"] {
-            let mut csv = String::from("Date,AAA,BBB\n");
-            for month in [3, 1, 5, 2, 4] {
-                let date = Date::from_ymd_opt(2020, month, 1).unwrap();
-                csv.push_str(&format!("{},{},{}\n", date.format(pattern), 100 + month, 200 + month));
+        for first_month in 1..=12 {
+            let first = Date::from_ymd_opt(2019, first_month, 1).unwrap();
+            let dates: Vec<Date> = (0..13).map(|i| first + chrono::Months::new(i)).collect();
+            let expected = Frame::from_rows(
+                dates.clone(),
+                vec!["AAA".into(), "BBB".into()],
+                &(0..13).map(|i| vec![100.0 + i as f64, 200.0 + i as f64]).collect::<Vec<_>>(),
+            );
+            for pattern in ["%m/%Y", "%-m/%Y", "%m-%Y", "%b %Y", "%b-%Y", "%B %Y", "%B-%Y", "%Y/%m", "%Y-%m"] {
+                let mut csv = String::from("Date,AAA,BBB\n");
+                for i in [0, 3, 1, 12, 5, 2, 4, 6, 7, 8, 9, 10, 11] {
+                    csv.push_str(&format!("{},{},{}\n", dates[i].format(pattern), 100 + i, 200 + i));
+                }
+                assert_eq!(load_csv(csv.as_bytes()).unwrap(), expected, "{first_month}: {pattern}");
             }
-            assert_eq!(load_csv(csv.as_bytes()).unwrap(), expected, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn month_names_accept_short_and_full_spellings_in_one_layout() {
+        for pattern in [
+            "%B %Y",
+            "%B-%Y",
+            "%d-%B-%Y",
+            "%d-%B-%y",
+            "%d %B %Y",
+            "%B %d %Y",
+            "%B %d, %Y",
+            "%B-%d-%Y",
+            "%Y-%B-%d",
+            "%d %B %y",
+            "%B %d, %Y %H:%M:%S",
+            "%d-%B-%Y %I:%M %p",
+        ] {
+            for first_month in [1, 5, 12] {
+                let first_day = if pattern.contains("%d") { 20 } else { 1 };
+                let first = Date::from_ymd_opt(2019, first_month, first_day).unwrap();
+                let second = Date::from_ymd_opt(2019, first_month, 1).unwrap() + chrono::Months::new(1);
+                for (first_name, second_name) in [("%b", "%b"), ("%b", "%B"), ("%B", "%b"), ("%B", "%B")] {
+                    let values = [
+                        first.and_hms_opt(23, 30, 0).unwrap().format(&pattern.replace("%B", first_name)).to_string(),
+                        second.and_hms_opt(0, 0, 0).unwrap().format(&pattern.replace("%B", second_name)).to_string(),
+                    ];
+                    assert_eq!(parse_price_dates(&values).unwrap(), [first, second], "{values:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn month_names_reject_invalid_dates_and_mixed_layouts() {
+        for (first, invalid) in [
+            ("May 2019", "June-2019"),
+            ("May-2019", "June 2019"),
+            ("May 2019", "Januarx 2020"),
+            ("May 2019", "June 2019-01"),
+            ("May 20, 2020", "June 31, 2020"),
+            ("May 20, 2020", "February 29, 2019"),
+            ("May 20, 2020", "Januarx 01, 2020"),
+            ("May 20, 2020", "June 01 2020"),
+            ("May 20, 2020", "01 June 2020"),
+            ("May 20, 2020", "June 01, 2020 00:00:00"),
+            ("May 20, 2020 00:00:00", "June 01, 2020"),
+        ] {
+            let values = [first.to_string(), invalid.to_string()];
+            assert_eq!(
+                parse_price_dates(&values).unwrap_err().message(),
+                "Every row must have a valid date.",
+                "{values:?}"
+            );
         }
     }
 

@@ -1,18 +1,18 @@
 # Validation record
 
-## Peer-review fixes: 1 November 2026
+## Peer-review fixes: 1 and 2 November 2026
 
 The desktop keeps its study, uploaded CSVs, and settings until the window closes. The default session store has no idle expiry. A route regression advances the session beyond the former 24-hour limit and checks that the same study and files remain available.
 
 The Settings drawer contains keyboard focus from its initial state and at both Tab boundaries. The new native-window regression reproduced a submission of the background form with the old program. It passes with the fix, including Close and Cancel focus restoration. WebKit can report the Tab key as `Unidentified`, so the handler also accepts its `Tab` key code.
 
-Price and benchmark uploads each have a 200 MiB limit. The request allows both files plus 64 KiB of form overhead. Boundary tests use small files and check both exact-limit acceptance and rejection of either file one byte over its limit. The original failure case, with two CSVs of about 105 MiB each, now builds a study and retains identical input prices.
+Price and benchmark uploads each have a 200 MiB limit. The request allows both files plus 64 KiB of form overhead. Boundary tests use small files and check both exact-limit acceptance and rejection of either file one byte over its limit. A request above the total limit also gives the per-file limit, even if the parser cannot read a filename. Errors retain the filename when it is available. The original failure case, with two CSVs of about 105 MiB each, now builds a study and retains identical input prices.
 
-The CSV loader again accepts monthly dates such as `01/2020`, `Jan 2020`, and `2020/01`. It assigns the first day of the month and retains first-value format inference. Tests cover all eight supported monthly layouts, invalid and mixed layouts, and existing daily formats. Dates and prices match the Python baseline. The monthly CSV that failed in review now produces its CLI report.
+The CSV loader again accepts monthly dates such as `01/2020`, `Jan 2020`, and `2020/01`. It assigns the first day of the month and retains first-value format inference. Month names accept short and full spellings in the same layout, including files that start in May. Tests cover every starting month, year rollover, date sorting, invalid and mixed layouts, and existing daily and date-time formats. The original monthly CSV and both May-first failure cases now produce CLI reports. All 36 dates and prices in each May-first case match the Python baseline.
 
 Both packages declare Rust 1.90. `cargo +1.90.0 check --locked --workspace --all-targets` passed. CI now checks that minimum version. The Windows target links the C runtime into both programs, and CI inspects their DLL imports before it uploads the artifacts. The user guide gives separate installation commands for the CLI and desktop app.
 
-Local validation passed: **523 default tests**, formatting, Clippy with `-D warnings`, JavaScript syntax, and the release builds. Both native-window tests passed on an isolated Xvfb screen in 11 seconds. The workflow test covers the demo, CSV upload, navigation, `prices.csv`, and report ZIP saves. The default suite skips eight live network tests and the two window tests. Windows runtime imports and window behavior need the Windows CI job. The Windows Save dialog, macOS, and a physical GPU desktop remain untested.
+Local validation passed: **526 default tests**, formatting, Clippy with `-D warnings`, JavaScript syntax, and the release builds. Both native-window tests passed on an isolated Xvfb screen. The workflow test covers the demo, CSV upload, navigation, `prices.csv`, and report ZIP saves. The default suite skips eight live network tests and the two window tests. Windows runtime imports and window behavior need the Windows CI job. The Windows Save dialog, macOS, and a physical GPU desktop remain untested.
 
 ## Desktop app: 30 October 2026
 

@@ -212,12 +212,22 @@ impl Posted {
 
 /// Read a multipart form. The file bytes stay in the request's buffers.
 async fn read_form(mut multipart: Multipart, file_limit: usize) -> Result<Posted, String> {
+    let read_error = |error: axum::extract::multipart::MultipartError| {
+        if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            format!("Upload request is too large. Each CSV file must be at most {file_limit} bytes.")
+        } else {
+            error.body_text()
+        }
+    };
     let mut posted = Posted { fields: Vec::new(), files: Vec::new() };
-    while let Some(field) = multipart.next_field().await.map_err(|error| error.body_text())? {
+    while let Some(field) = multipart.next_field().await.map_err(read_error)? {
         let name = field.name().unwrap_or_default().to_string();
         match field.file_name().map(str::to_string) {
             Some(file_name) => {
-                let bytes = field.bytes().await.map_err(|error| error.body_text())?;
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|error| format!("Could not read file {file_name}. {}", read_error(error)))?;
                 if bytes.len() > file_limit {
                     return Err(format!("File {file_name} exceeds the per-file limit of {file_limit} bytes."));
                 }
@@ -226,7 +236,7 @@ async fn read_form(mut multipart: Multipart, file_limit: usize) -> Result<Posted
                 }
             }
             None => {
-                let text = field.text().await.map_err(|error| error.body_text())?;
+                let text = field.text().await.map_err(read_error)?;
                 posted.fields.push((name, text));
             }
         }
@@ -553,6 +563,15 @@ mod tests {
             assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
             assert!(body.contains(&format!("{field}.csv")), "{body}");
             assert!(body.contains("per-file limit of 16 bytes"), "{body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn oversized_requests_explain_the_per_file_limit() {
+        for (prices, benchmark) in [(70_000, 0), (0, 70_000)] {
+            let (status, body) = upload_form(prices, benchmark).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert!(body.contains("Each CSV file must be at most 16 bytes"), "{body}");
         }
     }
 
