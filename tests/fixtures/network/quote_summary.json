@@ -1,0 +1,98 @@
+{
+ "quoteSummary": {
+  "result": [
+   {
+    "assetProfile": {
+     "address1": "Example address1",
+     "city": "Example city",
+     "state": "Example state",
+     "zip": "Example zip",
+     "country": "United States",
+     "phone": "Example phone",
+     "website": "https://www.example.com",
+     "industry": "Tools",
+     "industryKey": "Example industryKey",
+     "industryDisp": "Example industryDisp",
+     "sector": "Industrials",
+     "sectorKey": "Example sectorKey",
+     "sectorDisp": "Example sectorDisp",
+     "longBusinessSummary": "Example Holdings Inc. designs example tools &amp; parts for customers in the U.S. and Canada.  It was founded in 2001 and is based in Springfield.",
+     "fullTimeEmployees": 1017,
+     "companyOfficers": [
+      {
+       "maxAge": 1006,
+       "name": "Example name",
+       "age": 1003,
+       "title": "Example title",
+       "yearBorn": 1008,
+       "fiscalYear": 1010,
+       "totalPay": {
+        "raw": 1003,
+        "fmt": "Example fmt",
+        "longFmt": "Example longFmt"
+       },
+       "exercisedValue": {
+        "raw": 1003,
+        "fmt": null,
+        "longFmt": "Example longFmt"
+       },
+       "unexercisedValue": {
+        "raw": 1003,
+        "fmt": null,
+        "longFmt": "Example longFmt"
+       }
+      }
+     ],
+     "auditRisk": 1009,
+     "boardRisk": 1009,
+     "compensationRisk": 1016,
+     "shareHolderRightsRisk": 1021,
+     "overallRisk": 1011,
+     "governanceEpochDate": 1019,
+     "compensationAsOfEpochDate": 1025,
+     "executiveTeam": [],
+     "maxAge": 1006
+    },
+    "price": {
+     "maxAge": 1006,
+     "preMarketChangePercent": 3.7,
+     "preMarketChange": 3.0,
+     "preMarketTime": 1013,
+     "preMarketPrice": 2.9,
+     "preMarketSource": "Example preMarketSource",
+     "regularMarketChangePercent": 4.1,
+     "regularMarketChange": 3.4,
+     "regularMarketTime": 1017,
+     "priceHint": 1009,
+     "regularMarketPrice": 3.3,
+     "regularMarketDayHigh": 3.5,
+     "regularMarketDayLow": 3.4,
+     "regularMarketVolume": 1019,
+     "regularMarketPreviousClose": 4.1,
+     "regularMarketSource": "Example regularMarketSource",
+     "regularMarketOpen": 3.2,
+     "fulldayChangePercent": 3.5,
+     "fulldayChange": 2.8,
+     "fulldayPrice": 2.7,
+     "exchange": "NMS",
+     "exchangeName": "NasdaqGS",
+     "exchangeDataDelayedBy": 1021,
+     "marketState": "REGULAR",
+     "quoteType": "EQUITY",
+     "symbol": "EXMPL",
+     "underlyingSymbol": null,
+     "shortName": "Example Holdings",
+     "longName": "Example Holdings Inc.",
+     "currency": "USD",
+     "quoteSourceName": "Example quoteSourceName",
+     "currencySymbol": "$",
+     "fromCurrency": null,
+     "toCurrency": null,
+     "lastMarket": null,
+     "marketCap": 1009
+    }
+   }
+  ],
+  "error": null
+ }
+}

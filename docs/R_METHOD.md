@@ -6,7 +6,7 @@ The corrected R-style calculation finds stock portfolios above SPY and QQQ on th
 
 `Efficient Frontier v1.12.R` loads the 60 names in `spy_holdings.ods` and requests adjusted prices from 1 January 2020 to 1 January 2024. It drops stocks with missing returns, then samples ten million long-only portfolios. Each draw selects 5–40 stocks. Weights sum to one. There is no per-stock weight cap or covariance shrinkage.
 
-The scatter contains feasible portfolios. Its upper edge approximates the efficient frontier, but random samples can miss better allocations. The Python solver directly maximizes mean return within a risk limit, or minimizes risk at each return target. For the same inputs and constraints, those are two ways to trace the same mean–variance frontier. Python does not impose R's 40-stock count limit. The four comparison portfolios below have 8–15 weights above 0.00001%, so that limit does not bind these results.
+The scatter contains feasible portfolios. Its upper edge approximates the efficient frontier, but random samples can miss better allocations. The app's solver directly maximizes mean return within a risk limit, or minimizes risk at each return target. For the same inputs and constraints, those are two ways to trace the same mean–variance frontier. The app does not impose R's 40-stock count limit. The four comparison portfolios below have 8–15 weights above 0.00001%, so that limit does not bind these results.
 
 The R script registers parallel workers and imports `quadprog`, but its portfolio loop uses neither. Its sparse Dirichlet distribution strongly favors concentrated holdings. In a bounded reproduction with 10,000 draws, about 89% put at least 90% into one stock. This reproduction uses NumPy draws from the same distribution, not the identical R random sequence.
 
@@ -49,7 +49,7 @@ At each benchmark's measured volatility, the solver maximizes the corrected stoc
 | SPY: 22.6271% | 13.6939% | 37.7464% | 34.1486% |
 | QQQ: 27.2369% | 20.3686% | 48.0814% | 40.3875% |
 
-The independent solver checks weights and actual portfolio-return variance. Its numerical upper-bound gaps are below 0.00005 percentage points of annual mean. The app's allocation routine independently matches all four results within 0.0001 percentage points.
+The independent solver checks weights and actual portfolio-return variance. Its numerical upper-bound gaps are below 0.00005 percentage points of annual mean. The allocation routine of the Python release independently matches all four results within 0.0001 percentage points.
 
 The [result tables and complete stock weights](../research/r_reference/) retain both holding limits. The uncapped solutions put about 34% and 48% in LLY, respectively. The capped solutions obey the 10% limit. Neither includes SPY or QQQ.
 
@@ -67,7 +67,7 @@ The same model can have a strong fitted frontier and weaker later returns. For t
 
 ## Reproduce the reference comparison
 
-From the repository root:
+The reference script is Python. It uses NumPy, pandas, and CVXPY, but not the app. The Rust version does not install these packages. Use the Python release at commit `6c6df6e`. The [research archive](../research/README.md#run-the-archived-scripts) shows how to check out that commit and install its packages. Then run this command from the root of that checkout:
 
 ```bash
 .venv/bin/python research/reproduce_r_frontier.py \

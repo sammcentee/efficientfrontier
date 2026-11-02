@@ -1,0 +1,10 @@
+
+:root{--pl-canvas:#f5f5f7;--pl-tile:#fff;--pl-ink:#1d1d1f;--pl-ink-2:#424245;--pl-ink-3:#6e6e73;--pl-ink-4:#86868b;
+--pl-hair:#d2d2d7;--pl-hair-soft:#e8e8ed;--pl-fill:#f2f2f4;--pl-track:#e3e3e8;--pl-accent:#0071e3;--pl-accent-wash:rgba(0,113,227,.10);
+--pl-rest:#c7c7cc;--pl-spy:#8e8e93;--pl-qqq:#545458;--pl-risk-low:#5e9eea;--pl-risk-med:#0071e3;--pl-risk-high:#0a3f8f;
+--pl-error:#c4001a;--pl-error-wash:#fff0f0;--pl-error-ink:#6e000e;
+--pl-font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable Text","Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+--pl-display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI Variable Display","Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+--pl-ease:cubic-bezier(.25,.1,.25,1);--pl-ease-out:cubic-bezier(.2,.8,.2,1);
+--pl-r-tile:28px;--pl-pad-tile:40px;--pl-gap:96px;--pl-focus:0 0 0 4px rgba(0,113,227,.35)}
+@media (max-width:640px){:root{--pl-r-tile:22px;--pl-pad-tile:22px;--pl-gap:64px}}

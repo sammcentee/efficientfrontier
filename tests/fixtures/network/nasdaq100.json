@@ -1,0 +1,1039 @@
+{
+ "data": {
+  "totalrecords": 101,
+  "limit": 101,
+  "offset": 0,
+  "date": "Oct 2, 2026 4:00 PM",
+  "data": {
+   "asOf": null,
+   "headers": {
+    "symbol": "Symbol",
+    "companyName": "Name",
+    "marketCap": "Market Cap",
+    "lastSalePrice": "Last Sale",
+    "netChange": "Net Change",
+    "percentageChange": "Percentage Change"
+   },
+   "rows": [
+    {
+     "symbol": "BRK.B",
+     "sector": "Technology",
+     "companyName": "BRK.B Example Common Stock",
+     "marketCap": "1,000,000",
+     "lastSalePrice": "$100.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "GOOG",
+     "sector": "",
+     "companyName": "GOOG Example Common Stock",
+     "marketCap": "2,000,000",
+     "lastSalePrice": "$101.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "GOOGL",
+     "sector": "",
+     "companyName": "GOOGL Example Common Stock",
+     "marketCap": "3,000,000",
+     "lastSalePrice": "$102.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAA",
+     "sector": "Technology",
+     "companyName": "EXAA Example Common Stock",
+     "marketCap": "4,000,000",
+     "lastSalePrice": "$103.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAB",
+     "sector": "",
+     "companyName": "EXAB Example Common Stock",
+     "marketCap": "5,000,000",
+     "lastSalePrice": "$104.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAC",
+     "sector": "",
+     "companyName": "EXAC Example Common Stock",
+     "marketCap": "6,000,000",
+     "lastSalePrice": "$105.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAD",
+     "sector": "Technology",
+     "companyName": "EXAD Example Common Stock",
+     "marketCap": "7,000,000",
+     "lastSalePrice": "$106.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAE",
+     "sector": "",
+     "companyName": "EXAE Example Common Stock",
+     "marketCap": "8,000,000",
+     "lastSalePrice": "$107.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAF",
+     "sector": "",
+     "companyName": "EXAF Example Common Stock",
+     "marketCap": "9,000,000",
+     "lastSalePrice": "$108.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAG",
+     "sector": "Technology",
+     "companyName": "EXAG Example Common Stock",
+     "marketCap": "10,000,000",
+     "lastSalePrice": "$109.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAH",
+     "sector": "",
+     "companyName": "EXAH Example Common Stock",
+     "marketCap": "11,000,000",
+     "lastSalePrice": "$110.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAI",
+     "sector": "",
+     "companyName": "EXAI Example Common Stock",
+     "marketCap": "12,000,000",
+     "lastSalePrice": "$111.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAJ",
+     "sector": "Technology",
+     "companyName": "EXAJ Example Common Stock",
+     "marketCap": "13,000,000",
+     "lastSalePrice": "$112.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAK",
+     "sector": "",
+     "companyName": "EXAK Example Common Stock",
+     "marketCap": "14,000,000",
+     "lastSalePrice": "$113.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAL",
+     "sector": "",
+     "companyName": "EXAL Example Common Stock",
+     "marketCap": "15,000,000",
+     "lastSalePrice": "$114.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAM",
+     "sector": "Technology",
+     "companyName": "EXAM Example Common Stock",
+     "marketCap": "16,000,000",
+     "lastSalePrice": "$115.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAN",
+     "sector": "",
+     "companyName": "EXAN Example Common Stock",
+     "marketCap": "17,000,000",
+     "lastSalePrice": "$116.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAO",
+     "sector": "",
+     "companyName": "EXAO Example Common Stock",
+     "marketCap": "18,000,000",
+     "lastSalePrice": "$117.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAP",
+     "sector": "Technology",
+     "companyName": "EXAP Example Common Stock",
+     "marketCap": "19,000,000",
+     "lastSalePrice": "$118.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAQ",
+     "sector": "",
+     "companyName": "EXAQ Example Common Stock",
+     "marketCap": "20,000,000",
+     "lastSalePrice": "$119.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAR",
+     "sector": "",
+     "companyName": "EXAR Example Common Stock",
+     "marketCap": "21,000,000",
+     "lastSalePrice": "$120.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAS",
+     "sector": "Technology",
+     "companyName": "EXAS Example Common Stock",
+     "marketCap": "22,000,000",
+     "lastSalePrice": "$121.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAT",
+     "sector": "",
+     "companyName": "EXAT Example Common Stock",
+     "marketCap": "23,000,000",
+     "lastSalePrice": "$122.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAU",
+     "sector": "",
+     "companyName": "EXAU Example Common Stock",
+     "marketCap": "24,000,000",
+     "lastSalePrice": "$123.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAV",
+     "sector": "Technology",
+     "companyName": "EXAV Example Common Stock",
+     "marketCap": "25,000,000",
+     "lastSalePrice": "$124.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAW",
+     "sector": "",
+     "companyName": "EXAW Example Common Stock",
+     "marketCap": "26,000,000",
+     "lastSalePrice": "$125.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAX",
+     "sector": "",
+     "companyName": "EXAX Example Common Stock",
+     "marketCap": "27,000,000",
+     "lastSalePrice": "$126.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAY",
+     "sector": "Technology",
+     "companyName": "EXAY Example Common Stock",
+     "marketCap": "28,000,000",
+     "lastSalePrice": "$127.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXAZ",
+     "sector": "",
+     "companyName": "EXAZ Example Common Stock",
+     "marketCap": "29,000,000",
+     "lastSalePrice": "$128.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBA",
+     "sector": "",
+     "companyName": "EXBA Example Common Stock",
+     "marketCap": "30,000,000",
+     "lastSalePrice": "$129.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBB",
+     "sector": "Technology",
+     "companyName": "EXBB Example Common Stock",
+     "marketCap": "31,000,000",
+     "lastSalePrice": "$130.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBC",
+     "sector": "",
+     "companyName": "EXBC Example Common Stock",
+     "marketCap": "32,000,000",
+     "lastSalePrice": "$131.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBD",
+     "sector": "",
+     "companyName": "EXBD Example Common Stock",
+     "marketCap": "33,000,000",
+     "lastSalePrice": "$132.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBE",
+     "sector": "Technology",
+     "companyName": "EXBE Example Common Stock",
+     "marketCap": "34,000,000",
+     "lastSalePrice": "$133.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBF",
+     "sector": "",
+     "companyName": "EXBF Example Common Stock",
+     "marketCap": "35,000,000",
+     "lastSalePrice": "$134.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBG",
+     "sector": "",
+     "companyName": "EXBG Example Common Stock",
+     "marketCap": "36,000,000",
+     "lastSalePrice": "$135.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBH",
+     "sector": "Technology",
+     "companyName": "EXBH Example Common Stock",
+     "marketCap": "37,000,000",
+     "lastSalePrice": "$136.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBI",
+     "sector": "",
+     "companyName": "EXBI Example Common Stock",
+     "marketCap": "38,000,000",
+     "lastSalePrice": "$137.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBJ",
+     "sector": "",
+     "companyName": "EXBJ Example Common Stock",
+     "marketCap": "39,000,000",
+     "lastSalePrice": "$138.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBK",
+     "sector": "Technology",
+     "companyName": "EXBK Example Common Stock",
+     "marketCap": "40,000,000",
+     "lastSalePrice": "$139.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBL",
+     "sector": "",
+     "companyName": "EXBL Example Common Stock",
+     "marketCap": "41,000,000",
+     "lastSalePrice": "$140.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBM",
+     "sector": "",
+     "companyName": "EXBM Example Common Stock",
+     "marketCap": "42,000,000",
+     "lastSalePrice": "$141.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBN",
+     "sector": "Technology",
+     "companyName": "EXBN Example Common Stock",
+     "marketCap": "43,000,000",
+     "lastSalePrice": "$142.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBO",
+     "sector": "",
+     "companyName": "EXBO Example Common Stock",
+     "marketCap": "44,000,000",
+     "lastSalePrice": "$143.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBP",
+     "sector": "",
+     "companyName": "EXBP Example Common Stock",
+     "marketCap": "45,000,000",
+     "lastSalePrice": "$144.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBQ",
+     "sector": "Technology",
+     "companyName": "EXBQ Example Common Stock",
+     "marketCap": "46,000,000",
+     "lastSalePrice": "$145.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBR",
+     "sector": "",
+     "companyName": "EXBR Example Common Stock",
+     "marketCap": "47,000,000",
+     "lastSalePrice": "$146.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBS",
+     "sector": "",
+     "companyName": "EXBS Example Common Stock",
+     "marketCap": "48,000,000",
+     "lastSalePrice": "$147.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBT",
+     "sector": "Technology",
+     "companyName": "EXBT Example Common Stock",
+     "marketCap": "49,000,000",
+     "lastSalePrice": "$148.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBU",
+     "sector": "",
+     "companyName": "EXBU Example Common Stock",
+     "marketCap": "50,000,000",
+     "lastSalePrice": "$149.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBV",
+     "sector": "",
+     "companyName": "EXBV Example Common Stock",
+     "marketCap": "51,000,000",
+     "lastSalePrice": "$150.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBW",
+     "sector": "Technology",
+     "companyName": "EXBW Example Common Stock",
+     "marketCap": "52,000,000",
+     "lastSalePrice": "$151.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBX",
+     "sector": "",
+     "companyName": "EXBX Example Common Stock",
+     "marketCap": "53,000,000",
+     "lastSalePrice": "$152.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBY",
+     "sector": "",
+     "companyName": "EXBY Example Common Stock",
+     "marketCap": "54,000,000",
+     "lastSalePrice": "$153.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXBZ",
+     "sector": "Technology",
+     "companyName": "EXBZ Example Common Stock",
+     "marketCap": "55,000,000",
+     "lastSalePrice": "$154.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCA",
+     "sector": "",
+     "companyName": "EXCA Example Common Stock",
+     "marketCap": "56,000,000",
+     "lastSalePrice": "$155.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCB",
+     "sector": "",
+     "companyName": "EXCB Example Common Stock",
+     "marketCap": "57,000,000",
+     "lastSalePrice": "$156.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCC",
+     "sector": "Technology",
+     "companyName": "EXCC Example Common Stock",
+     "marketCap": "58,000,000",
+     "lastSalePrice": "$157.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCD",
+     "sector": "",
+     "companyName": "EXCD Example Common Stock",
+     "marketCap": "59,000,000",
+     "lastSalePrice": "$158.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCE",
+     "sector": "",
+     "companyName": "EXCE Example Common Stock",
+     "marketCap": "60,000,000",
+     "lastSalePrice": "$159.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCF",
+     "sector": "Technology",
+     "companyName": "EXCF Example Common Stock",
+     "marketCap": "61,000,000",
+     "lastSalePrice": "$160.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCG",
+     "sector": "",
+     "companyName": "EXCG Example Common Stock",
+     "marketCap": "62,000,000",
+     "lastSalePrice": "$161.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCH",
+     "sector": "",
+     "companyName": "EXCH Example Common Stock",
+     "marketCap": "63,000,000",
+     "lastSalePrice": "$162.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCI",
+     "sector": "Technology",
+     "companyName": "EXCI Example Common Stock",
+     "marketCap": "64,000,000",
+     "lastSalePrice": "$163.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCJ",
+     "sector": "",
+     "companyName": "EXCJ Example Common Stock",
+     "marketCap": "65,000,000",
+     "lastSalePrice": "$164.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCK",
+     "sector": "",
+     "companyName": "EXCK Example Common Stock",
+     "marketCap": "66,000,000",
+     "lastSalePrice": "$165.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCL",
+     "sector": "Technology",
+     "companyName": "EXCL Example Common Stock",
+     "marketCap": "67,000,000",
+     "lastSalePrice": "$166.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCM",
+     "sector": "",
+     "companyName": "EXCM Example Common Stock",
+     "marketCap": "68,000,000",
+     "lastSalePrice": "$167.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCN",
+     "sector": "",
+     "companyName": "EXCN Example Common Stock",
+     "marketCap": "69,000,000",
+     "lastSalePrice": "$168.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCO",
+     "sector": "Technology",
+     "companyName": "EXCO Example Common Stock",
+     "marketCap": "70,000,000",
+     "lastSalePrice": "$169.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCP",
+     "sector": "",
+     "companyName": "EXCP Example Common Stock",
+     "marketCap": "71,000,000",
+     "lastSalePrice": "$170.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCQ",
+     "sector": "",
+     "companyName": "EXCQ Example Common Stock",
+     "marketCap": "72,000,000",
+     "lastSalePrice": "$171.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCR",
+     "sector": "Technology",
+     "companyName": "EXCR Example Common Stock",
+     "marketCap": "73,000,000",
+     "lastSalePrice": "$172.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCS",
+     "sector": "",
+     "companyName": "EXCS Example Common Stock",
+     "marketCap": "74,000,000",
+     "lastSalePrice": "$173.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCT",
+     "sector": "",
+     "companyName": "EXCT Example Common Stock",
+     "marketCap": "75,000,000",
+     "lastSalePrice": "$174.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCU",
+     "sector": "Technology",
+     "companyName": "EXCU Example Common Stock",
+     "marketCap": "76,000,000",
+     "lastSalePrice": "$175.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCV",
+     "sector": "",
+     "companyName": "EXCV Example Common Stock",
+     "marketCap": "77,000,000",
+     "lastSalePrice": "$176.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCW",
+     "sector": "",
+     "companyName": "EXCW Example Common Stock",
+     "marketCap": "78,000,000",
+     "lastSalePrice": "$177.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCX",
+     "sector": "Technology",
+     "companyName": "EXCX Example Common Stock",
+     "marketCap": "79,000,000",
+     "lastSalePrice": "$178.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCY",
+     "sector": "",
+     "companyName": "EXCY Example Common Stock",
+     "marketCap": "80,000,000",
+     "lastSalePrice": "$179.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXCZ",
+     "sector": "",
+     "companyName": "EXCZ Example Common Stock",
+     "marketCap": "81,000,000",
+     "lastSalePrice": "$180.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDA",
+     "sector": "Technology",
+     "companyName": "EXDA Example Common Stock",
+     "marketCap": "82,000,000",
+     "lastSalePrice": "$181.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDB",
+     "sector": "",
+     "companyName": "EXDB Example Common Stock",
+     "marketCap": "83,000,000",
+     "lastSalePrice": "$182.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDC",
+     "sector": "",
+     "companyName": "EXDC Example Common Stock",
+     "marketCap": "84,000,000",
+     "lastSalePrice": "$183.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDD",
+     "sector": "Technology",
+     "companyName": "EXDD Example Common Stock",
+     "marketCap": "85,000,000",
+     "lastSalePrice": "$184.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDE",
+     "sector": "",
+     "companyName": "EXDE Example Common Stock",
+     "marketCap": "86,000,000",
+     "lastSalePrice": "$185.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDF",
+     "sector": "",
+     "companyName": "EXDF Example Common Stock",
+     "marketCap": "87,000,000",
+     "lastSalePrice": "$186.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDG",
+     "sector": "Technology",
+     "companyName": "EXDG Example Common Stock",
+     "marketCap": "88,000,000",
+     "lastSalePrice": "$187.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDH",
+     "sector": "",
+     "companyName": "EXDH Example Common Stock",
+     "marketCap": "89,000,000",
+     "lastSalePrice": "$188.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDI",
+     "sector": "",
+     "companyName": "EXDI Example Common Stock",
+     "marketCap": "90,000,000",
+     "lastSalePrice": "$189.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDJ",
+     "sector": "Technology",
+     "companyName": "EXDJ Example Common Stock",
+     "marketCap": "91,000,000",
+     "lastSalePrice": "$190.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDK",
+     "sector": "",
+     "companyName": "EXDK Example Common Stock",
+     "marketCap": "92,000,000",
+     "lastSalePrice": "$191.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDL",
+     "sector": "",
+     "companyName": "EXDL Example Common Stock",
+     "marketCap": "93,000,000",
+     "lastSalePrice": "$192.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDM",
+     "sector": "Technology",
+     "companyName": "EXDM Example Common Stock",
+     "marketCap": "94,000,000",
+     "lastSalePrice": "$193.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDN",
+     "sector": "",
+     "companyName": "EXDN Example Common Stock",
+     "marketCap": "95,000,000",
+     "lastSalePrice": "$194.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDO",
+     "sector": "",
+     "companyName": "EXDO Example Common Stock",
+     "marketCap": "96,000,000",
+     "lastSalePrice": "$195.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDP",
+     "sector": "Technology",
+     "companyName": "EXDP Example Common Stock",
+     "marketCap": "97,000,000",
+     "lastSalePrice": "$196.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDQ",
+     "sector": "",
+     "companyName": "EXDQ Example Common Stock",
+     "marketCap": "98,000,000",
+     "lastSalePrice": "$197.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDR",
+     "sector": "",
+     "companyName": "EXDR Example Common Stock",
+     "marketCap": "99,000,000",
+     "lastSalePrice": "$198.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDS",
+     "sector": "Technology",
+     "companyName": "EXDS Example Common Stock",
+     "marketCap": "100,000,000",
+     "lastSalePrice": "$199.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    },
+    {
+     "symbol": "EXDT",
+     "sector": "",
+     "companyName": "EXDT Example Common Stock",
+     "marketCap": "101,000,000",
+     "lastSalePrice": "$200.00",
+     "netChange": "$1.00",
+     "percentageChange": "1.00%",
+     "deltaIndicator": "up"
+    }
+   ]
+  },
+  "filters": null,
+  "title": null
+ },
+ "message": null,
+ "status": {
+  "rCode": 200,
+  "bCodeMessage": null,
+  "developerMessage": null
+ }
+}

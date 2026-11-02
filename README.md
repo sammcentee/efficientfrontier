@@ -1,20 +1,35 @@
 # Efficient Frontier Analysis for US Equities
 
-A local Python app for stock portfolio optimization and historical tests. It estimates returns and covariance from supplied prices, then finds stock weights within a volatility budget and holding limit.
+A local Rust app for stock portfolio optimization and historical tests. It estimates returns and covariance from supplied prices, then finds stock weights within a volatility budget and holding limit.
 
 The default universe combines the stocks held by SPY with current Nasdaq-100 constituents. You can also use your own stock symbols, a price CSV, or synthetic demo data. SPY and QQQ provide comparisons and do not enter the stock allocation.
 
 ## Setup
 
-Install **Python 3.14**, then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
+Portfolio Lab is a desktop app. It opens in its own window and needs no browser, Python, or Docker. The pages come from inside the program, so the app opens no network port.
 
-| System | Start the app |
-| --- | --- |
-| Windows | Open `Start Portfolio Lab.bat`. |
-| macOS | Open `Start Portfolio Lab.command`. |
-| Linux or WSL | Run `bash run.sh` from the project folder. |
+### Ready-made programs
 
-The first launch installs dependencies and needs internet access. The app opens at **http://localhost:8501**. Keep the launcher open and press **Ctrl+C** there to stop it. Demo and CSV studies work offline after setup.
+CI builds the programs for each change. Open the latest successful [CI run](https://github.com/sammcentee/efficientfrontier/actions/workflows/ci.yml), then download an artifact under **Artifacts**. GitHub asks you to sign in for artifacts and keeps them for 90 days.
+
+| System | Artifact | Start the app |
+| --- | --- | --- |
+| Windows 10 or 11, 64-bit | `portfolio-lab-Windows` | Extract the ZIP. Double-click `Portfolio Lab.exe`. |
+| Linux, 64-bit, with WebKitGTK 4.1 | `portfolio-lab-Linux` | Extract the ZIP, then `portfolio-lab-linux-x86_64.tar.gz`. Run `./portfolio-lab`. |
+
+Each artifact also contains the command-line program `efficient-frontier`. The Windows app uses the Microsoft Edge WebView2 Runtime, which Windows 11 includes. The Linux app uses the system's WebKitGTK 4.1: on Debian or Ubuntu, install `libwebkit2gtk-4.1-0`; on Arch, install `webkit2gtk-4.1`. The programs have no code signature, so Windows SmartScreen can show a warning for a downloaded file. Select **More info**, then **Run anyway**.
+
+### Build from source
+
+Install Rust 1.90 or newer with [rustup](https://rustup.rs). Rust also needs a C compiler and linker, and Linux needs the WebKitGTK 4.1 files for the window. The table gives the tools for each system. Then [download and extract the repository](https://github.com/sammcentee/efficientfrontier/archive/refs/heads/main.zip).
+
+| System | Install first | Start the app |
+| --- | --- | --- |
+| Windows | Microsoft C++ build tools with "Desktop development with C++". The rustup installer offers them. | Open `Start Portfolio Lab.bat`. |
+| macOS | Xcode Command Line Tools. Run `xcode-select --install`. | Open `Start Portfolio Lab.command`. |
+| Linux | A C compiler and WebKitGTK 4.1. Debian or Ubuntu: `sudo apt install build-essential libwebkit2gtk-4.1-dev`. Arch: `sudo pacman -S --needed base-devel webkit2gtk-4.1`. | Run `bash run.sh` from the project folder. |
+
+The first start compiles the app. It needs internet access and takes a few minutes. Later starts are fast. Close the window to stop the app. Demo and CSV studies work offline after the first build.
 
 For a Git checkout:
 
@@ -32,7 +47,7 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 2. Set **Annual volatility budget** and **Holding limit** in the two number fields. The holding limit defaults to 10%.
 3. Select **Build portfolio**.
 4. Inspect the latest stock holdings and their fitted frontier. Then compare in-sample and out-of-sample results, and the later replay with SPY and QQQ.
-5. Select **Export** for the offline report and exact input/result CSVs.
+5. Select **Export**, then choose where to save the offline report and exact input/result CSVs.
 
 The app starts the volatility budget at QQQ's latest one-year annualized volatility, with its price date shown. This reference is separate from the stock fit window. Your edits take precedence. If the reference is unavailable, the app labels its 20% manual fallback.
 
@@ -79,17 +94,19 @@ The test status describes coverage, realized risk, and comparison results. It is
 
 ## Command line
 
-Run the app's model without a browser:
+Run the app's model without the window:
 
 ```bash
 # Offline demo
-.venv/bin/python -m efficient_frontier --target-volatility .20 --max-weight .20
+cargo run --release --bin efficient-frontier -- --target-volatility .20 --max-weight .20
 
 # Supplied stock prices, with at least ten eligible stocks
-.venv/bin/python -m efficient_frontier --csv data/prices.csv --target-volatility .20
+cargo run --release --bin efficient-frontier -- --csv data/prices.csv --target-volatility .20
 ```
 
-On Windows, use `.venv\Scripts\python.exe`. Output goes to `results/latest/`. Use `--output` to preserve separate studies. Reports contain the input prices. Keep private data in ignored `data/` or `private/` folders.
+The first run compiles the CLI. You can also build it one time with `cargo build --release`. Then run `./target/release/efficient-frontier` with the same flags. On Windows, the program is `target\release\efficient-frontier.exe`.
+
+Output goes to `results/latest/`. Use `--output` to preserve separate studies. Reports contain the input prices. Keep private data in ignored `data/` or `private/` folders.
 
 ## Reference
 
@@ -99,6 +116,6 @@ On Windows, use `.venv\Scripts\python.exe`. Output goes to `results/latest/`. Us
 - [Contributing](CONTRIBUTING.md): development setup and checks.
 - [Validation record](docs/VALIDATION.md): dated checks and limitations.
 
-The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required. Earlier findings remain in the [stock study](docs/HOLDINGS_STUDY.md) and [research archive](research/README.md).
+The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required. The Rust version replaced the Python release. Git history keeps the last Python release at commit `6c6df6e`. Earlier findings remain in the [stock study](docs/HOLDINGS_STUDY.md) and [research archive](research/README.md).
 
 Code and documentation use the [MIT License](LICENSE). [Third-party terms](THIRD_PARTY_NOTICES.md) still apply. The software license does not grant rights to download or redistribute market data.

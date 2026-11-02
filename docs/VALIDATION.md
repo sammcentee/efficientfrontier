@@ -1,5 +1,69 @@
 # Validation record
 
+## Peer-review fixes: 1 and 2 November 2026
+
+The desktop keeps its study, uploaded CSVs, and settings until the window closes. The default session store has no idle expiry. A route regression advances the session beyond the former 24-hour limit and checks that the same study and files remain available.
+
+The Settings drawer contains keyboard focus from its initial state and at both Tab boundaries. The new native-window regression reproduced a submission of the background form with the old program. It passes with the fix, including Close and Cancel focus restoration. WebKit can report the Tab key as `Unidentified`, so the handler also accepts its `Tab` key code.
+
+Price and benchmark uploads each have a 200 MiB limit. The request allows both files plus 64 KiB of form overhead. Boundary tests use small files and check both exact-limit acceptance and rejection of either file one byte over its limit. A request above the total limit also gives the per-file limit, even if the parser cannot read a filename. Errors retain the filename when it is available. The original failure case, with two CSVs of about 105 MiB each, now builds a study and retains identical input prices.
+
+The CSV loader again accepts monthly dates such as `01/2020`, `Jan 2020`, and `2020/01`. It assigns the first day of the month and retains first-value format inference. Month names accept short and full spellings in the same layout, including files that start in May. Tests cover every starting month, year rollover, date sorting, invalid and mixed layouts, and existing daily and date-time formats. The original monthly CSV and both May-first failure cases now produce CLI reports. All 36 dates and prices in each May-first case match the Python baseline.
+
+Both packages declare Rust 1.90. `cargo +1.90.0 check --locked --workspace --all-targets` passed. CI now checks that minimum version. The Windows target links the C runtime into both programs, and CI inspects their DLL imports before it uploads the artifacts. The user guide gives separate installation commands for the CLI and desktop app.
+
+Local validation passed: **526 default tests**, formatting, Clippy with `-D warnings`, JavaScript syntax, and the release builds. Both native-window tests passed on an isolated Xvfb screen. The workflow test covers the demo, CSV upload, navigation, `prices.csv`, and report ZIP saves. The default suite skips eight live network tests and the two window tests. Windows runtime imports and window behavior need the Windows CI job. The Windows Save dialog, macOS, and a physical GPU desktop remain untested.
+
+## Desktop app: 30 October 2026
+
+Portfolio Lab is now a desktop app. Tauri 2.11 shows the same pages in a native window: WebView2 on Windows and WebKitGTK on Linux. A custom `app` protocol gives the window's requests to the existing routes inside the program, so the app opens no network port. Export and **Download prices.csv** open a native Save dialog. Links to other sites open in the default browser. The browser version and its port options are removed.
+
+**516 tests passed:** 414 for the library and the CLI, and 102 for the desktop app. The desktop tests include nine tests of the protocol bridge and one test that sends a demo build and its export through the bridge to the real routes. `cargo clippy --all-targets -- -D warnings` passed for both packages.
+
+A new end-to-end test drives the release build through WebDriver (`desktop/tests/window.rs`). On Arch Linux with WebKitGTK 2.54.2, it ran on a virtual screen (Xvfb) and passed in 9 seconds. The test checks these steps:
+
+- The start page shows its title and typeset equations.
+- **S** opens Settings, the Demo market is selected, and **Ctrl+Enter** builds the study. The overview shows three charts and no error.
+- **4** and **1** switch between Data & method and the Portfolio view.
+- **Download prices.csv** and **E** (Export) open GTK's Save dialog. The saved CSV starts with `Date,`. The saved ZIP has more than 20 files, including `report.html`.
+- A study of an uploaded CSV file builds without an error.
+
+The test found one fault. WebKitGTK does not send the files of a form to a custom protocol. The page broke, and no request reached the app. The settings drawer now encodes a form with a chosen file and sends the bytes with `fetch`. A form without files keeps the normal submit. A manual run on the virtual screen used GTK's own file dialog: the whole 124,091-byte upload reached the app, and the app read the file.
+
+A first CI build also made an AppImage. On the virtual screen in WSL, which has no GPU device, the AppImage's bundled WebKit stopped with "Could not create default EGL display" and the window stayed blank. No computer with a GPU was available for a second check. The Linux programs therefore use the system's WebKitGTK, and the AppImage is removed.
+
+On the GitHub `windows-2025` runner with WebView2 155.0.4283.62, the release build opened its window. A screenshot showed the start page with typeset equations. At first, the window test did not reach the page. WebView2 ignored the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable, also for a harmless switch, and the same policy under `HKCU`. A machine policy under `HKLM` opened the remote debugging port, which showed the start page.
+
+CI now adds this policy before the window test. With the policy, the test passed on the Windows runner in 7.3 seconds. The Windows run skips the two steps with the Save dialog. In CI, the test also passed on Ubuntu 24.04 under Xvfb.
+
+WebDriver cannot show the native file dialog, so the automated test chooses the file through WebDriver. The Windows Save dialog is not automated. macOS was not tested. The programs have no code signature, so Windows SmartScreen can warn about a downloaded copy.
+
+## Rust rewrite: 30 October 2026
+
+**506 tests passed** with Rust 1.99.1. `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` also passed. By default, `cargo test` skips eight live network tests. All eight passed against Yahoo Finance, Nasdaq, and State Street with `cargo test --test network_live -- --ignored`.
+
+The Rust crate replaces the Python release. Commit `6c6df6e` is the last Python release. The `efficient-frontier` CLI keeps the flags, defaults, files, and messages of `python -m efficient_frontier`. The `portfolio-lab` web app replaces the Streamlit app. It keeps the pages, texts, equations, tables, charts, keyboard shortcuts, and export.
+
+Golden tests compare the Rust results with saved results of the Python release on synthetic prices. Most results agree within `1e-10`. These results include the stock model, the walk-forward tests, the classic frontier, and the risk profiles. They also include the legacy backtests, the benchmarks, the evidence tests, and the historical-membership study. In two cases the optimum is nearly flat. There, single weights differ by up to `3.2e-6`, and the objectives agree within `1.2e-10`.
+
+All files of nine report exports match the Python exports. The nine exports are five stock-model reports, three classic reports, and one historical report. Seven CLI runs used the demo, CSV prices, a benchmark CSV, weekly prices, the legacy backtests, and the historical demo. Their console output and exit codes were identical to the Python release. Two invalid commands gave identical error messages. The exported numbers agreed within `6.3e-10` relative, except one nearly flat optimum at `3.2e-6`.
+
+The reproduce command and its note now name `efficient-frontier`. This is the only intended text change.
+
+A live study of the default universe ran on 30 October 2026. It requested 518 S&P 500 and Nasdaq-100 stocks and kept 491 with complete prices from 2 January 2020 to 29 October 2026. The download and the study took about one minute. On the exported prices, Python and Rust gave identical console output. Their reports differed only in the order of zero-weight rows, one value that rounded differently (15.35% and 15.36%), and the reproduce command.
+
+On the same day, Rust and Python downloads gave identical QQQ and SPY prices. They also gave the same 101 Nasdaq-100 members, the same 503 SPY stocks, and the same company profile. The QQQ reference differed by `1.8e-7` relative. Yahoo returned slightly different adjusted closes for repeated requests.
+
+The optimizer benchmark used 40 frontier points and no extra cap. Rust took 0.120, 4.034, and 21.386 seconds for 100, 500, and 1,000 assets. The Python release took 0.169, 4.498, and 22.236 seconds on the same machine. Rust used 5 to 108 MiB of memory, and Python used 197 to 475 MiB. Both use Clarabel 0.11.1 with its faer solver for large problems. On the 491-stock live prices, a complete stock-model run took 13.3 seconds in Rust and 16.4 seconds in Python.
+
+Headless Chromium checked the opening page, the settings drawer, a demo build, both result views, the export, and the 390-pixel layout. No section failed. The overview showed 3 Plotly charts and 57 typeset equations, and the console had no errors. The exported ZIP had all 23 files. A comparison with the original Streamlit app showed the same content.
+
+An independent review found five problems in the web app and the CSV reader. All five are fixed. The app now refuses requests from other websites and removes idle sessions. A cancelled build stops at the next download batch. A settings check sends only a file digest, not the file. An export from a page with an older study now gets a clear message.
+
+The Input prices table now draws only the visible rows and columns. For 491 stocks and 1,717 dates, it appeared in 0.34 seconds instead of 10.9 seconds. On 47 CSV cases, the Rust loader gave the same result and message as the Python loader.
+
+Checks used a separate server, and no visible window opened. Windows and macOS builds were not tested. Automatic browser opening and physical devices were not tested.
+
 ## In-sample and out-of-sample walk-forward tests: 18 October 2026
 
 **955 tests passed** with Python 3.14 and the existing pandas invalid-date warning. Dependency and whitespace checks passed. Both offline CLI modes completed. A second CLI run into the same folder replaced the walk-forward files.
