@@ -6,7 +6,7 @@ The default branch is `main`. The owner authorized public source publication on 
 
 - Include the project's MIT license and preserve third-party licenses and notices. Keep the README accurate about the license scope; the project license does not grant rights to third-party software or data.
 - Confirm rights to any newly added code or data. The owner confirmed publication rights for the original R script and `spy_holdings.ods` on 2026-10-03. The spreadsheet is a static list of 60 symbols, not a historical index-membership dataset.
-- Review Git authorship metadata. Existing commits contain the author's personal email; changing future Git settings does not remove it from earlier commits. No history rewrite has been performed.
+- Use the owner's GitHub `noreply` email for commits, merges, and tags. Inspect author, committer, tagger, and co-author metadata before publication. Local Git settings do not control GitHub web merges.
 - Review tracked files and history for credentials and private data. The publication audit covered the four prior commits plus the release-preparation files; it is not a guarantee about later changes or every possible secret.
 - Keep downloaded market prices and reports containing them out of public examples unless redistribution is permitted by the provider's terms. Use the deterministic synthetic demo for release screenshots and examples.
 - Verify that the security-reporting route described in `SECURITY.md` works, and review the repository's secret-scanning and dependency-alert settings.

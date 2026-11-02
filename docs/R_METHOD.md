@@ -67,7 +67,7 @@ The same model can have a strong fitted frontier and weaker later returns. For t
 
 ## Reproduce the reference comparison
 
-The reference script is Python. It uses NumPy, pandas, and CVXPY, but not the app. The Rust version does not install these packages. Use the Python release at commit `6c6df6e`. The [research archive](../research/README.md#run-the-archived-scripts) shows how to check out that commit and install its packages. Then run this command from the root of that checkout:
+The reference script is Python. It uses NumPy, pandas, and CVXPY, but not the app. The Rust version does not install these packages. Use the Python release at commit `2e5f21c`. The [research archive](../research/README.md#run-the-archived-scripts) shows how to check out that commit and install its packages. Then run this command from the root of that checkout:
 
 ```bash
 .venv/bin/python research/reproduce_r_frontier.py \

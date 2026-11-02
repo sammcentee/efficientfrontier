@@ -46,7 +46,7 @@ Add `--max-weight .01` to benchmark an optional 1% position cap. For each size, 
 
 ## Compare with the Python release
 
-The Python benchmark is `benchmarks/optimizer.py` at commit `6c6df6e`. Check out that commit and install its packages, as the [research archive](../research/README.md#run-the-archived-scripts) shows. Then run this command from the root of that checkout:
+The Python benchmark is `benchmarks/optimizer.py` at commit `2e5f21c`. Check out that commit and install its packages, as the [research archive](../research/README.md#run-the-archived-scripts) shows. Then run this command from the root of that checkout:
 
 ```bash
 .venv/bin/python -m benchmarks.optimizer \
@@ -66,6 +66,6 @@ This record describes the Python release. It compared the Python optimizer befor
 | 500 | 9.644 s | 4.286 s | 303.1 MiB | 268.3 MiB |
 | 1,000 | 29.769 s | 20.757 s | 601.3 MiB | 461.1 MiB |
 
-A 2,000-asset case with 40 points did not complete in the 60-second budget. The value 2,000 is not an application cap. `docs/PERFORMANCE.md` at commit `6c6df6e` keeps the full record and the list of changes.
+A 2,000-asset case with 40 points did not complete in the 60-second budget. The value 2,000 is not an application cap. `docs/PERFORMANCE.md` at commit `2e5f21c` keeps the full record and the list of changes.
 
 References: [Clarabel Rust interface](https://clarabel.org/stable/rust/getting_started_rs/), [Clarabel API documentation](https://docs.rs/clarabel/0.11.1/clarabel/), and [Clarabel solver settings](https://clarabel.org/stable/api_settings/).

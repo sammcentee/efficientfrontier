@@ -2,7 +2,7 @@
 
 This study asks whether a simple index rule beats both SPY and QQQ after trading costs at the same volatility. It does not change the app's portfolio model.
 
-This is an archived experiment. The current app uses the stock-only frontier described in [the R comparison](../docs/R_METHOD.md). For the exact recorded experiment below, use commit `df60ade` in a separate checkout. Its selection lock intentionally rejects later code changes. A new run on revised code is a new experiment.
+This is an archived experiment. The current app uses the stock-only frontier described in [the R comparison](../docs/R_METHOD.md). For the exact recorded experiment below, use commit `67eb26d` in a separate checkout. Its selection lock intentionally rejects later code changes. A new run on revised code is a new experiment.
 
 The scripts in this folder need the Python release. Refer to [Run the archived scripts](#run-the-archived-scripts).
 
@@ -58,10 +58,10 @@ Simultaneous 97.5% lower bounds cover all candidates in each prespecified risk-c
 
 ## Run the archived scripts
 
-The scripts in this folder are Python. Most of them import the Python package `efficient_frontier` of the Python release. `reproduce_r_frontier.py` uses only NumPy, pandas, and CVXPY. The Rust version of this repository does not contain the package or install these libraries. Commit `6c6df6e` is the last Python release. You need a Git clone of the repository, not the ZIP download. Run these commands from the root of the clone. They check out that commit in a separate worktree and install its packages:
+The scripts in this folder are Python. Most of them import the Python package `efficient_frontier` of the Python release. `reproduce_r_frontier.py` uses only NumPy, pandas, and CVXPY. The Rust version of this repository does not contain the package or install these libraries. Commit `2e5f21c` is the last Python release. You need a Git clone of the repository, not the ZIP download. Run these commands from the root of the clone. They check out that commit in a separate worktree and install its packages:
 
 ```bash
-git worktree add ../efficientfrontier-python 6c6df6e
+git worktree add ../efficientfrontier-python 2e5f21c
 cd ../efficientfrontier-python
 python3.14 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
@@ -69,7 +69,7 @@ python3.14 -m venv .venv
 
 Python 3.14 was the tested version of the Python release. On Windows, create the environment with `py -3.14 -m venv .venv`. Then use `.venv\Scripts\python.exe` in place of `.venv/bin/python`.
 
-For the exact recorded index experiment, use commit `df60ade` in place of `6c6df6e`. The code hashes in `selection_lock.json` match that commit. Commit `6c6df6e` changed two of the recorded files, `efficient_frontier/core.py` and `efficient_frontier/selection.py`. Thus a run at `6c6df6e` is a new experiment. Commit `df60ade` does not contain `reproduce_r_frontier.py`. Run that script at `6c6df6e`.
+For the exact recorded index experiment, use commit `67eb26d` in place of `2e5f21c`. The code hashes in `selection_lock.json` match that commit. Commit `2e5f21c` changed two of the recorded files, `efficient_frontier/core.py` and `efficient_frontier/selection.py`. Thus a run at `2e5f21c` is a new experiment. Commit `67eb26d` does not contain `reproduce_r_frontier.py`. Run that script at `2e5f21c`.
 
 ## Reproduce the study
 

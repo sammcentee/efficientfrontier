@@ -66,7 +66,7 @@ For calculation changes, add a case with a known mathematical answer or a regres
 
 ## Parity with the Python release
 
-`tests/fixtures/golden/` contains golden results from the Python release at commit `6c6df6e`. The `generate_*.py` scripts in that folder made these results. The Rust tests compare their results with the golden files. Weights and metrics usually agree to 1e-10. A few almost flat optima differ by approximately 1e-6, with equal objectives. The [fixture notes](tests/fixtures/golden/README.md) tell how to make a set again.
+`tests/fixtures/golden/` contains golden results from the Python release at commit `2e5f21c`. The `generate_*.py` scripts in that folder made these results. The Rust tests compare their results with the golden files. Weights and metrics usually agree to 1e-10. A few almost flat optima differ by approximately 1e-6, with equal objectives. The [fixture notes](tests/fixtures/golden/README.md) tell how to make a set again.
 
 The Rust version converts each number in CSV text to the nearest floating-point value. The default parser of pandas can differ by one unit in the last place. The effect on results is approximately 1e-16.
 

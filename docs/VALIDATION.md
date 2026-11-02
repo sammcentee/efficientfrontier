@@ -42,7 +42,7 @@ WebDriver cannot show the native file dialog, so the automated test chooses the 
 
 **506 tests passed** with Rust 1.99.1. `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` also passed. By default, `cargo test` skips eight live network tests. All eight passed against Yahoo Finance, Nasdaq, and State Street with `cargo test --test network_live -- --ignored`.
 
-The Rust crate replaces the Python release. Commit `6c6df6e` is the last Python release. The `efficient-frontier` CLI keeps the flags, defaults, files, and messages of `python -m efficient_frontier`. The `portfolio-lab` web app replaces the Streamlit app. It keeps the pages, texts, equations, tables, charts, keyboard shortcuts, and export.
+The Rust crate replaces the Python release. Commit `2e5f21c` is the last Python release. The `efficient-frontier` CLI keeps the flags, defaults, files, and messages of `python -m efficient_frontier`. The `portfolio-lab` web app replaces the Streamlit app. It keeps the pages, texts, equations, tables, charts, keyboard shortcuts, and export.
 
 Golden tests compare the Rust results with saved results of the Python release on synthetic prices. Most results agree within `1e-10`. These results include the stock model, the walk-forward tests, the classic frontier, and the risk profiles. They also include the legacy backtests, the benchmarks, the evidence tests, and the historical-membership study. In two cases the optimum is nearly flat. There, single weights differ by up to `3.2e-6`, and the objectives agree within `1.2e-10`.
 

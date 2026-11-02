@@ -116,6 +116,6 @@ Output goes to `results/latest/`. Use `--output` to preserve separate studies. R
 - [Contributing](CONTRIBUTING.md): development setup and checks.
 - [Validation record](docs/VALIDATION.md): dated checks and limitations.
 
-The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required. The Rust version replaced the Python release. Git history keeps the last Python release at commit `6c6df6e`. Earlier findings remain in the [stock study](docs/HOLDINGS_STUDY.md) and [research archive](research/README.md).
+The original `Efficient Frontier v1.12.R` and `spy_holdings.ods` remain historical files. R is not required. The Rust version replaced the Python release. Git history keeps the last Python release at commit `2e5f21c`. Earlier findings remain in the [stock study](docs/HOLDINGS_STUDY.md) and [research archive](research/README.md).
 
 Code and documentation use the [MIT License](LICENSE). [Third-party terms](THIRD_PARTY_NOTICES.md) still apply. The software license does not grant rights to download or redistribute market data.
