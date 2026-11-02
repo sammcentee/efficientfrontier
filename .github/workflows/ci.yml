@@ -74,6 +74,9 @@ jobs:
         run: cargo test --locked -p portfolio-lab
       - name: Build the programs
         run: cargo build --locked --release -p portfolio-lab -p efficient-frontier
+      - name: Check the GLib iterator backport
+        if: runner.os == 'Linux'
+        run: cargo test --locked --release -p portfolio-lab --bin portfolio-lab tests::glib_variant_str_iter
       - name: Check the Windows runtime dependencies
         if: runner.os == 'Windows'
         shell: pwsh
