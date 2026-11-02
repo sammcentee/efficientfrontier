@@ -4,7 +4,7 @@ Original project code and documentation are licensed under the [MIT License](LIC
 
 ## Rust dependencies
 
-Cargo downloads these direct dependencies of the library, the CLI, and the desktop app from crates.io when it builds them. `Cargo.lock` pins every version. Their source code is not vendored in this repository. Licenses and notices remain available in each crate and its upstream project.
+Cargo downloads these direct dependencies of the library, the CLI, and the desktop app from crates.io when it builds them. `Cargo.lock` pins every version. Except for the GLib backport below, their source code is not vendored in this repository. Licenses and notices remain available in each crate and its upstream project.
 
 | Dependency | Upstream license | Project |
 | --- | --- | --- |
@@ -27,6 +27,10 @@ Cargo downloads these direct dependencies of the library, the CLI, and the deskt
 | tempfile (tests only) | MIT OR Apache-2.0 | [Stebalien/tempfile](https://github.com/Stebalien/tempfile) |
 
 This list covers direct dependencies, not the complete set of transitive crates. Run `cargo tree` for the full set. Preserve the crates' own notices when you redistribute a compiled binary.
+
+### Vendored GLib security backport
+
+The Linux desktop dependency graph uses the complete MIT-licensed `glib` 0.18.5 crate in [vendor/glib](vendor/glib). Its upstream [LICENSE](vendor/glib/LICENSE) and [COPYRIGHT](vendor/glib/COPYRIGHT) remain unchanged. The only source changes are the two-line fix from [gtk-rs/gtk-rs-core PR #1343](https://github.com/gtk-rs/gtk-rs-core/pull/1343/files) for [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html) / GHSA-wrw7-89jp-8q8g. The [backport note](vendor/glib/BACKPORT.md) records the archive checksum, patch, and regression command.
 
 ## System web views
 

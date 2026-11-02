@@ -10,6 +10,10 @@ publish = false
 
 [workspace]
 members = ["desktop"]
+exclude = ["vendor/glib"]
+
+[patch.crates-io]
+glib = { path = "vendor/glib" }
 
 [lib]
 name = "efficient_frontier"

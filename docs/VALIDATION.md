@@ -1,5 +1,15 @@
 # Validation record
 
+## GLib iterator backport: 2 November 2026
+
+The Linux desktop dependency graph uses `glib` 0.18.5, which has RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g. The Windows target and the CLI do not include this dependency. GTK requires GLib 0.18, so the fixed upstream 0.20 release cannot replace it without a dependency migration.
+
+The repository now vendors the complete 0.18.5 crate and applies the exact two-line upstream fix. Its archive checksum matches the former lockfile. All 121 upstream files remain present; 120 are byte-identical, and only `src/variant_iter.rs` changes. The separate [backport note](../vendor/glib/BACKPORT.md) records the source, patch, and optimized regression command. All other registry entries and all package versions remain unchanged.
+
+Optimized forward, backward, and mixed iterator probes each failed with `SIGSEGV` before the fix. All three pass after it, including empty and Unicode strings. CI runs these regressions in the release profile on Linux. The crate retains version 0.18.5, so version-only security checks can still report the advisory.
+
+Local validation passed: **529 default Linux tests**, the three optimized regressions, formatting, workspace Clippy, the Rust 1.90 workspace check, and both release builds. Both native-window tests passed on an isolated Xvfb screen with X11 and private D-Bus. The CLI help test also passed separately. Eight live network tests remain ignored by the default suite. Preserved upstream code emits 34 compiler warnings. Windows compilation and runtime checks remain with CI.
+
 ## Peer-review fixes: 1 and 2 November 2026
 
 The desktop keeps its study, uploaded CSVs, and settings until the window closes. The default session store has no idle expiry. A route regression advances the session beyond the former 24-hour limit and checks that the same study and files remain available.
