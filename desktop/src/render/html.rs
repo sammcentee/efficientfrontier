@@ -5,9 +5,10 @@
 //! numbered lists and inline `$...$` mathematics. KaTeX renders the mathematics
 //! in the browser. Data text, such as error messages and notes, is escaped only.
 
-use efficient_frontier::plot::Figure;
+use efficient_frontier::plot::{Figure, script_json};
 use efficient_frontier::pyfmt;
 use efficient_frontier::style::plotly_config;
+use serde_json::{Value, json};
 
 use crate::guard::guard;
 
@@ -165,8 +166,20 @@ pub fn expander(label_html: &str, body: &str) -> String {
 }
 
 /// `st.plotly_chart(figure, theme=None, config=PLOTLY_CONFIG)`.
+///
+/// The figure goes into the page as data, in the light colors of the reports.
+/// `app.js` draws it in the colors of the page's theme, and again after a change of theme.
 pub fn chart(figure: &Figure, id: &str) -> String {
-    format!(r#"<div class="pl-chart">{}</div>"#, figure.to_html(id, &plotly_config()))
+    let height = match figure.layout.get("height").and_then(Value::as_f64) {
+        Some(height) => format!("height:{}px; width:100%;", pyfmt::g(height)),
+        None => "height:100%; width:100%;".to_string(),
+    };
+    let source = script_json(&json!({
+        "data": figure.data, "layout": figure.full_layout(), "config": plotly_config(),
+    }));
+    format!(
+        r#"<div class="pl-chart"><div id="{id}" class="plotly-graph-div" style="{height}"></div><script type="application/json" data-chart="{id}">{source}</script></div>"#
+    )
 }
 
 /// The message in place of a section that failed, as Streamlit shows an exception.
@@ -225,6 +238,26 @@ mod tests {
         assert_eq!(md("### Heading"), r#"<h3 class="pl-md-heading">Heading</h3>"#);
         assert_eq!(md("First.\n\nSecond <b>"), "<p>First.</p><p>Second &lt;b&gt;</p>");
         assert_eq!(md("Costs $5 only"), "<p>Costs $5 only</p>", "a single dollar sign is text");
+    }
+
+    #[test]
+    fn a_chart_is_data_for_the_page_script() {
+        let mut figure = Figure::with_trace(json!({"name": "</script><b>", "line": {"color": "#0071e3"}}));
+        figure.update_layout(json!({"height": 360, "font": {"color": "#6e6e73"}}));
+        figure.add_vline(json!(0.2), json!({"dash": "dot"}), None);
+        let html = chart(&figure, "pl-chart-replay");
+        assert!(html.starts_with(
+            r#"<div class="pl-chart"><div id="pl-chart-replay" class="plotly-graph-div" style="height:360px; width:100%;"></div><script type="application/json" data-chart="pl-chart-replay">{"#
+        ));
+        assert!(!html.contains("Plotly.newPlot") && !html.contains("</script><b>"), "{html}");
+        let source =
+            html.split_once(r#"data-chart="pl-chart-replay">"#).unwrap().1.strip_suffix("</script></div>").unwrap();
+        let source: Value = serde_json::from_str(source).expect("JSON for the page script");
+        assert_eq!(source["data"][0]["name"], "</script><b>");
+        assert_eq!(source["data"][0]["line"]["color"], "#0071e3", "the server sends the light colors");
+        assert_eq!(source["layout"]["shapes"][0]["x0"], 0.2);
+        assert_eq!(source["config"], plotly_config());
+        assert!(chart(&Figure::new(), "c").contains(r#"style="height:100%; width:100%;""#));
     }
 
     #[test]

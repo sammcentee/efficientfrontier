@@ -1,6 +1,6 @@
-// Portfolio Lab browser script: equations, the settings drawer, number inputs,
-// keyboard shortcuts, the work card and lazy tables. No framework, no network
-// service: every request goes to this computer's server.
+// Portfolio Lab browser script: the theme, charts, equations, the settings drawer,
+// number inputs, keyboard shortcuts, the work card and lazy tables. No framework,
+// no network service: every request goes to this computer's server.
 "use strict";
 
 (() => {
@@ -8,6 +8,79 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const drawerRoot = document.getElementById("pl-drawer-root");
   const same = { credentials: "same-origin" };
+
+  // ---------------------------------------------------------------- theme and charts
+
+  const root = document.documentElement;
+  const THEME_KEY = "pl-theme"; // The script in the page's head reads the same key.
+
+  /** The page's theme: dark unless the stored choice is light. */
+  const theme = () => (root.dataset.theme === "light" ? "light" : "dark");
+
+  /** The chart colors of the light palette (style.rs) and their counterparts in the dark
+   *  palette of app.css. White rings and label text take the tile color. */
+  const DARK_CHART = {
+    "#1d1d1f": "#f5f5f7", // ink
+    "#424245": "#d1d1d6", // ink 2
+    "#6e6e73": "#a1a1a6", // ink 3
+    "#c7c7cc": "#55555a", // rest
+    "#e8e8ed": "#303033", // grid
+    "#f2f2f4": "#2a2a2d", // fill
+    "#f5f5f7": "#0e0e10", // canvas
+    "#ffffff": "#1c1c1e", // tile
+    "#0071e3": "#2997ff", // accent, and the middle risk level
+    "#5e9eea": "#2f6db8", // the lowest risk level
+    "#0a3f8f": "#9bd0ff", // the highest risk level
+    "#8e8e93": "#7d7d82", // SPY
+    "#545458": "#d1d1d6", // QQQ
+    "rgba(0,113,227,": "rgba(41,151,255,", // accent wash
+  };
+  const CHART_COLOR = /#[0-9a-f]{6}\b|rgba\(0,113,227,/gi;
+
+  /** A figure from the server, which sends the light colors, in the colors of the theme. */
+  function figure(source) {
+    const text = source.textContent;
+    return JSON.parse(theme() === "dark" ? text.replace(CHART_COLOR, (color) => DARK_CHART[color.toLowerCase()] ?? color) : text);
+  }
+
+  /** Draw every chart of the page, or draw it again after a change of theme. */
+  function drawCharts() {
+    if (!window.Plotly) return;
+    for (const source of document.querySelectorAll("script[data-chart]")) {
+      const { data, layout, config } = figure(source);
+      Plotly.react(source.dataset.chart, data, layout, config);
+    }
+  }
+
+  /** The theme button names the theme that it changes to. */
+  function labelThemeButtons() {
+    const label = theme() === "dark" ? "Use the light theme" : "Use the dark theme";
+    for (const button of document.querySelectorAll("[data-theme-toggle]")) {
+      button.title = label;
+      button.setAttribute("aria-label", label);
+    }
+  }
+
+  /** Tell the app, so that the window's title bar matches the page. */
+  function styleWindow() {
+    fetch("/api/theme", { method: "POST", body: new URLSearchParams({ theme: theme() }), ...same }).catch(() => undefined);
+  }
+
+  function setTheme(next) {
+    root.dataset.theme = next;
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch {
+      // Without storage, the choice lasts until the next page.
+    }
+    labelThemeButtons();
+    drawCharts();
+    styleWindow();
+  }
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("[data-theme-toggle]")) setTheme(theme() === "dark" ? "light" : "dark");
+  });
 
   // ---------------------------------------------------------------- equations
 
@@ -564,6 +637,10 @@
   }
 
   function start() {
+    labelThemeButtons();
+    // The window starts dark, as the pages do.
+    if (theme() === "light") styleWindow();
+    drawCharts();
     localizeKeys(document);
     renderMath(document);
     // Typeset equations change the layout, so return to the target of a view switch.

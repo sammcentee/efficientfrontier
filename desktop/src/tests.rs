@@ -27,6 +27,7 @@ use crate::session::{IDLE_LIMIT, Session, Sessions, lock};
 use crate::setup::{Market, hex};
 use crate::sources::{Cancelled, CompanyProfile, Progress, QqqReference, Sources, UniversePrices, cancelled_error};
 use crate::state::AppState;
+use crate::theme::{self, Theme};
 
 // Run with --release to check the optimizer-sensitive RUSTSEC-2024-0429 regression.
 #[cfg(target_os = "linux")]
@@ -2078,6 +2079,66 @@ async fn draft_checks_compare_file_digests_without_file_bytes() {
     }
 }
 
+// ----------------------------------------------------------------------------- theme
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_page_starts_dark_and_offers_the_other_theme() {
+    let themed = |page: &str| {
+        assert!(page.starts_with("<!doctype html>\n<html lang=\"en\" data-theme=\"dark\">\n<head>"), "{}", &page[..80]);
+        let head = page.split("</head>").next().unwrap();
+        let script = head.find(r#"localStorage.getItem("pl-theme")==="light""#).expect("the stored theme applies");
+        assert!(script < head.find(r#"rel="stylesheet""#).unwrap(), "before the style sheets draw the page");
+    };
+    let mut app = TestApp::new(Fake::universe());
+    let landing = app.page().await;
+    themed(&landing);
+    let actions = element(&landing, "landing_actions");
+    assert!(actions.find(r#"id="edit_setup""#).unwrap() < actions.find(r#"id="theme_toggle""#).unwrap());
+    assert_eq!(landing.matches("data-theme-toggle").count(), 1);
+    assert!(element(&landing, "theme_toggle").contains(r#"aria-label="Use the light theme""#));
+
+    let mut app = demo_app().await;
+    let overview = app.page().await;
+    themed(&overview);
+    let nav = element(&overview, "localnav");
+    let position = |id: &str| nav.find(&format!(r#"id="{id}""#)).unwrap_or_else(|| panic!("no {id} in the nav bar"));
+    assert!(position("edit_setup") < position("theme_toggle") && position("theme_toggle") < position("export"));
+    // The page script draws the charts in the colors of the theme.
+    assert_eq!(overview.matches(r#"<script type="application/json" data-chart="pl-chart-"#).count(), 3);
+    assert!(!overview.contains("Plotly.newPlot"));
+
+    app.build(&[("cap", "5")], &[]).await;
+    let error = app.page().await;
+    themed(&error);
+    assert!(error.contains(r#"data-page="error""#) && has_element(&error, "theme_toggle"));
+    let message = app.get("/export").await;
+    assert_eq!(message.status, StatusCode::NOT_FOUND);
+    themed(&message.body);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_theme_route_names_the_theme_and_keeps_no_state() {
+    let mut app = TestApp::new(Fake::universe());
+    for theme in [Theme::Light, Theme::Dark] {
+        let reply = app.form("/api/theme", &[("theme", theme.key())]).await;
+        assert_eq!(reply.status, StatusCode::NO_CONTENT);
+        assert_eq!(reply.headers[theme::HEADER], theme.key());
+        assert!(reply.body.is_empty());
+    }
+    for fields in [&[("theme", "sepia")][..], &[("theme", "")], &[("mode", "dark")]] {
+        let reply = app.form("/api/theme", fields).await;
+        assert!(reply.status.is_client_error(), "{fields:?}: {}", reply.status);
+        assert!(!reply.headers.contains_key(theme::HEADER), "{fields:?}");
+    }
+    assert_eq!(app.state.sessions.count(), 0, "the theme needs no session");
+    assert!(app.cookie.is_none() && app.fake.calls().is_empty());
+    let form = Some("application/x-www-form-urlencoded".to_string());
+    let foreign = [HOST, ("origin", "https://evil.example"), ("sec-fetch-site", "cross-site")];
+    let reply = app.send_with(Method::POST, "/api/theme", &foreign, form, b"theme=light".to_vec()).await;
+    assert_eq!(reply.status, StatusCode::FORBIDDEN);
+    assert!(!reply.headers.contains_key(theme::HEADER));
+}
+
 // ----------------------------------------------------------------------------- the window's protocol
 
 /// A request of the window's web view, through the bridge. A download panics.
@@ -2089,6 +2150,7 @@ async fn through_window(bridge: &Bridge, method: Method, path: &str, headers: &[
             body: String::from_utf8_lossy(response.body()).into_owned(),
         },
         Forwarded::Download(download) => panic!("{path} offered {} for download", download.name),
+        Forwarded::Theme(theme) => panic!("{path} named the {} theme", theme.key()),
     }
 }
 
@@ -2136,7 +2198,20 @@ async fn the_window_builds_a_demo_study_and_gets_its_report_as_a_download() {
             assert!(download.bytes.starts_with(b"PK"), "a zip file");
         }
         Forwarded::Page(response) => panic!("the export answered {}", response.status()),
+        Forwarded::Theme(theme) => panic!("the export named the {} theme", theme.key()),
     }
+
+    // The page's theme goes to the window, not to the web view.
+    let theme_form = [
+        ("sec-fetch-mode", "cors"),
+        ("sec-fetch-site", "same-origin"),
+        ("origin", own),
+        ("content-type", "application/x-www-form-urlencoded"),
+    ];
+    let named = bridge.forward(webview_request(Method::POST, "/api/theme", &theme_form, b"theme=light".to_vec())).await;
+    assert!(matches!(named, Forwarded::Theme(Theme::Light)));
+    let unknown = through_window(&bridge, Method::POST, "/api/theme", &theme_form, b"theme=sepia".to_vec()).await;
+    assert_eq!(unknown.status, StatusCode::BAD_REQUEST);
 
     let foreign = [("sec-fetch-mode", "navigate"), ("sec-fetch-site", "cross-site"), ("origin", "https://example.com")];
     let refused = through_window(&bridge, Method::POST, "/build", &[&foreign[..], &post[3..]].concat(), form).await;

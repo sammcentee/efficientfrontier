@@ -35,6 +35,8 @@ The **Efficient Frontier Analysis for US Equities** opening page introduces the 
 
 The default universe combines SPY stock holdings and Nasdaq-100 stocks. Select **Build portfolio** to download the stock prices and run the model. During calculation, the app shows progress and **Cancel**. **Settings** returns in the results navigation.
 
+The app opens in a dark theme. The sun button beside **Settings** changes to the light theme, and the moon button changes back. The charts and the window's title bar follow the theme. The app keeps your choice for later starts. Exported reports always use the light theme, which also prints well.
+
 | Setting | Effect |
 | --- | --- |
 | Annual volatility budget | Limits fitted annual volatility. Future volatility and losses can exceed it. |

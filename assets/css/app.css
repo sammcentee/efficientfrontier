@@ -2,6 +2,28 @@
    Adapted from streamlit_app.css and the Streamlit theme in .streamlit/config.toml.
    Loads after tokens.css and before story.css. */
 
+/* 0 Themes. tokens.css has the light palette, which exported reports share. The app adds
+   surface colors of its own, and the dark palette. A page is dark unless the stored
+   choice is light (theme.rs). */
+:root{color-scheme:light;--pl-field:#fff;--pl-raised:#fff;--pl-on-ink:#fff;--pl-on-ink-soft:rgba(255,255,255,.62);--pl-ink-hover:#000;
+ --pl-nav:rgba(245,245,247,.8);--pl-nav-line:rgba(0,0,0,.08);--pl-info:#ededf0;--pl-warn:#fff5e6;--pl-warn-ink:#7a4100;
+ --pl-scrim:rgba(29,29,31,.28);--pl-shadow:rgba(0,0,0,.2);--pl-edge:rgba(0,0,0,.04);--pl-tile-clear:rgba(255,255,255,0);
+ --pl-shimmer:#fafafb}
+:root[data-theme="dark"]{color-scheme:dark;
+ --pl-canvas:#0e0e10;--pl-tile:#1c1c1e;--pl-ink:#f5f5f7;--pl-ink-2:#d1d1d6;--pl-ink-3:#a1a1a6;--pl-ink-4:#86868b;
+ --pl-hair:#424245;--pl-hair-soft:#303033;--pl-fill:#2a2a2d;--pl-track:#3a3a3d;--pl-accent:#2997ff;--pl-accent-wash:rgba(41,151,255,.16);
+ --pl-rest:#55555a;--pl-spy:#7d7d82;--pl-qqq:#d1d1d6;--pl-risk-low:#2f6db8;--pl-risk-med:#2997ff;--pl-risk-high:#9bd0ff;
+ --pl-error:#ff6961;--pl-error-wash:#3b1f1f;--pl-error-ink:#ffb4ab;--pl-focus:0 0 0 4px rgba(41,151,255,.45);
+ --pl-field:#232326;--pl-raised:#636366;--pl-on-ink:#1d1d1f;--pl-on-ink-soft:rgba(29,29,31,.62);--pl-ink-hover:#fff;
+ --pl-nav:rgba(14,14,16,.8);--pl-nav-line:rgba(255,255,255,.1);--pl-info:#2a2a2d;--pl-warn:#3a2c12;--pl-warn-ink:#ffd591;
+ --pl-scrim:rgba(0,0,0,.5);--pl-shadow:rgba(0,0,0,.6);--pl-edge:rgba(255,255,255,.08);--pl-tile-clear:rgba(28,28,30,0);
+ --pl-shimmer:#38383b}
+/* story.css is the reports' style sheet and names four light colors. The app's pages take them from the theme. */
+.pl-app .pl-glyph{color:var(--pl-on-ink)}
+.pl-app .pl-forest .f-dot{box-shadow:0 0 0 2px var(--pl-tile)}
+.pl-app .pl-keys kbd{background:var(--pl-field)}
+.pl-app .pl-skel{background-image:linear-gradient(90deg,var(--pl-fill) 0%,var(--pl-shimmer) 50%,var(--pl-fill) 100%)}
+
 /* 1 Base */
 *,*::before,*::after{box-sizing:border-box}
 html{scroll-padding-top:72px;-webkit-text-size-adjust:100%}
@@ -17,9 +39,9 @@ body.pl-drawer-open{overflow:hidden}
 [hidden]{display:none!important}
 
 /* 2 Nav bar */
-.pl-nav{position:sticky;top:0;z-index:990;background:rgba(245,245,247,.8);
+.pl-nav{position:sticky;top:0;z-index:990;background:var(--pl-nav);
  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);
- box-shadow:inset 0 -1px 0 rgba(0,0,0,.08)}
+ box-shadow:inset 0 -1px 0 var(--pl-nav-line)}
 .pl-nav-inner{display:flex;align-items:center;gap:16px;max-width:1072px;min-height:52px;margin:0 auto;padding:0 24px}
 .pl-wordmark{flex:1;min-width:0;font:600 19px/1.2 var(--pl-display);letter-spacing:-.02em;color:var(--pl-ink)}
 .pl-view-switch{display:flex;gap:20px}
@@ -32,24 +54,24 @@ body.pl-drawer-open{overflow:hidden}
 
 /* 3 Buttons */
 .pl-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 18px;
- border:1px solid var(--pl-hair);border-radius:980px;background:#fff;color:var(--pl-ink);font:500 15px/1.2 var(--pl-font);
+ border:1px solid var(--pl-hair);border-radius:980px;background:var(--pl-field);color:var(--pl-ink);font:500 15px/1.2 var(--pl-font);
  letter-spacing:-.01em;text-decoration:none;white-space:nowrap;cursor:pointer;
  transition:background .16s var(--pl-ease),border-color .16s var(--pl-ease)}
 .pl-btn:hover{border-color:var(--pl-ink-4)}
 .pl-btn:disabled{opacity:.45;cursor:default}
-.pl-btn-primary{border-color:var(--pl-ink);background:var(--pl-ink);color:#fff}
-.pl-btn-primary:hover{border-color:#000;background:#000}
+.pl-btn-primary{border-color:var(--pl-ink);background:var(--pl-ink);color:var(--pl-on-ink)}
+.pl-btn-primary:hover{border-color:var(--pl-ink-hover);background:var(--pl-ink-hover)}
 .pl-btn-tertiary{border-color:transparent;background:transparent}
 .pl-btn-tertiary:hover{border-color:transparent;background:var(--pl-hair-soft)}
-.pl-btn-outline{border-color:var(--pl-hair);background:#fff}
+.pl-btn-outline{border-color:var(--pl-hair);background:var(--pl-field)}
 .pl-btn-large{min-height:48px;padding:0 28px;font-size:17px}
 .pl-btn kbd{font-family:var(--pl-font);font-size:.92em;font-weight:400;line-height:1;color:var(--pl-ink-4)}
-.pl-btn-primary kbd,.pl-btn-build kbd{color:rgba(255,255,255,.62)}
+.pl-btn-primary kbd,.pl-btn-build kbd{color:var(--pl-on-ink-soft)}
 .pl-icon{width:18px;height:18px;flex:none}
 /* T3 ultrathink spectrum, kept inside a rounded outline around the dark action. */
 .pl-btn-build{position:relative;isolation:isolate;min-height:48px;padding:0 28px;border:0;border-radius:14px;
- background:var(--pl-ink);color:#fff;font-size:17px}
-.pl-btn-build:hover{background:#000}
+ background:var(--pl-ink);color:var(--pl-on-ink);font-size:17px}
+.pl-btn-build:hover{background:var(--pl-ink-hover)}
 .pl-btn-build::before{content:"";position:absolute;inset:0;padding:2px;border-radius:inherit;pointer-events:none;
  background:linear-gradient(120deg,#ff6b6b 0%,#f59e0b 18%,#22c55e 36%,#14b8a6 54%,#3b82f6 72%,#ec4899 90%,#ff6b6b 100%);
  filter:saturate(.82) brightness(.92);
@@ -61,14 +83,18 @@ body.pl-drawer-open{overflow:hidden}
  background:transparent;color:var(--pl-ink);cursor:pointer}
 .pl-icon-btn:hover{background:var(--pl-hair-soft)}
 .pl-icon-btn svg{width:20px;height:20px}
+/* The theme button shows the theme that it changes to: the sun on a dark page. */
+.pl-theme-toggle{flex:none}
+.pl-theme-moon,:root[data-theme="light"] .pl-theme-sun{display:none}
+:root[data-theme="light"] .pl-theme-moon{display:block}
 @media (hover:none){.pl-btn kbd{display:none}}
 
 /* 4 Text, alerts and captions */
 .pl-caption{display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.5;color:var(--pl-ink-3)}
 .pl-caption p{font-size:inherit;line-height:inherit;color:inherit}
 .pl-alert{display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:16px;font-size:16px;line-height:1.55}
-.pl-alert-info{background:#ededf0;color:var(--pl-ink)}
-.pl-alert-warning{background:#fff5e6;color:#7a4100}
+.pl-alert-info{background:var(--pl-info);color:var(--pl-ink)}
+.pl-alert-warning{background:var(--pl-warn);color:var(--pl-warn-ink)}
 .pl-alert-error{background:var(--pl-error-wash);color:var(--pl-error-ink)}
 .pl-gray{margin-left:8px;font-size:15px;font-weight:400;color:var(--pl-ink-3)}
 .pl-md-heading{font:650 28px/1.25 var(--pl-display);letter-spacing:-.02em;color:var(--pl-ink)}
@@ -144,10 +170,10 @@ body.pl-drawer-open{overflow:hidden}
 .pl-help{position:relative;display:inline-grid;place-items:center;width:18px;height:18px;margin-left:auto;color:var(--pl-ink-3);cursor:help}
 .pl-help svg{width:18px;height:18px}
 .pl-help::after{content:attr(data-tip);position:absolute;right:-6px;bottom:calc(100% + 8px);z-index:20;width:max-content;max-width:280px;
- padding:8px 10px;border-radius:8px;background:var(--pl-ink);color:#fff;font:400 13px/1.4 var(--pl-font);text-align:left;
+ padding:8px 10px;border-radius:8px;background:var(--pl-ink);color:var(--pl-on-ink);font:400 13px/1.4 var(--pl-font);text-align:left;
  white-space:normal;opacity:0;visibility:hidden;transition:opacity .12s var(--pl-ease);pointer-events:none}
 .pl-help:hover::after,.pl-help:focus-visible::after{opacity:1;visibility:visible}
-.pl-number,.pl-select select,.pl-date,.pl-field textarea{width:100%;border:1px solid var(--pl-hair);border-radius:12px;background:#fff;
+.pl-number,.pl-select select,.pl-date,.pl-field textarea{width:100%;border:1px solid var(--pl-hair);border-radius:12px;background:var(--pl-field);
  color:var(--pl-ink);font:400 16px/1.4 var(--pl-font)}
 .pl-number{display:flex;align-items:center;min-height:40px;overflow:hidden}
 .pl-number:focus-within,.pl-select select:focus,.pl-date:focus,.pl-field textarea:focus{border-color:var(--pl-ink-4);box-shadow:var(--pl-focus)}
@@ -160,7 +186,8 @@ body.pl-drawer-open{overflow:hidden}
 .pl-step{flex:none;width:30px;align-self:stretch;padding:0;border:0;background:transparent;color:var(--pl-ink-3);font:500 18px/1 var(--pl-font);cursor:pointer}
 .pl-step:hover{background:var(--pl-hair-soft);color:var(--pl-ink)}
 .pl-select select{min-height:40px;padding:0 36px 0 12px;-webkit-appearance:none;appearance:none;cursor:pointer;
- background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center/16px}
+ background:var(--pl-field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center/16px}
+:root[data-theme="dark"] .pl-select select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1a6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")}
 .pl-date{min-height:40px;padding:0 12px}
 .pl-field textarea{min-height:84px;padding:10px 12px;font-size:15px;resize:vertical}
 .pl-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
@@ -180,7 +207,7 @@ body.pl-drawer-open{overflow:hidden}
 .pl-segmented input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .pl-segmented span{display:block;min-height:30px;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:500;line-height:18px;
  color:var(--pl-ink);transition:background .16s var(--pl-ease),box-shadow .16s var(--pl-ease)}
-.pl-segmented input:checked+span{background:#fff;font-weight:600;box-shadow:0 3px 8px rgba(0,0,0,.12),0 3px 1px rgba(0,0,0,.04)}
+.pl-segmented input:checked+span{background:var(--pl-raised);font-weight:600;box-shadow:0 3px 8px rgba(0,0,0,.12),0 3px 1px rgba(0,0,0,.04)}
 .pl-segmented input:focus-visible+span{box-shadow:var(--pl-focus)}
 /* File upload */
 .pl-dropzone{position:relative;display:flex;align-items:center;gap:16px;padding:16px;border-radius:12px;background:var(--pl-fill)}
@@ -193,12 +220,12 @@ body.pl-drawer-open{overflow:hidden}
 .pl-stored{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
 
 /* 10 Tables */
-.pl-table-wrap{max-height:420px;overflow:auto;border:1px solid #e8e8ed;border-radius:12px;background:#fff}
+.pl-table-wrap{max-height:420px;overflow:auto;border:1px solid var(--pl-hair-soft);border-radius:12px;background:var(--pl-tile)}
 .pl-lazy .pl-table-wrap{max-height:300px}
 .pl-table{width:100%;border-collapse:separate;border-spacing:0;font-size:14px;line-height:1.4;font-variant-numeric:tabular-nums}
-.pl-table th,.pl-table td{max-width:32em;padding:8px 12px;overflow:hidden;border-bottom:1px solid #e8e8ed;text-align:left;
+.pl-table th,.pl-table td{max-width:32em;padding:8px 12px;overflow:hidden;border-bottom:1px solid var(--pl-hair-soft);text-align:left;
  text-overflow:ellipsis;white-space:nowrap}
-.pl-table thead th{position:sticky;top:0;z-index:1;background:#f5f5f7;font-weight:500;color:var(--pl-ink-3)}
+.pl-table thead th{position:sticky;top:0;z-index:1;background:var(--pl-canvas);font-weight:500;color:var(--pl-ink-3)}
 .pl-table tbody th{font-weight:400;color:var(--pl-ink-3)}
 .pl-table tbody tr:last-child>*{border-bottom:0}
 .pl-table .pl-r{text-align:right}
@@ -207,8 +234,8 @@ body.pl-drawer-open{overflow:hidden}
    has one fixed height and every column one fixed width (set by app.js). */
 .pl-vtable table{table-layout:fixed;min-width:100%}
 .pl-vtable :is(th,td){max-width:none;height:33px;padding:0 12px;line-height:32px}
-.pl-vtable tbody th,.pl-vtable thead th:first-child{position:sticky;left:0;z-index:1;background:#fff}
-.pl-vtable thead th:first-child{z-index:2;background:#f5f5f7}
+.pl-vtable tbody th,.pl-vtable thead th:first-child{position:sticky;left:0;z-index:1;background:var(--pl-tile)}
+.pl-vtable thead th:first-child{z-index:2;background:var(--pl-canvas)}
 .pl-vtable .pl-vgap{padding:0}
 .pl-vtable tr.pl-vspacer td{height:auto;padding:0;border:0;line-height:0}
 /* Report fragments with their own tables, such as the frontier summary */
@@ -248,17 +275,17 @@ body.pl-drawer-open{overflow:hidden}
 @keyframes pl-spin{to{transform:rotate(360deg)}}
 
 /* 13 Drawer */
-.pl-drawer-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(29,29,31,.28);animation:pl-fade .2s var(--pl-ease-out)}
+.pl-drawer-backdrop{position:fixed;inset:0;z-index:1000;background:var(--pl-scrim);animation:pl-fade .2s var(--pl-ease-out)}
 .pl-drawer{position:fixed;top:0;right:0;bottom:0;z-index:1001;display:flex;flex-direction:column;width:min(500px,100vw);
- border-radius:24px 0 0 24px;background:var(--pl-tile);box-shadow:0 30px 80px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.04);
+ border-radius:24px 0 0 24px;background:var(--pl-tile);box-shadow:0 30px 80px var(--pl-shadow),0 0 0 1px var(--pl-edge);
  animation:pl-slide .28s var(--pl-ease-out)}
-.pl-drawer:focus-visible{box-shadow:0 30px 80px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.04)!important}
+.pl-drawer:focus-visible{box-shadow:0 30px 80px var(--pl-shadow),0 0 0 1px var(--pl-edge)!important}
 .pl-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:24px 24px 8px}
 .pl-drawer-head h2{font:650 26px/1.2 var(--pl-display);letter-spacing:-.02em}
 .pl-drawer-body{display:flex;flex:1;flex-direction:column;gap:16px;min-height:0;padding:8px 24px 0;overflow-y:auto}
 .pl-drawer-body>.pl-sub{font-size:15px;line-height:1.4}
 .pl-drawer-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:8px;margin-top:auto;padding:12px 0 24px;
- background:linear-gradient(rgba(255,255,255,0),#fff 12px)}
+ background:linear-gradient(var(--pl-tile-clear),var(--pl-tile) 12px)}
 .pl-drawer .pl-btn-build{min-height:40px;padding:0 20px;font-size:15px}
 @keyframes pl-slide{from{transform:translateX(40px);opacity:0}}
 @keyframes pl-fade{from{opacity:0}}

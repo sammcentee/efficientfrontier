@@ -20,6 +20,7 @@ use efficient_frontier::frame::Date;
 use crate::assets;
 use crate::build::{Applied, Job};
 use crate::session::{Session, View};
+use crate::theme;
 use html::{Alert, alert, esc, icon};
 
 /// `st.set_page_config(page_title=...)`.
@@ -72,11 +73,12 @@ pub fn document(body: &str, kind: &str, charts: bool, ready: bool) -> String {
     };
     format!(
         r#"<!doctype html>
-<html lang="en">
+<html {html}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{PAGE_TITLE}</title>
+{theme}
 <link rel="icon" href="{favicon}">
 <link rel="stylesheet" href="{katex_css}">
 <link rel="stylesheet" href="{tokens}">
@@ -93,6 +95,8 @@ pub fn document(body: &str, kind: &str, charts: bool, ready: bool) -> String {
 </body>
 </html>
 "#,
+        html = theme::html_attributes(),
+        theme = theme::head_script(),
         favicon = assets::FAVICON,
         katex_css = assets::url("katex/katex.min.css"),
         tokens = assets::url("css/tokens.css"),
@@ -105,15 +109,17 @@ pub fn document(body: &str, kind: &str, charts: bool, ready: bool) -> String {
     )
 }
 
-/// The Settings button with its shortcut, in a button style such as `pl-btn-outline`.
+/// The Settings button with its shortcut, in a button style such as `pl-btn-outline`,
+/// and the theme button after it.
 pub fn settings_button(style: &str) -> String {
     format!(
-        r#"<button type="button" class="pl-btn {style}" id="edit_setup" data-open-setup>{}<span>Settings</span><kbd>S</kbd></button>"#,
-        icon::TUNE
+        r#"<button type="button" class="pl-btn {style}" id="edit_setup" data-open-setup>{}<span>Settings</span><kbd>S</kbd></button>{}"#,
+        icon::TUNE,
+        theme::toggle_button()
     )
 }
 
-/// The sticky bar: wordmark, view switch, Settings, and Export when `export` names a current result.
+/// The sticky bar: wordmark, view switch, Settings, the theme button, and Export when `export` names a current result.
 fn nav(view: View, export: Option<u64>) -> String {
     let segments: String = View::ALL
         .iter()

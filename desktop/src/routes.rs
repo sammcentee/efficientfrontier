@@ -26,6 +26,7 @@ use crate::render::{self, drawer::drawer, table::frame_json};
 use crate::session::{Session, SessionRef, View, cookie_id, lock, set_cookie};
 use crate::setup::{Draft, Setup, Upload, differs, read_draft, resolve};
 use crate::state::AppState;
+use crate::theme::{self, Theme};
 
 /// The limit per CSV file, Streamlit's default `server.maxUploadSize` of 200 MB.
 pub const UPLOAD_LIMIT: usize = 200 * 1024 * 1024;
@@ -61,6 +62,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), with_session));
     Router::new()
         .route("/assets/{*path}", get(assets::serve))
+        .route("/api/theme", post(window_theme))
         .merge(app)
         .layer(middleware::from_fn(same_site_only))
         .layer(middleware::from_fn(local_host))
@@ -175,6 +177,23 @@ async fn index(
     match blocking(move || render::page(&session, today)).await {
         Ok(html) => page(StatusCode::OK, html),
         Err(message) => failure(StatusCode::INTERNAL_SERVER_ERROR, "The page could not be shown.", &message),
+    }
+}
+
+#[derive(Deserialize)]
+struct ThemeForm {
+    theme: String,
+}
+
+/// `POST /api/theme`: the page tells the window its theme.
+///
+/// The page keeps its theme itself, so nothing changes here. The answer names
+/// the theme in a header, and the bridge gives it to the app, which styles the
+/// window to match (`main.rs`).
+async fn window_theme(Form(form): Form<ThemeForm>) -> Response {
+    match Theme::parse(&form.theme) {
+        Some(theme) => (StatusCode::NO_CONTENT, [(theme::HEADER, theme.key())]).into_response(),
+        None => (StatusCode::BAD_REQUEST, "The theme is dark or light.").into_response(),
     }
 }
 
