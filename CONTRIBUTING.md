@@ -13,7 +13,7 @@ git switch -c your-change
 cargo build
 ```
 
-The library crate `efficient_frontier` is in `src/`. The `efficient-frontier` CLI starts in `src/main.rs` and uses `src/cli.rs`. The desktop app `portfolio-lab` is a second workspace member in `desktop/`. Tauri shows its pages in a native window. The routes in `desktop/src/routes.rs` make the pages, and `desktop/src/bridge.rs` gives them the window's requests without a network port. `assets/` contains the front-end files, the exact demo prices, and the bundled Nasdaq-100 membership data. `desktop/icons/icon.svg` is the source of the app icons.
+The library crate `efficient_frontier` is in `src/`. The `efficient-frontier` CLI starts in `src/main.rs` and uses `src/cli.rs`. The desktop app `portfolio-lab` is a second workspace member in `desktop/`. Tauri shows its pages in a native window. The routes in `desktop/src/routes.rs` make the pages, and `desktop/src/bridge.rs` gives them the window's requests without a network port. `assets/` contains the front-end files, the exact demo prices, and the bundled Nasdaq-100 membership data. `assets/css/tokens.css` and `story.css` have the light palette, which exported reports share. `assets/css/app.css` adds the app's dark palette, and `desktop/src/theme.rs` describes how a page chooses its theme. `desktop/icons/icon.svg` is the source of the app icons.
 
 To start the desktop app from source:
 

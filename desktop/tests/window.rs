@@ -114,6 +114,7 @@ fn the_window_builds_studies_and_saves_files() {
 
     build(&window, "Demo", None);
     window.wait("three charts", "return document.querySelectorAll('.js-plotly-plot').length >= 3");
+    change_theme(&window);
 
     window.press(&["4"]);
     window.wait("the Data & method view", "return document.body.dataset.page === 'method'");
@@ -160,6 +161,45 @@ fn build(window: &Window, market: &str, prices: Option<&Path>) {
     );
     let errors = window.script("return [...document.querySelectorAll('.pl-alert-error')].map(e => e.textContent)");
     assert_eq!(errors, json!([]), "the {market} study shows errors");
+}
+
+/// Change the theme on the overview and back: the charts follow it, and a new page keeps it.
+///
+/// A new profile has no stored theme, so the page is dark. On Linux the test uses the
+/// app's own profile, which can hold a choice. The test then starts from that choice
+/// and leaves it as it was.
+fn change_theme(window: &Window) {
+    let theme = || window.script("return document.documentElement.dataset.theme");
+    let stored = window.script("return localStorage.getItem('pl-theme')");
+    let first = theme();
+    if stored.is_null() {
+        assert_eq!(first, json!("dark"), "a new profile starts with the dark theme");
+    }
+    let other = if first == json!("dark") { json!("light") } else { json!("dark") };
+    let chart_text = "return document.getElementById('pl-chart-replay').layout.font.color";
+    let colors = |theme: &Value| if theme == &json!("dark") { json!("#a1a1a6") } else { json!("#6e6e73") };
+    assert_eq!(window.script(chart_text), colors(&first), "the charts have the colors of the {first} theme");
+
+    window.script("document.querySelector('[data-theme-toggle]').click()");
+    assert_eq!(theme(), other);
+    assert_eq!(window.script("return localStorage.getItem('pl-theme')"), other, "the page stores the choice");
+    assert_eq!(window.script(chart_text), colors(&other), "the charts follow the theme");
+
+    // A new page has no marker, so the wait below cannot see the page before the reload.
+    window.script("window.plBeforeReload = true; window.location.reload()");
+    window.wait(
+        "the reloaded overview",
+        "return window.plBeforeReload === undefined && document.readyState === 'complete' && document.querySelectorAll('.js-plotly-plot').length >= 3",
+    );
+    assert_eq!(theme(), other, "a new page keeps the chosen theme");
+    assert_eq!(window.script(chart_text), colors(&other));
+
+    window.script("document.querySelector('[data-theme-toggle]').click()");
+    assert_eq!(theme(), first);
+    assert_eq!(window.script(chart_text), colors(&first));
+    if stored.is_null() {
+        window.script("localStorage.removeItem('pl-theme')");
+    }
 }
 
 /// The release build of the app.

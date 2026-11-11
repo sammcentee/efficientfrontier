@@ -10,6 +10,8 @@
 //!   because web views do not follow redirects from a custom protocol on every
 //!   platform. A script's request follows the redirect here, as `fetch` does.
 //! - It gives a file download to the app, which asks where to save the file.
+//!
+//! The bridge also gives the page's theme to the app, which styles the window to match.
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -23,6 +25,7 @@ use tokio::sync::Mutex;
 use tower::ServiceExt;
 
 use crate::session::COOKIE_NAME;
+use crate::theme::{self, Theme};
 
 /// The protocol of the window's pages.
 pub const SCHEME: &str = "app";
@@ -61,6 +64,8 @@ pub enum Forwarded {
     Page(Response<Vec<u8>>),
     /// A file to save. The web view then gets [`no_content`].
     Download(Download),
+    /// The theme of the page, for the window. The web view then gets [`no_content`].
+    Theme(Theme),
 }
 
 /// The routes, and the session cookie that a browser kept.
@@ -91,6 +96,9 @@ impl Bridge {
             *next.uri_mut() = target.parse().unwrap_or_else(|_| Uri::from_static("/"));
             prepare(&mut next);
             response = self.send(next).await;
+        }
+        if let Some(theme) = window_theme(&response) {
+            return Forwarded::Theme(theme);
         }
         match attachment_name(&response) {
             Some(name) => Forwarded::Download(Download { name, bytes: response.into_body() }),
@@ -192,11 +200,22 @@ fn attachment_name(response: &Response<Vec<u8>>) -> Option<String> {
     Some(name.trim_matches('"').to_string()).filter(|name| !name.is_empty())
 }
 
-/// A page that loads `location`. The canvas color avoids a white flash between the two pages.
+/// The theme that a route names for the window (`POST /api/theme`).
+fn window_theme(response: &Response<Vec<u8>>) -> Option<Theme> {
+    if !response.status().is_success() {
+        return None;
+    }
+    Theme::parse(response.headers().get(theme::HEADER)?.to_str().ok()?)
+}
+
+/// A page that loads `location`. The canvas color of the page's theme avoids a flash between the two pages.
 fn refresh_page(location: &str) -> Response<Vec<u8>> {
     let html = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url={}\"><title>Portfolio Lab</title><style>html{{background:#f5f5f7}}</style></head></html>",
-        escape(location)
+        "<!doctype html><html {}><head><meta charset=\"utf-8\">{}<meta http-equiv=\"refresh\" content=\"0; url={}\"><title>Portfolio Lab</title>{}</head></html>",
+        theme::html_attributes(),
+        theme::head_script(),
+        escape(location),
+        theme::canvas_style()
     );
     let mut response = Response::new(html.into_bytes());
     let headers = response.headers_mut();
@@ -307,6 +326,10 @@ mod tests {
         let html = String::from_utf8(page.body().clone()).unwrap();
         assert!(html.contains("content=\"0; url=/#pl-market\""), "{html}");
         assert!(String::from_utf8(refresh_page("/\"><x").into_body()).unwrap().contains("url=/&quot;&gt;&lt;x"));
+        assert!(html.starts_with("<!doctype html><html lang=\"en\" data-theme=\"dark\"><head>"), "{html}");
+        let script = html.find("localStorage.getItem(\"pl-theme\")").expect("the stored theme applies");
+        assert!(script < html.find("http-equiv").unwrap());
+        assert!(html.contains("html{background:#0e0e10}html[data-theme=\"light\"]{background:#f5f5f7}"), "{html}");
     }
 
     /// Routes that act as the app's: the first page sets the session cookie, a
@@ -327,12 +350,15 @@ mod tests {
                 "/export",
                 get(|| async { ([(CONTENT_DISPOSITION, "attachment; filename=\"portfolio-lab.zip\"")], "zip bytes") }),
             )
+            .route("/api/theme", post(|| async { (StatusCode::NO_CONTENT, [(theme::HEADER, "light")]) }))
+            .route("/api/refused", post(|| async { (StatusCode::FORBIDDEN, [(theme::HEADER, "light")]) }))
     }
 
     fn page(forwarded: Forwarded) -> Response<Vec<u8>> {
         match forwarded {
             Forwarded::Page(response) => response,
             Forwarded::Download(download) => panic!("a download of {}", download.name),
+            Forwarded::Theme(theme) => panic!("the {} theme", theme.key()),
         }
     }
 
@@ -378,7 +404,18 @@ mod tests {
                 assert_eq!(download.bytes, b"zip bytes");
             }
             Forwarded::Page(response) => panic!("a page with status {}", response.status()),
+            Forwarded::Theme(theme) => panic!("the {} theme", theme.key()),
         }
         assert_eq!(no_content().status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn a_named_theme_goes_to_the_window() {
+        let bridge = Bridge::new(routes());
+        let fetch = [("sec-fetch-mode", "cors")];
+        let forwarded = bridge.forward(webview_request(Method::POST, "/api/theme", &fetch, Vec::new())).await;
+        assert!(matches!(forwarded, Forwarded::Theme(Theme::Light)));
+        let refused = page(bridge.forward(webview_request(Method::POST, "/api/refused", &fetch, Vec::new())).await);
+        assert_eq!(refused.status(), StatusCode::FORBIDDEN, "a refused request names no theme");
     }
 }

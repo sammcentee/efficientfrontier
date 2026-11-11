@@ -49,6 +49,8 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 4. Inspect the latest stock holdings and their fitted frontier. Then compare in-sample and out-of-sample results, and the later replay with SPY and QQQ.
 5. Select **Export**, then choose where to save the offline report and exact input/result CSVs.
 
+The app opens in a dark theme. The sun button beside **Settings** changes to the light theme, and the app keeps your choice. Exported reports use the light theme.
+
 The app starts the volatility budget at QQQ's latest one-year annualized volatility, with its price date shown. This reference is separate from the stock fit window. Your edits take precedence. If the reference is unavailable, the app labels its 20% manual fallback.
 
 A 10% holding limit needs at least ten eligible stocks. The six-asset synthetic demo uses a 20% limit. An infeasible budget or holding limit stops the calculation.

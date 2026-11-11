@@ -22,15 +22,18 @@ mod sources;
 mod state;
 #[cfg(test)]
 mod tests;
+mod theme;
 
 use std::sync::Arc;
 
 use axum::http::Response;
 use tauri::webview::NewWindowResponse;
+use tauri::window::Color;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use crate::bridge::{Bridge, Download, Forwarded};
+use crate::theme::Theme;
 
 fn main() {
     let bridge = Arc::new(Bridge::new(routes::router(Arc::new(state::AppState::live()))));
@@ -43,6 +46,10 @@ fn main() {
                 let response = match bridge.forward(request).await {
                     Forwarded::Page(response) => response,
                     Forwarded::Download(download) => save(&app, download).await,
+                    Forwarded::Theme(theme) => {
+                        style_window(&app, theme);
+                        bridge::no_content()
+                    }
                 };
                 responder.respond(response);
             });
@@ -50,6 +57,9 @@ fn main() {
         .setup(|app| {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(bridge::start_url()))
                 .title("Portfolio Lab")
+                // The window starts as the pages do: dark, with no white flash before the first page.
+                .theme(Some(window_theme(theme::DEFAULT)))
+                .background_color(canvas(theme::DEFAULT))
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(400.0, 500.0)
                 .center()
@@ -65,6 +75,28 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("Portfolio Lab could not start");
+}
+
+/// The window theme for a page theme.
+fn window_theme(theme: Theme) -> tauri::Theme {
+    match theme {
+        Theme::Dark => tauri::Theme::Dark,
+        Theme::Light => tauri::Theme::Light,
+    }
+}
+
+/// The page background of a theme, as the window's color.
+fn canvas(theme: Theme) -> Color {
+    let (red, green, blue) = theme.canvas();
+    Color(red, green, blue, 255)
+}
+
+/// Give the window the theme of its page: the title bar, and the color behind a loading page.
+fn style_window(app: &AppHandle, theme: Theme) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_theme(Some(window_theme(theme)));
+        let _ = window.set_background_color(Some(canvas(theme)));
+    }
 }
 
 /// Open a web or mail link in the default browser instead of the app's window.
