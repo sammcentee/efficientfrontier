@@ -76,6 +76,34 @@ A window whose fit is infeasible keeps its dates and reason. The averages use on
 
 The in-sample figure differs from the fitted mean `mu @ w`, which uses fixed weights. The optimizer favors stocks with high past means, within the volatility budget and holding limit. Part of each past mean is chance, so in-sample results tend to look better than later results. Equal-weight stocks use no return estimates. Their change between the two sides is a rough market control. Their holdings differ from the stock portfolio, so the control is approximate. The app reports the stock portfolio's average margin over equal-weight stocks on each side. Short windows also give noisy annual means.
 
+## Out-of-sample alpha
+
+The Overview joins the daily returns of the five test windows, from each purchase close, and regresses the stock portfolio on each reference with ordinary least squares:
+
+```text
+r_P(t) - r_f = alpha + beta × (r_B(t) - r_f) + e(t)
+alpha_year   = p × alpha
+t            = alpha / SE(alpha)
+```
+
+`r_f` is the risk-free rate of the study divided by `p`. Each window holds the weights that its own fit chose, so no stock return in the regression was known to the fit. The default volatility budget is an exception, because QQQ's latest year ends after the walk-forward fits. The standard errors assume independent errors with constant variance and one beta for all windows, although each window holds different stocks. Treat them as approximate. If the holding limit forces equal weights, the portfolio has the same returns as equal-weight stocks, and the section gives no verdict.
+
+The verdict needs `t ≥ 2` against equal-weight stocks, because they hold the same stocks without return estimates. SPY and QQQ hold other companies, and the current stock list leaves out companies that failed. A positive alpha against SPY alone can therefore come from the stock list, not from the optimizer. A significant loss against equal-weight stocks comes first in the headline, before a win against SPY.
+
+The explanation also measures the noise in the fitted means of the latest eligible stocks. For stock `i`, with `m` returns:
+
+```text
+d_i(t)   = r_i(t) - mean over stocks of r_j(t)
+SE_i     = p × sd(d_i) / sqrt(m)
+noise    = sqrt(n / (n - 1) × mean over stocks of SE_i^2)
+spread   = sd over stocks of (p × mean(r_i))
+signal   = max(0, 1 - noise^2 / spread^2)
+```
+
+`n` is the number of stocks. The comparison with the average stock removes `1/n` of each stock's own error, and the factor `n / (n - 1)` puts it back. `signal` estimates the share of the variance of fitted means that exceeds sampling noise. It treats each mean as constant, so a mean that changed during the history also counts. It is therefore an upper limit on lasting differences. With fewer than 20 stocks, the section calls it a rough estimate.
+
+A direct check of persistence follows. In each completed window, the section ranks the window's eligible stocks by their mean return on the fit dates, and again by their mean return on the test dates after the purchase close. It reports the Spearman rank correlation of the two rankings, averaged over the windows. A value near 0 means that the ranking that the optimizer used told little about the later ranking. Each reason in the explanation uses the numbers of the study, so a different study can get a different explanation.
+
 ## App exports
 
 The ZIP contains an offline HTML report and exact CSV data. `metadata.json` records the model revision, settings, initial training dates, test dates, sources, warnings, and test reasons. Its `out_of_sample` entry records the walk-forward settings and notes, or the reason the history is too short.

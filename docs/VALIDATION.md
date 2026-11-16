@@ -1,5 +1,21 @@
 # Validation record
 
+## Method-first overview and alpha test: 16 November 2026
+
+The overview now starts with how the method chose the portfolio, with the inputs of the study. A new section tests the method out of sample. It regresses the daily walk-forward returns of the stock portfolio on equal-weight stocks, SPY, and QQQ. It then explains the verdict with numbers from the study. The latest holdings come after the tests, with an interactive ring chart. A selected slice shows the card of its company.
+
+New unit tests check the regression against `numpy.linalg.lstsq`, the noise measure against numpy, and the rank correlation against `scipy.stats.spearmanr`. A new engine test confirms that the joined walk-forward returns reproduce each window's stored annual mean within 1e-12. Desktop tests check the tile order, the five method steps, the ring data, and the alpha table.
+
+A live study on 16 November 2026 used the default S&P 500 + Nasdaq-100 universe. It had 502 stocks and 1,253 returns through 13 November 2026, with a 21.47% budget and a 10% holding limit. The section reported "Out of sample, the method shows no reliable alpha." Alpha was −2.0% a year against equal-weight stocks (t = −0.16), −0.5% against SPY (t = −0.04), and +1.4% against QQQ (t = 0.13). On their fit dates, the chosen weights beat equal-weight stocks by 42.39 percentage points a year. On the test dates, they trailed by 0.36 points.
+
+About 4% of the variance of the fitted means exceeded sampling noise. Each window ranked the stocks by their mean return on the fit dates and on the test dates. The rank correlation of the two orders averaged 0.04 over the five windows, from −0.33 to 0.16.
+
+The run used the release build on a virtual screen (Xvfb) through WebDriver. Screenshots confirmed the order of the tiles in the dark theme. A click on the largest slice moved the page to the Cardinal Health card and marked it. Nobody looked at the hover text, the light theme, or the Windows build.
+
+A separate Claude reviewer checked the change, because Codex was not available. It found no blocker and confirmed the regression, the joined returns, and the click handler. It found four major problems in the explanation, and all four are fixed.
+
+Some sentences did not depend on the data. A loss against equal-weight stocks could hide behind a win against SPY. The survivor text named current members for every kind of stock list. The noise estimate now uses the factor `n / (n - 1)`, and studies whose holding limit forces equal weights get no verdict.
+
 ## GLib iterator backport: 2 November 2026
 
 The Linux desktop dependency graph uses `glib` 0.18.5, which has RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g. The Windows target and the CLI do not include this dependency. GTK requires GLib 0.18, so the fixed upstream 0.20 release cannot replace it without a dependency migration.

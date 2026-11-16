@@ -48,6 +48,16 @@ pub fn number(value: f64) -> String {
     trim_fraction(format!("{value:.decimals$}"))
 }
 
+/// The adjective for the return interval of a study: daily, weekly, monthly, or periodic.
+pub fn period_word(periods_per_year: f64) -> &'static str {
+    match periods_per_year {
+        252.0 => "daily",
+        52.0 => "weekly",
+        12.0 => "monthly",
+        _ => "periodic",
+    }
+}
+
 /// `NumberColumn(format="percent")`: a percentage with at most two decimals.
 pub fn percent_column(value: f64) -> String {
     if !value.is_finite() {

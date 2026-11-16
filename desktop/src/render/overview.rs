@@ -1,23 +1,27 @@
-//! The overview page (`overview`, `out_of_sample_section`, `selection_period`,
-//! `selection_replay_explanation`, `budget_note`, `shared_fit_note`).
+//! The overview page: how the method chose the portfolio, whether it beat simple
+//! alternatives out of sample, and then the latest holdings (`overview`,
+//! `out_of_sample_section`, `selection_period`, `selection_replay_explanation`,
+//! `budget_note`, `shared_fit_note`).
 
 use efficient_frontier::data::stale_price_notes;
-use efficient_frontier::frame::{Cell, Date, Table};
-use efficient_frontier::out_of_sample::OutOfSampleStudy;
+use efficient_frontier::frame::{Cell, Date, Series, Table};
+use efficient_frontier::out_of_sample::{FIRST_FIT_FRACTION, OutOfSampleStudy, WINDOW_COUNT};
+use efficient_frontier::plot::Figure;
 use efficient_frontier::pyfmt::{self, Json, format_int};
-use efficient_frontier::selection::{SELECTED, SelectionStudy};
+use efficient_frontier::selection::{SELECTED, SelectionStudy, latest_eligible_symbols};
 use efficient_frontier::selection_report::{
-    OUT_OF_SAMPLE_TITLE, REPLAY_LABEL, SELECTION_METRIC_LABELS, out_of_sample_chart, out_of_sample_findings,
+    OUT_OF_SAMPLE_TITLE, REPLAY_LABEL, SELECTION_METRIC_LABELS, join, out_of_sample_chart, out_of_sample_findings,
     out_of_sample_format, out_of_sample_frame, out_of_sample_paths_frame, out_of_sample_text, percent, points,
     selection_benchmark_note, selection_chart, selection_comparison_html, selection_frontier_chart,
     selection_frontier_summary_html, selection_metrics_frame, selection_replay_dominance,
     selection_replay_findings_html, selection_replay_return_bridge, selection_replay_verdict_html,
 };
 use efficient_frontier::story::{self, Company};
+use efficient_frontier::style::{FONT, INK, INK_3};
 use indexmap::IndexMap;
 use serde_json::json;
 
-use super::format::{day, day_text, percent_column, percent_or_dash, replay_points};
+use super::format::{day, day_text, percent_column, percent_or_dash, period_word, replay_points};
 use super::holding_label;
 use super::html::{
     Alert, KEY_LEGEND, alert, alert_plain, caption, chart, esc, expander, failed, guarded, latex, md, plain,
@@ -25,9 +29,11 @@ use super::html::{
 };
 use super::method::{fit_math, replay_math};
 use super::table::{Grid, cell, default_format, same_label, table};
+use super::verdict::{Evidence, evidence, holdings_note};
 use crate::build::{Applied, displayed_weights, replay_symbols};
 use crate::guard::guard;
 use crate::session::Session;
+use crate::sources::QqqReference;
 use crate::state::round2;
 
 /// A tile: `st.container(border=True, key=...)`.
@@ -73,8 +79,118 @@ fn companies(session: &Session, applied: &Applied) -> (IndexMap<String, Company>
     (companies, problem)
 }
 
-/// "Latest fitted holdings": company cards, every weight and stale-price notes.
-fn holdings_tile(applied: &Applied, companies: &IndexMap<String, Company>) -> String {
+/// "How this portfolio was chosen": the steps of the method with the inputs of this study.
+fn method_tile(session: &Session, applied: &Applied) -> String {
+    let study = &applied.selection;
+    let settings = &study.settings;
+    let returns = applied.prices.nrows() - 1;
+    let periods = settings.f64("periods_per_year");
+    let target = settings.f64("target_volatility");
+    let universe = applied.metadata.get("universe").and_then(Json::as_str).unwrap_or("Supplied prices");
+    let period = period_word(periods);
+    let budget = match qqq_budget(session, study) {
+        Some(reference) => format!(
+            "The {} budget is QQQ's volatility over the year through {}.",
+            pyfmt::format(target, ".2%"),
+            day(reference.last_return_date)
+        ),
+        None => format!("The {} budget comes from the settings.", pyfmt::format(target, ".2%")),
+    };
+    let fits: Vec<String> = (0..WINDOW_COUNT)
+        .map(|k| {
+            let share = FIRST_FIT_FRACTION + (1.0 - FIRST_FIT_FRACTION) * k as f64 / WINDOW_COUNT as f64;
+            pyfmt::format(share, ".0%")
+        })
+        .collect();
+    let window = (1.0 - FIRST_FIT_FRACTION) / WINDOW_COUNT as f64;
+    let train = settings.f64("train_fraction");
+    let steps = [
+        format!(
+            "1. **Collect prices.** {universe}: {} stocks with {period} adjusted prices from {} to {}, \
+             {} returns or {} years. {} of them passed the screen for long runs of unchanged prices.",
+            applied.prices.ncols(),
+            day(applied.prices.index[0]),
+            day_text(settings.str("price_end")),
+            format_int(returns as i64, ","),
+            pyfmt::format(returns as f64 / periods, ".1f"),
+            latest_eligible_symbols(study).len()
+        ),
+        format!(
+            "2. **Estimate each stock's mean and risk.** The annual mean of a stock is {} times its average {period} return. \
+             The covariance matrix measures how the stocks move together. Both use past returns only, \
+             and the model treats each past mean as the expected future return.",
+            pyfmt::g(periods)
+        ),
+        format!(
+            "3. **Choose the weights.** The optimizer picks the weights with the highest fitted mean return. \
+             No stock is sold short, each stock gets at most {}, and fitted volatility stays at or below {}. {budget}",
+            pyfmt::format(settings.f64("max_weight"), ".0%"),
+            pyfmt::format(target, ".2%")
+        ),
+        format!(
+            "4. **Test the rule on later prices.** The {} walk-forward tests fit on the first {} of returns. \
+             Each then buys once and holds through the next {} of returns, which its fit did not see. \
+             A separate replay fits the first {} and holds through the final {}. Each purchase pays a {} fee.",
+            WINDOW_COUNT,
+            join(&fits),
+            pyfmt::format(window, ".0%"),
+            pyfmt::format(train, ".0%"),
+            pyfmt::format(1.0 - train, ".0%"),
+            pyfmt::format(settings.f64("cost_bps") / 10_000.0, ".2%")
+        ),
+        format!(
+            "5. **Fit again on all history.** The latest holdings near the end of this page come from one more fit \
+             on all {} returns. No later prices exist yet to test them.",
+            format_int(returns as i64, ",")
+        ),
+    ];
+    let mut html = title_html("How this portfolio was chosen", "Five steps, with the inputs of this study");
+    html.push_str(&md(&steps.join("\n")));
+    html.push_str(&fit_math(study));
+    html
+}
+
+/// Distinct slice colors that read on the light and the dark tile.
+const SLICE_COLORS: [&str; 12] = [
+    "#0071e3", "#34c759", "#ff9f0a", "#af52de", "#ff375f", "#5ac8fa", "#ffcc00", "#30b0c7", "#a2845e", "#5856d6",
+    "#64d2ff", "#ff6482",
+];
+
+/// A ring of the latest holdings. Hover shows the company; a click shows its card.
+fn holdings_chart(weights: &Series, companies: &IndexMap<String, Company>) -> Figure {
+    let mut labels: Vec<String> = weights.labels.clone();
+    let mut values: Vec<f64> = weights.values.clone();
+    let mut names: Vec<String> =
+        labels.iter().map(|symbol| companies.get(symbol).map_or(symbol.clone(), |c| c.name.clone())).collect();
+    let mut colors: Vec<&str> = (0..labels.len()).map(|i| SLICE_COLORS[i % SLICE_COLORS.len()]).collect();
+    let rest = 1.0 - values.iter().sum::<f64>();
+    if rest > 1e-4 {
+        labels.push("Other".into());
+        values.push(rest);
+        names.push("Negligible allocations".into());
+        colors.push("#c7c7cc");
+    }
+    let mut figure = Figure::with_trace(json!({
+        "type": "pie", "labels": labels, "values": values, "customdata": names,
+        "hole": 0.56, "sort": false, "direction": "clockwise", "rotation": 0,
+        "textinfo": "label", "textposition": "inside", "insidetextorientation": "horizontal",
+        "marker": {"colors": colors, "line": {"color": "#ffffff", "width": 2}},
+        "hovertemplate": "<b>%{customdata}</b><br>%{label} · %{value:.2%}<extra></extra>",
+    }));
+    figure.update_layout(json!({
+        "height": 340, "showlegend": false, "margin": {"l": 8, "r": 8, "t": 8, "b": 8},
+        "paper_bgcolor": "rgba(0,0,0,0)", "font": {"family": FONT, "size": 12, "color": INK_3},
+        "uniformtext": {"minsize": 11, "mode": "hide"},
+        "hoverlabel": {"bgcolor": INK, "bordercolor": INK, "align": "left",
+                       "font": {"family": FONT, "size": 13, "color": "#ffffff"}},
+        "annotations": [{"text": format!("{} stocks", weights.labels.len()), "showarrow": false,
+                         "font": {"family": FONT, "size": 15, "color": INK}}],
+    }));
+    figure
+}
+
+/// "Latest fitted holdings": the ring, company cards, every weight and stale-price notes.
+fn holdings_tile(applied: &Applied, companies: &IndexMap<String, Company>, note: &str) -> String {
     let study = &applied.selection;
     let prices = &applied.prices;
     let source = applied.metadata.get("source").and_then(Json::as_str).unwrap_or("");
@@ -86,12 +202,15 @@ fn holdings_tile(applied: &Applied, companies: &IndexMap<String, Company>) -> St
             "Demo · synthetic prices. These are not market results. The six-asset demo uses a 20% holding limit by default.",
         ));
     }
+    html.push_str(note);
     html.push_str(&caption(
         "These weights use all supplied prices, including the replay dates. \
          They form the selected point on the frontier below. \
          The historical replay used a separate initial allocation.",
     ));
     let displayed = displayed_weights(study);
+    html.push_str(&guarded(|| chart(&holdings_chart(&displayed, companies), "pl-chart-holdings")));
+    html.push_str(&caption("Point to a slice to see the company and its weight. Select a slice to show its card."));
     html.push_str(&guarded(|| story::holdings_cards_html(&displayed, companies)));
     if applied.profiles.values().any(|profile| !profile.source_url.is_empty()) {
         html.push_str(&caption(
@@ -119,7 +238,7 @@ fn frontier_tile(applied: &Applied) -> String {
     let settings = &study.settings;
     let mut html = md(&format!(
         "**Full-history fit · {} to {}.** The selected point represents the holdings above. \
-         This fit includes the replay dates; the replay below uses a separate initial allocation.",
+         This fit includes the replay dates; the replay above uses a separate initial allocation.",
         day_text(settings.str("initial_training_start")),
         day_text(settings.str("price_end"))
     ));
@@ -141,13 +260,17 @@ fn window_dates(windows: &Table, column: &str) -> Vec<Date> {
     windows.column(column).iter().filter_map(Cell::as_date).collect()
 }
 
+/// The QQQ reference, when the volatility budget is its rounded volatility.
+fn qqq_budget<'a>(session: &'a Session, study: &SelectionStudy) -> Option<&'a QqqReference> {
+    let reference = session.qqq_reference.as_ref()?;
+    let target = study.settings.f64("target_volatility");
+    ((target - round2(reference.volatility * 100.0) / 100.0).abs() < 1e-12).then_some(reference)
+}
+
 /// `budget_note`: say when the volatility budget is the QQQ default, whose year
 /// ends after walk-forward fits.
 pub fn budget_note(session: &Session, study: &SelectionStudy, windows: &Table) -> String {
-    let Some(reference) = &session.qqq_reference else { return String::new() };
-    if (study.settings.f64("target_volatility") - round2(reference.volatility * 100.0) / 100.0).abs() >= 1e-12 {
-        return String::new();
-    }
+    let Some(reference) = qqq_budget(session, study) else { return String::new() };
     let end = reference.last_return_date;
     let fit_ends = window_dates(windows, "fit_end");
     let (Some(first), Some(last)) = (fit_ends.iter().min(), fit_ends.iter().max()) else { return String::new() };
@@ -550,15 +673,20 @@ fn replay_holdings(applied: &Applied, companies: &IndexMap<String, Company>) -> 
     table(&shown, Some(&["Symbol"]), &holding_label, &format).html()
 }
 
-/// `overview()`: holdings, frontier, walk-forward tests, replay and its explanation.
+/// `overview()`: the method, its out-of-sample verdict, the walk-forward tests and
+/// replay, then the latest holdings and frontier.
 pub fn overview(session: &Session, applied: &Applied) -> String {
     let study = &applied.selection;
     let metadata = &applied.metadata;
     let (companies, problem) = companies(session, applied);
     let benchmark_note = guard(|| selection_benchmark_note(study));
-    let mut html = tile("tile_holdings", &(problem + &holdings_tile(applied, &companies)));
-    html.push_str(&tile("tile_fitted_frontier", &frontier_tile(applied)));
+    let mut html = tile("tile_method", &(problem + &guarded(|| method_tile(session, applied))));
     html.push_str(r#"<div id="pl-market"></div>"#);
+    let Evidence { html: verdict_html, verdict } = match guard(|| evidence(session, applied)) {
+        Ok(evidence) => evidence,
+        Err(message) => Evidence { html: failed(&message), verdict: None },
+    };
+    html.push_str(&tile("tile_verdict", &verdict_html));
     html.push_str(&tile("tile_out_of_sample", &out_of_sample_section(session, applied)));
     let note = match &benchmark_note {
         Ok(note) => note.as_str(),
@@ -573,8 +701,9 @@ pub fn overview(session: &Session, applied: &Applied) -> String {
     let drivers = guarded(|| story::result_drivers_html(&study.test, &study.selected))
         + &expander("Replay holdings and contributions", &guarded(|| replay_holdings(applied, &companies)));
     html.push_str(&tile("tile_replay_drivers", &drivers));
-    let fit_replay =
-        guarded(|| selection_comparison_html(study, &applied.prices)) + &fit_math(study) + &replay_math(study);
+    html.push_str(&tile("tile_holdings", &holdings_tile(applied, &companies, &holdings_note(verdict))));
+    html.push_str(&tile("tile_fitted_frontier", &frontier_tile(applied)));
+    let fit_replay = guarded(|| selection_comparison_html(study, &applied.prices)) + &replay_math(study);
     html.push_str(&tile("tile_fit_replay", &fit_replay));
     if let Some(first) = study.warnings.first() {
         html.push_str(&alert_plain(Alert::Warning, first));

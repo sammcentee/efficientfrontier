@@ -35,6 +35,9 @@ pub struct OutOfSampleStudy {
     pub weights: Table,
     /// The eligibility decisions of each feasible fit, with a `window` column.
     pub eligibility: Table,
+    /// The out-of-sample returns of each path from its purchase close, joined in
+    /// window order. One column per path, in engine path order.
+    pub held_returns: Frame,
     pub notes: Vec<String>,
     pub settings: Dict,
 }
@@ -105,6 +108,9 @@ pub fn run_out_of_sample(
     let mut weight_rows: Vec<(usize, Vec<f64>)> = Vec::new();
     let mut eligibility: Vec<Table> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
+    let mut test_dates = Vec::new();
+    let mut test_rows: Vec<Vec<f64>> = Vec::new();
+    let mut test_columns: Vec<String> = Vec::new();
     for (position, (split, end)) in window_bounds(prices.nrows() - 1, windows, first_fit)?.into_iter().enumerate() {
         let number = position + 1;
         let fit_prices = prices.rows(0, split + 1);
@@ -142,6 +148,10 @@ pub fn run_out_of_sample(
                 metric_values.push(values);
             }
         }
+        let held = paths[1].1.equity.rows(1, paths[1].1.equity.nrows()).pct_change();
+        test_columns.clone_from(&held.columns);
+        test_dates.extend_from_slice(&held.index);
+        test_rows.extend((0..held.nrows()).map(|i| held.row(i)));
     }
     let window_table = Table::new(Some("window"), window_rows.iter().map(|row| Cell::Int(row.0 as i64)).collect())
         .with("fit_start", vec![Cell::Date(dates[1]); window_rows.len()])
@@ -189,6 +199,7 @@ pub fn run_out_of_sample(
         metrics,
         weights,
         eligibility,
+        held_returns: Frame::from_rows(test_dates, test_columns, &test_rows),
         notes: unique_notes,
         settings: study_settings,
     })

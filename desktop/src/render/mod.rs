@@ -13,6 +13,7 @@ pub mod landing;
 pub mod method;
 pub mod overview;
 pub mod table;
+pub mod verdict;
 pub mod widgets;
 
 use efficient_frontier::frame::Date;

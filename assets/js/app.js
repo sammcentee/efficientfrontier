@@ -48,8 +48,22 @@
     if (!window.Plotly) return;
     for (const source of document.querySelectorAll("script[data-chart]")) {
       const { data, layout, config } = figure(source);
-      Plotly.react(source.dataset.chart, data, layout, config);
+      Plotly.react(source.dataset.chart, data, layout, config).then(linkHoldings);
     }
+  }
+
+  /** A slice of the holdings ring shows the card of its company. */
+  function linkHoldings(chart) {
+    if (chart.id !== "pl-chart-holdings" || chart.dataset.linked) return;
+    chart.dataset.linked = "1";
+    chart.on("plotly_click", (event) => {
+      const symbol = event.points[0]?.label;
+      const cards = [...document.querySelectorAll(".pl-holding")];
+      const card = cards.find((item) => item.querySelector(".pl-holding-symbol")?.textContent === symbol);
+      if (!card) return;
+      for (const item of cards) item.classList.toggle("pl-holding-target", item === card);
+      card.scrollIntoView({ behavior: reduceMotion ? "instant" : "smooth", block: "center" });
+    });
   }
 
   /** The theme button names the theme that it changes to. */
