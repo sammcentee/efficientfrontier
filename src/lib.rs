@@ -4,6 +4,7 @@
 //! and report generation. Two programs use it: `efficient-frontier` (the CLI)
 //! and `portfolio-lab` (the local web app).
 
+pub mod alpha;
 pub mod backtest;
 pub mod backtest_report;
 pub mod benchmark_report;

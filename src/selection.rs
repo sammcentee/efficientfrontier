@@ -647,21 +647,26 @@ pub struct SelectionFrontier {
 /// Return the latest fitted frontier, its stock weights, and same-date references.
 ///
 /// All rows use annual arithmetic means. The main model uses sample covariance.
+/// The stocks that passed the eligibility screen of the latest fit.
+pub fn latest_eligible_symbols(study: &SelectionStudy) -> Vec<String> {
+    let latest_date = study.settings.str("latest_as_of");
+    let fit_dates = study.eligibility.column("fit_date");
+    let symbols = study.eligibility.column("symbol");
+    let eligible = study.eligibility.column("eligible");
+    (0..study.eligibility.nrows())
+        .filter(|i| fit_dates[*i].as_str() == Some(latest_date) && eligible[*i].as_bool() == Some(true))
+        .map(|i| symbols[i].py_str())
+        .collect()
+}
+
 /// Explicit research shrinkage changes stock model risk, not ETF sample risk.
 /// This describes the fit period, not the returns of the later historical test.
 pub fn selection_frontier(study: &SelectionStudy, prices: &Frame, frontier_points: usize) -> Result<SelectionFrontier> {
     validate_price_frame(prices)?;
-    let latest_date = study.settings.str("latest_as_of");
-    if iso(*prices.index.last().unwrap()) != latest_date {
+    if iso(*prices.index.last().unwrap()) != study.settings.str("latest_as_of") {
         return Err(value_error!("Frontier prices must end on the saved latest fit date."));
     }
-    let fit_dates = study.eligibility.column("fit_date");
-    let symbols = study.eligibility.column("symbol");
-    let eligible = study.eligibility.column("eligible");
-    let labels: Vec<String> = (0..study.eligibility.nrows())
-        .filter(|i| fit_dates[*i].as_str() == Some(latest_date) && eligible[*i].as_bool() == Some(true))
-        .map(|i| symbols[i].py_str())
-        .collect();
+    let labels = latest_eligible_symbols(study);
     let returns = prices
         .select(&labels)
         .ok_or_else(|| value_error!("Frontier prices must contain every eligible stock."))?

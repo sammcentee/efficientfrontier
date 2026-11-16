@@ -609,7 +609,8 @@ pub fn out_of_sample_findings(result: &OutOfSampleStudy) -> Option<OutOfSampleFi
     })
 }
 
-fn join(parts: &[String]) -> String {
+/// `a and b`, or `a, b, and c`.
+pub fn join(parts: &[String]) -> String {
     match parts.len() {
         0..=2 => parts.join(" and "),
         n => format!("{}, and {}", parts[..n - 1].join(", "), parts[n - 1]),

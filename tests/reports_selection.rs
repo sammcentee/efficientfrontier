@@ -761,6 +761,64 @@ fn fail_window(result: &mut OutOfSampleStudy, number: i64, reason: &str) {
 }
 
 #[test]
+fn walk_forward_returns_reproduce_each_window_mean_and_feed_the_alpha() {
+    let (prices, benchmarks) = walk_market();
+    let study = walk_study(&prices, &benchmarks);
+    let result = run_default_out_of_sample(&study, &prices).unwrap();
+    let returns = &result.held_returns;
+    assert_eq!(returns.columns, [SELECTED, BASELINE, SPY, QQQ]);
+    let lengths: Vec<usize> =
+        result.windows.column("test_returns").iter().map(|cell| cell.as_int().unwrap() as usize - 1).collect();
+    assert_eq!(returns.nrows(), lengths.iter().sum::<usize>());
+    assert_eq!(returns.index.last(), prices.index.last());
+    // Each window's first held return follows its purchase close, so the cash interval is left out.
+    let mut first = 0;
+    for (row, length) in lengths.iter().enumerate() {
+        let test_start = result.windows.column("test_start")[row].as_date().unwrap();
+        let purchase = prices.index.iter().position(|date| *date == test_start).unwrap();
+        assert_eq!(returns.index[first], prices.index[purchase + 1]);
+        first += length;
+    }
+    let periods = study.settings.f64("periods_per_year");
+    let mut start = 0;
+    for (window, length) in (1..).zip(&lengths) {
+        for (j, strategy) in returns.columns.iter().enumerate() {
+            let slice = &returns.col(j)[start..start + length];
+            let mean = periods * slice.iter().sum::<f64>() / *length as f64;
+            let stored = result.value(window, "out_of_sample", strategy, "annual_mean");
+            assert!((mean - stored).abs() < 1e-12, "window {window} {strategy}: {mean} != {stored}");
+        }
+        start += length;
+    }
+    let alphas = efficient_frontier::alpha::out_of_sample_alpha(&result);
+    let names: Vec<&str> = alphas.iter().map(|alpha| alpha.reference.as_str()).collect();
+    assert_eq!(names, [BASELINE, SPY, QQQ]);
+    let portfolio = returns.column(SELECTED).unwrap();
+    let direct = efficient_frontier::alpha::alpha(
+        SPY,
+        &portfolio,
+        &returns.column(SPY).unwrap(),
+        study.settings.f64("risk_free_rate"),
+        periods,
+    );
+    assert_eq!(alphas[1], direct.unwrap());
+    assert_eq!(alphas[1].observations, returns.nrows());
+    // Window 1 ranks its eligible stocks on returns 1..s and again on s + 2..e.
+    let persistence = efficient_frontier::alpha::rank_persistence(&prices, &result);
+    assert_eq!(persistence.len(), 5);
+    let stock_returns = prices.pct_change();
+    let split = result.windows.column("fit_returns")[0].as_int().unwrap() as usize;
+    let end = split + result.windows.column("test_returns")[0].as_int().unwrap() as usize;
+    let mean = |j: usize, start: usize, stop: usize| {
+        stock_returns.col(j)[start..stop].iter().sum::<f64>() / (stop - start) as f64
+    };
+    let fitted: Vec<f64> = (0..stock_returns.ncols()).map(|j| mean(j, 0, split)).collect();
+    let later: Vec<f64> = (0..stock_returns.ncols()).map(|j| mean(j, split + 1, end)).collect();
+    let direct = efficient_frontier::alpha::rank_correlation(&fitted, &later).unwrap();
+    assert!((persistence[0] - direct).abs() < 1e-12, "{} != {direct}", persistence[0]);
+}
+
+#[test]
 fn comparison_frame_and_findings_use_completed_windows() {
     let (prices, benchmarks) = walk_market();
     let study = walk_study(&prices, &benchmarks);
