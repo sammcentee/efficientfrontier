@@ -46,7 +46,7 @@ See the [user guide](docs/USER_GUIDE.md#setup-and-troubleshooting) for setup err
 1. Read the model equations on the **Efficient Frontier Analysis for US Equities** opening page. Open **Settings** to choose stocks and history, or select the **Demo** stock source.
 2. Set **Annual volatility budget** and **Holding limit** in the two number fields. The holding limit defaults to 10%.
 3. Select **Build portfolio**.
-4. Inspect the latest stock holdings and their fitted frontier. Then compare in-sample and out-of-sample results, and the later replay with SPY and QQQ.
+4. Read how the method chose the portfolio and whether it beat simple alternatives on later prices. Then inspect the latest stock holdings and their fitted frontier.
 5. Select **Export**, then choose where to save the offline report and exact input/result CSVs.
 
 The app opens in a dark theme. The sun button beside **Settings** changes to the light theme, and the app keeps your choice. Exported reports use the light theme.
@@ -74,7 +74,11 @@ The first test interval stays in cash at zero interest. All replay paths then bu
 
 ## Read the results
 
-Overview starts with the latest stock holdings, followed by their fitted frontier, then an in-sample and out-of-sample comparison. Company cards show names, weights, and a short business description from current Yahoo Finance profiles when available. CSV and demo studies stay offline. Five walk-forward tests fit the model on earlier stock prices only, then hold that allocation through a later window that the fit did not see. Each window shows the same allocation on its own fit dates (in sample) and on the later dates (out of sample). The growth chart, replay metrics, and exact return reconciliation follow. Open **Settings** from the results navigation, or **Data & method** for coverage and trades.
+Overview first explains how the method chose the portfolio, with the inputs of the study. Then it tests the method on later prices. A regression of the walk-forward returns measures alpha against equal-weight stocks, SPY, and QQQ. The page then explains the result with numbers from the study: the noise in past mean returns, the fall of the fitted edge, market exposure, and the size of alpha that the test can detect.
+
+Five walk-forward tests fit the model on earlier stock prices only, then hold that allocation through a later window that the fit did not see. Each window shows the same allocation on its own fit dates (in sample) and on the later dates (out of sample). The growth chart and replay metrics follow.
+
+The latest stock holdings come after the tests, as a ring chart and company cards, then their fitted frontier and the exact return reconciliation. Company cards show names, weights, and a short business description from current Yahoo Finance profiles when available. CSV and demo studies stay offline. Open **Settings** from the results navigation, or **Data & method** for coverage and trades.
 
 **The latest fit includes the replay dates. The replay did not use the latest holdings.** The fit chooses one allocation using all supplied history. The replay buys one allocation from the initial training sample, then holds it through the later prices without rebalancing. The two panels use different dates, weights, and fee treatment.
 
@@ -87,6 +91,7 @@ Overview starts with the latest stock holdings, followed by their fitted frontie
 | Out of sample | Buy-and-hold result of an allocation on later dates that its fit did not use, measured from the purchase close |
 | Historical replay | Net performance of the initial allocation, bought once and held through later prices |
 | Latest holdings | A new fit using all supplied history; these weights did not produce the earlier test |
+| Alpha | Annual return that a reference does not explain, from a regression of daily walk-forward returns. A t-statistic of about 2 or more is the usual sign that it is not chance |
 
 Equal-weight stocks, SPY, and QQQ also buy once and hold. The equal-weight reference starts with equal weights but lets them drift. Within the replay, all comparisons use the same dates and fee rate, but their risks can differ. A benchmark with higher mean return and lower volatility beat the stock rule in that replay, even if the latest fitted portfolio sits above it on the fitted frontier chart.
 

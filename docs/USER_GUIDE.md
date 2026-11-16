@@ -60,7 +60,21 @@ The model maximizes historical arithmetic mean return within the volatility budg
 
 ## Latest fit and historical replay
 
-Overview starts with the latest fitted holdings, then their mean–variance frontier, then an in-sample and out-of-sample comparison. Each holding shows its company name, weight, ticker, and a short business description when available. These descriptions come from current Yahoo Finance profiles; they are not historical records. CSV and demo studies stay offline and clearly label missing or simulated company information. The full weights remain available below the cards.
+Overview starts with how the method chose the portfolio: five steps with the inputs of the study, then the fit equations. The next section asks whether the method beat simple alternatives, and the walk-forward tests and the replay follow. The latest fitted holdings come after the tests, as a ring chart and company cards, then their mean–variance frontier. Point to a slice of the ring to see the company and its weight. Select a slice to show its card.
+
+Each holding shows its company name, weight, ticker, and a short business description when available. These descriptions come from current Yahoo Finance profiles; they are not historical records. CSV and demo studies stay offline and clearly label missing or simulated company information. The full weights remain available below the cards.
+
+The alpha section regresses the daily returns of the stock portfolio in the walk-forward test windows on those of each reference: equal-weight stocks, SPY, and QQQ. The intercept is the alpha. A t-statistic of about 2 or more is the usual sign that an alpha is not chance. The verdict uses equal-weight stocks, because they hold the same stocks without return estimates.
+
+When the method shows no reliable alpha, the section explains why with these numbers from the study:
+
+- The share of the spread in past mean returns that chance explains.
+- The rank correlation between the fit and the test dates: did past winners stay ahead?
+- The fall of the fitted edge over equal-weight stocks, from the fit dates to the test dates.
+- The market exposure of the portfolio.
+- The smallest alpha that the test can detect.
+
+When the method shows a positive alpha, the section gives the limits of that evidence. [Out-of-sample alpha](BACKTESTING.md#out-of-sample-alpha) gives the equations.
 
 The comparison uses five walk-forward tests. The first fit uses the first 50% of returns. The remaining returns form five consecutive test windows of nearly equal length. Each window fits the model on all earlier stock prices only. It buys once at the next close and holds through that window, with no later trades. The in-sample result buys the same allocation and holds it over its own fit dates. Both sides use the same holding rule. Both are measured from the purchase close, so the one cash interval and the entry fee do not weigh more on the short test window.
 

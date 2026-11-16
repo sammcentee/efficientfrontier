@@ -819,16 +819,23 @@ async fn overview_orders_its_tiles_and_keeps_details_closed() {
     let mut app = demo_app().await;
     let page = app.page().await;
     assert!(page.contains(r#"data-page="overview""#));
-    let positions: Vec<usize> =
-        ["tile_holdings", "tile_fitted_frontier", "pl-market", "tile_out_of_sample", "tile_final_test"]
-            .iter()
-            .map(|id| page.find(&format!(r#"id="{id}""#)).unwrap())
-            .collect();
+    let positions: Vec<usize> = [
+        "tile_method",
+        "pl-market",
+        "tile_verdict",
+        "tile_out_of_sample",
+        "tile_final_test",
+        "tile_holdings",
+        "tile_fitted_frontier",
+    ]
+    .iter()
+    .map(|id| page.find(&format!(r#"id="{id}""#)).unwrap())
+    .collect();
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
     assert!(!page.contains("<details open") && !page.contains(r#"<details class="pl-expander" open"#));
     assert!(page.contains("These weights use all supplied prices"));
     assert!(page.contains("They form the selected point on the frontier below"));
-    assert!(page.contains("the replay below uses a separate initial allocation"));
+    assert!(page.contains("the replay above uses a separate initial allocation"));
     let nav = element(&page, "localnav");
     assert!(nav.contains(">Overview</button>") && nav.contains(">Data &amp; method</button>"));
     let id = app.applied().id;
@@ -842,15 +849,138 @@ async fn overview_orders_its_tiles_and_keeps_details_closed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn overview_explains_the_method_with_the_study_inputs_before_the_holdings() {
+    let mut app = demo_app().await;
+    let page = app.page().await;
+    let applied = app.applied();
+    let method = element(&page, "tile_method");
+    let steps = [
+        "Collect prices.",
+        "Estimate each stock",
+        "Choose the weights.",
+        "Test the rule on later prices.",
+        "Fit again on all history.",
+    ];
+    let positions: Vec<usize> =
+        steps.iter().map(|step| method.find(step).unwrap_or_else(|| panic!("{step}"))).collect();
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    let returns = applied.prices.nrows() - 1;
+    assert!(method.contains(&format!("Demo: {} stocks", applied.prices.ncols())));
+    assert!(method.contains(&format!("{returns} returns")));
+    assert!(method.contains("each stock gets at most 20%") && method.contains("at or below 20.00%"));
+    assert!(method.contains("fit on the first 50%, 60%, 70%, 80%, and 90% of returns"));
+    assert!(method.contains("replay fits the first 70% and holds through the final 30%"));
+    assert!(method.contains("pays a 0.10% fee"), "{method}");
+    // The fake QQQ reference is 20%, so the demo's 20% budget is the QQQ default.
+    assert!(method.contains("The 20.00% budget is QQQ&#x27;s volatility over the year through 16 Oct 2026."));
+    assert!(method.contains(r#"id="math_fit""#), "the fit equations explain steps 2 and 3");
+    assert_eq!(page.matches(r#"id="math_fit""#).count(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn demo_verdict_explains_its_own_numbers() {
+    let mut app = demo_app().await;
+    let page = app.page().await;
+    let applied = app.applied();
+    let result = applied.out_of_sample.as_ref().unwrap();
+    let alphas = efficient_frontier::alpha::out_of_sample_alpha(result);
+    // The demo has no SPY or QQQ prices, so equal-weight stocks are the only reference.
+    assert_eq!(alphas.len(), 1);
+    assert!(alphas[0].t_statistic().abs() < 2.0, "the demo data give no significant alpha");
+    let findings = efficient_frontier::selection_report::out_of_sample_findings(result).unwrap();
+    let verdict = element(&page, "tile_verdict");
+    assert!(verdict.contains("Out of sample, the method shows no reliable alpha."));
+    assert!(verdict.contains("Why the test finds no reliable alpha"));
+    if findings.margin_out_of_sample >= findings.margin_in_sample {
+        assert!(verdict.contains("The margin did not fall.") && !verdict.contains("error maximization"));
+    } else {
+        assert!(verdict.contains("error maximization"));
+    }
+    let noise = efficient_frontier::alpha::mean_noise(&applied.prices, 252.0).unwrap();
+    assert!(verdict.contains(&format!("With only {} stocks, this share is a rough estimate.", noise.stocks)));
+    assert!(!verdict.contains("survivors"), "synthetic prices have no survivors");
+    assert!(!verdict.contains("Alpha vs SPY") && !verdict.contains("beta to SPY"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn equal_weights_forced_by_the_holding_limit_give_no_verdict() {
+    let prices = efficient_frontier::data::demo_prices();
+    let five = prices.select(&prices.columns[..5]).unwrap();
+    let mut app = TestApp::new(Fake::default());
+    app.page().await;
+    app.build(&[("market", "Upload CSV"), ("cap", "20")], &[("prices_upload", "portfolio.csv", csv(&five))]).await;
+    let page = app.page().await;
+    let verdict = element(&page, "tile_verdict");
+    assert!(verdict.contains("The holding limit forces equal weights"), "{verdict}");
+    assert!(!verdict.contains("pl-oos-title") && !verdict.contains("Conclusion"));
+    assert!(verdict.contains(r#"id="alpha_table""#));
+    let holdings = element(&page, "tile_holdings");
+    assert!(!holdings.contains("found no reliable alpha") && !holdings.contains("positive alpha estimate"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn latest_holdings_show_an_interactive_ring_of_the_displayed_weights() {
+    let mut app = demo_app().await;
+    let page = app.page().await;
+    let holdings = element(&page, "tile_holdings");
+    let source =
+        holdings.split(r#"data-chart="pl-chart-holdings">"#).nth(1).unwrap().split("</script>").next().unwrap();
+    let figure: serde_json::Value = serde_json::from_str(source).unwrap();
+    let trace = &figure["data"][0];
+    assert_eq!(trace["type"], "pie");
+    let displayed = crate::build::displayed_weights(&app.applied().selection);
+    let labels: Vec<&str> = trace["labels"].as_array().unwrap().iter().map(|label| label.as_str().unwrap()).collect();
+    assert_eq!(labels[..displayed.labels.len()], displayed.labels.iter().map(String::as_str).collect::<Vec<_>>()[..]);
+    let total: f64 = trace["values"].as_array().unwrap().iter().map(|value| value.as_f64().unwrap()).sum();
+    assert!((total - 1.0).abs() < 1e-9, "{total}");
+    assert!(trace["customdata"][0].as_str().unwrap().starts_with("Simulated "));
+    assert!(trace["hovertemplate"].as_str().unwrap().contains("%{customdata}"));
+    assert!(holdings.find("pl-chart-holdings").unwrap() < holdings.find("pl-holdings-grid").unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn verdict_measures_alpha_against_each_reference_and_explains_the_result() {
+    let mut app = TestApp::new(Fake::universe());
+    app.page().await;
+    app.build_landing("20", "10").await;
+    let page = app.page().await;
+    let applied = app.applied();
+    let alphas = efficient_frontier::alpha::out_of_sample_alpha(applied.out_of_sample.as_ref().unwrap());
+    let names: Vec<&str> = alphas.iter().map(|alpha| alpha.reference.as_str()).collect();
+    assert_eq!(names, ["Equal-weight stocks", "S&P 500 (SPY)", "Nasdaq-100 (QQQ)"]);
+    let verdict = element(&page, "tile_verdict");
+    let table = element(verdict, "alpha_table");
+    for alpha in &alphas {
+        let annual = efficient_frontier::pyfmt::format(alpha.annual, "+.1%").replace('-', "−");
+        let row = table.split(&format!(">{}<", alpha.reference.replace('&', "&amp;"))).nth(1).unwrap();
+        assert!(row.split("</tr>").next().unwrap().contains(&annual), "{} {annual}", alpha.reference);
+    }
+    let holdings = element(&page, "tile_holdings");
+    if alphas[0].t_statistic() >= 2.0 {
+        assert!(verdict.contains("Why this is still weak evidence"));
+        assert!(holdings.contains("found a positive alpha estimate"));
+    } else {
+        assert!(verdict.contains("Why the test finds no reliable alpha"));
+        assert!(verdict.contains("The stock list favors survivors."));
+        assert!(holdings.contains("found no reliable alpha"));
+    }
+    let observations = efficient_frontier::pyfmt::format_int(alphas[0].observations as i64, ",");
+    assert!(verdict.contains(&format!("The regression joins the {observations} daily returns")));
+    assert!(verdict.contains("rank correlation across stocks"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn overview_shows_one_test_and_separate_latest_weights() {
     let mut app = demo_app().await;
     let page = app.page().await;
     let order = [
-        "Latest fitted holdings",
-        "Latest fitted frontier",
+        "How this portfolio was chosen",
+        "Does the method beat simple alternatives?",
         "In sample versus out of sample",
         "Historical replay · buy and hold",
         "What drove the result?",
+        "Latest fitted holdings",
+        "Latest fitted frontier",
         "Fit and replay use different holdings",
     ];
     let positions: Vec<usize> = order.iter().map(|text| page.find(text).unwrap_or_else(|| panic!("{text}"))).collect();
@@ -859,7 +989,7 @@ async fn overview_shows_one_test_and_separate_latest_weights() {
     assert!(page.contains("The latest fit includes the replay dates"));
     assert!(!page.contains("First historical fit"));
     assert!(page.contains("Historical volatility") && page.contains("ordinary sample covariance"));
-    assert_eq!(page.matches(r#"class="plotly-graph-div""#).count(), 3);
+    assert_eq!(page.matches(r#"class="plotly-graph-div""#).count(), 4);
     assert!(!page.to_lowercase().contains("validation") && !page.to_lowercase().contains("blend"));
     let expander = page.split("All weights, including negligible allocations").nth(1).unwrap();
     assert!(!expander.split("</details>").next().unwrap().contains("pl-holdings-grid"));
@@ -2104,7 +2234,7 @@ async fn every_page_starts_dark_and_offers_the_other_theme() {
     let position = |id: &str| nav.find(&format!(r#"id="{id}""#)).unwrap_or_else(|| panic!("no {id} in the nav bar"));
     assert!(position("edit_setup") < position("theme_toggle") && position("theme_toggle") < position("export"));
     // The page script draws the charts in the colors of the theme.
-    assert_eq!(overview.matches(r#"<script type="application/json" data-chart="pl-chart-"#).count(), 3);
+    assert_eq!(overview.matches(r#"<script type="application/json" data-chart="pl-chart-"#).count(), 4);
     assert!(!overview.contains("Plotly.newPlot"));
 
     app.build(&[("cap", "5")], &[]).await;
